@@ -15,8 +15,8 @@ Press Home for media mode:
 - **Files**: PDFs, documents, text, pictures, video and music
 - **Camera**: the cameras on your other Pis, or any camera link: switch between them with L and R,
   steer an OBSBOT, take pictures, and have your bot say what it sees
-- **Bot**: talks through Ollama on another computer, like PiE-ink's, sees through your camera and takes
-  pictures, out loud if you give it a voice
+- **Bot**: talks through Ollama on another computer, sees through your camera and takes pictures,
+  out loud if you give it a voice
 - **System** and **Settings**: WiFi, background, colours, location, video size, sound, controller
 
 ![Media mode](docs/screens.png)
@@ -31,19 +31,15 @@ The GPi Case's own buttons, or any USB or Bluetooth game controller (Xbox, PlayS
 
 ## The web page
 
-Open `http://<your Pi's name>.local:5432` on your phone or computer. Anyone on your WiFi
+Open `http://<your Pi's ip>:5432` on your phone or computer. Anyone on your WiFi
 can open it, so if you share your WiFi, set a password in `webui.txt` (see Settings below).
 
 **Screen** shows what's on the Pi's screen in media mode, has a remote, and puts cartoons,
 films, news, sports, radio, a camera or any app on it. You can also talk to your bot there.
 
-![Screen](docs/webui.png)
-
 **Files** takes files or whole folders dropped on it. Music, videos, pictures and documents
 each go to their own folder, and settings files like `radio.txt` go to Settings. Each file can
 be shown on the Pi's screen, downloaded or deleted.
-
-![Files](docs/files.png)
 
 ## Install
 
@@ -68,12 +64,9 @@ later, run `git pull` and `sudo bash setup.sh` again. Your settings stay as they
 
 Add a camera on the Camera tab or the web page by typing its address. It can be:
 
-- a Pi running [PiE-ink](https://github.com/frogCaller/piE-ink)
-- a Pi with a USB camera and nothing else: run `sudo bash setup.sh --camera` on it. If the
-  camera turns (an OBSBOT, a PTZ webcam), the d-pad steers it. Following you needs PiE-ink.
-- any MJPEG or JPEG camera link, such as an ESP32-CAM's
-
-Pis running PiE-ink or the camera server show up by themselves under On your network.
+- a Pi with a USB camera: run `sudo bash setup.sh --camera` on it.
+  
+Pis running the camera server show up by themselves under On your network.
 
 ## Bot
 
@@ -106,11 +99,6 @@ All optional, in the `static` folder. Git leaves them out, so they stay off GitH
 | `webui.txt` | `password =` if you want the web page to ask for one, `hosts =` other names you open it by |
 
 Plex signs in with a code at plex.tv/link.
-
-## Smoother video
-
-If a video stutters, convert it on your computer first:
-`bash convert_videos.sh /path/to/videos`, then drop the `gpi` folder's files on the web page.
 
 ## License
 
