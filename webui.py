@@ -1,0 +1,629 @@
+#!/usr/bin/env python3
+"""
+webui.py - the Pi's screen and files, from any browser on your WiFi.
+
+Screen: what's on the Pi's screen right now, a remote for it, and cartoons, films, news, sports,
+radio and the apps to put on it (through gpi_keys.py, which listens on this Pi only).
+
+Files: drag files or whole folders onto the page and they land in ~/Music, ~/Videos, ~/Pictures
+or ~/Documents (picked by file type), ready for media mode, and media mode's settings files
+(radio.txt, bot.txt...) in the static folder. The page also lists what's there, shows it on the
+screen, and downloads or deletes it.
+
+setup.sh installs it as the gpi-webui service, running as your user. Then open
+    http://<your Pi's name>.local:5432
+
+The page is templates/index.html, and its typeface is in static/fonts: the only part of the static
+folder handed out as it is. Your settings files go in the static folder of the gpi-media folder
+(setup.sh tells the service where that is; run by hand, it's the one next to this script).
+
+Optional, static/webui.txt:
+    password = something       the page asks for it before showing anything
+    hosts = tv.example.lan     other names you open the page by (its .local name and its
+                               address always work; other names are turned away, so a web
+                               site can't reach the page by pointing a name of its own at it)
+"""
+import hashlib
+import hmac
+import http.client
+import ipaddress
+import json
+import logging
+import os
+import re
+import shutil
+import socket
+import threading
+import time
+import urllib.parse
+import uuid
+
+from flask import Flask, Response, abort, jsonify, request, send_file
+
+PORT = 5432
+HERE = os.path.dirname(os.path.abspath(__file__))
+HOME = os.path.expanduser("~")
+TOLD = os.environ.get("GPI_MEDIA_STATIC", "").strip()        # where setup.sh says the static folder is
+STATIC = os.path.abspath(TOLD or os.path.join(HERE, "static"))
+KNOWS = bool(TOLD) or os.path.isfile(os.path.join(HERE, "setup.sh"))   # told, or run from the folder
+PAGE = os.path.join(HERE, "templates", "index.html")
+FONTS_DIR = os.path.join(HERE, "static", "fonts")
+STATE_FILE = "/var/lib/gpi-keys/state.json"     # the handheld's settings (its accent colour)
+SPARE = 64 << 20                                # room left on the card after an upload
+CHUNK = 1 << 20
+
+FOLDERS = {"music": "Music", "videos": "Videos", "pictures": "Pictures", "documents": "Documents",
+           "home": "", "settings": None}             # (settings: the static folder)
+LABELS = {"music": "Music", "videos": "Videos", "pictures": "Pictures", "documents": "Documents",
+          "home": "Home", "settings": "Settings"}
+KINDS = {   # what goes where when the page picks for you
+    "music": [".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".aac", ".wav", ".wma"],
+    "videos": [".mp4", ".mkv", ".avi", ".mov", ".webm", ".m4v", ".mpg", ".mpeg"],
+    "pictures": [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tif", ".tiff"],
+    "documents": [".pdf", ".epub", ".txt", ".md", ".docx", ".doc", ".odt", ".rtf", ".xlsx", ".xls",
+                  ".ods", ".csv", ".pptx", ".ppt", ".odp"],
+}
+SETTINGS_FILES = ["radio.txt", "streams.txt", "streams.m3u", "crypto.txt", "camera.txt", "bot.txt",
+                  "homeassistant.txt", "plex.txt"]     # media mode's settings: these go in static/
+PRIVATE = {"webui.txt", "homeassistant.txt", "plex.txt"}    # a password and tokens: never shown
+INLINE = set(KINDS["music"] + KINDS["videos"] + KINDS["pictures"] + [".pdf", ".txt", ".md"])
+ACCENTS = {"Blue": "#60aae4", "Teal": "#40c4b4", "Green": "#6ec878", "Purple": "#a082e6",
+           "Pink": "#e878aa", "Red": "#ec6464", "Gold": "#e6be50", "White": "#e4e8ee"}
+BAD_CHARS = re.compile(r"[\x00-\x1f\x7f/\\]")
+CONTROL = ("127.0.0.1", 5480)                   # gpi_keys.py's media mode, on this Pi only
+CONTROL_KEY = "/run/gpi-keys/control-key"       # ...and the key it asks for (made at its start)
+PI_GET = {"state", "screen", "catalog", "channels", "radio", "icon", "cameras", "camframe", "friend", "friendpic"}
+PI_POST = {"press", "open", "play", "show", "player", "learn", "mode", "reset_pads", "camera", "friend"}
+PI_ARGS = ("what", "genre", "q", "name", "size", "addr", "id")
+THUMBS = os.path.join(HOME, ".cache", "gpi-media", "thumbs")   # small copies of your pictures
+
+app = Flask(__name__, static_folder=None)     # static/ holds your settings: only its fonts go out
+
+
+# ---- settings and paths --------------------------------------------------------
+class Unreadable(Exception):
+    """webui.txt is there but can't be read, or the static folder is missing: the page won't open
+    without its password."""
+
+
+def settings():
+    """static/webui.txt, read on every request so a change needs no restart (one still in your
+    home folder, where it used to go, counts until setup.sh moves it). Unreadable when it can't
+    tell whether there's a password."""
+    if not KNOWS or not os.path.isdir(STATIC):
+        raise Unreadable("Run sudo bash setup.sh again from the gpi-media folder: the page can't "
+                         "find its static folder")
+    cfg = {}
+    for path in (os.path.join(STATIC, "webui.txt"), os.path.join(HOME, "webui.txt")):
+        if path != os.path.join(STATIC, "webui.txt") and not os.path.isfile(path):
+            continue                                   # (only ever a file of yours, there)
+        try:
+            with open(path, errors="replace") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        cfg[k.strip().lower()] = v.strip()
+            return cfg
+        except FileNotFoundError:
+            continue
+        except OSError:
+            raise Unreadable(f"The page can't read {path}")
+    return cfg
+
+
+PRIVATE_NAME = re.compile(r"[#.~]*(" + "|".join(map(re.escape, sorted(PRIVATE))) + ")")
+PASSWORD_NAME = re.compile(r"[#.~]*webui\.txt")
+
+
+def private(name):
+    """A password or a token, or a copy of one an editor left (webui.txt.save, homeassistant.txt~,
+    #plex.txt#), but not complex.txt."""
+    return bool(PRIVATE_NAME.match((name or "").lower()))
+
+
+def accent():
+    try:
+        with open(STATE_FILE) as f:
+            name = (json.load(f).get("settings") or {}).get("accent")
+    except (OSError, ValueError):
+        name = None
+    return ACCENTS.get(name, ACCENTS["Blue"])
+
+
+def clean_name(name):
+    """A file or folder name that's safe to write: no slashes, control characters or leading dots."""
+    name = BAD_CHARS.sub("", name or "").strip().lstrip(".").strip()
+    while len(name.encode()) > 240:                     # keep the extension when shortening
+        stem, ext = os.path.splitext(name)
+        name = (stem[:-1] + ext) if stem else name[:-1]
+    return name
+
+
+def clean_parts(path):
+    parts = []
+    for p in (path or "").replace("\\", "/").split("/"):
+        p = clean_name(p)
+        if p and p not in (".", ".."):
+            parts.append(p)
+    return parts
+
+
+def root_of(key):
+    if key not in FOLDERS:
+        abort(404)
+    if key == "settings":
+        return os.path.realpath(STATIC)                # (setup.sh makes it; the page never does)
+    root = os.path.join(HOME, FOLDERS[key]) if FOLDERS[key] else HOME
+    try:
+        os.makedirs(root, exist_ok=True)
+    except OSError:
+        pass
+    return os.path.realpath(root)
+
+
+def inside(root, path):
+    return path == root or path.startswith(root + os.sep)
+
+
+def in_gpi_media(path):
+    """True inside the gpi-media folder (the static folder's), unless that's your home folder
+    itself: the page leaves it as it is. setup.sh runs from there, and settings go in through
+    Settings."""
+    folder = os.path.realpath(os.path.dirname(STATIC))
+    return folder != os.path.realpath(HOME) and inside(folder, os.path.realpath(path))
+
+
+def holds_gpi_media(path):
+    """True for a folder with the gpi-media folder in it, somewhere: it can't be deleted."""
+    return inside(os.path.realpath(path), os.path.realpath(STATIC))
+
+
+def shown_path(key):
+    """A folder as the page shows it: ~/Music, ~/gpi-media/static..."""
+    if key != "settings":
+        return "~/" + FOLDERS[key] if FOLDERS[key] else "~"
+    real, home = os.path.realpath(STATIC), os.path.realpath(HOME)
+    return "~/" + os.path.relpath(real, home) if inside(home, real) and real != home else real
+
+
+def locate(key, rel, must_exist=True):
+    """(folder's root, full path, path parts) for a path inside one of the folders, never outside."""
+    root = root_of(key)
+    parts = clean_parts(rel)
+    if key == "settings" and parts and (len(parts) != 1 or parts[0].lower() not in SETTINGS_FILES):
+        abort(404)                                     # Settings: the settings files, nothing else
+    full = os.path.realpath(os.path.join(root, *parts)) if parts else root
+    if not inside(root, full):
+        abort(403)
+    if must_exist and not os.path.exists(full):
+        abort(404)
+    return root, full, parts
+
+
+def protected():
+    """The folders themselves can't be deleted from the page."""
+    return {os.path.realpath(os.path.join(HOME, sub)) for sub in FOLDERS.values() if sub is not None} \
+        | {os.path.realpath(STATIC)}
+
+
+def free_name(path):
+    """song.mp3 -> song (2).mp3 when the first is taken."""
+    stem, ext = os.path.splitext(path)
+    n = 2
+    while os.path.lexists(f"{stem} ({n}){ext}"):
+        n += 1
+    return f"{stem} ({n}){ext}"
+
+
+def natural(text):
+    return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", text)]
+
+
+def count_files(root, limit=100000):
+    n = 0
+    for _, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        n += sum(1 for f in files if not f.startswith("."))
+        if n >= limit:
+            break
+    return n
+
+
+# ---- who may ask --------------------------------------------------------------------
+def host_ok():
+    """The page answers to this Pi's name (name.local...), an address, or a name in webui.txt."""
+    try:
+        host = (urllib.parse.urlsplit("//" + (request.host or "")).hostname or "").lower()
+    except ValueError:
+        return False
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        pass
+    name = socket.gethostname().lower()
+    names = {"localhost", name} | {f"{name}.{d}" for d in ("local", "lan", "home", "home.arpa", "localdomain")}
+    names |= {h.lower() for h in re.split(r"[,\s]+", settings().get("hosts", "")) if h}
+    return host in names
+
+
+PAGE_ONLY = {"state", "catalog", "channels", "radio", "cameras", "friend"}   # (pictures load without it)
+
+
+@app.before_request
+def check_password():
+    try:
+        settings()
+    except Unreadable as ex:                           # no telling whether there's a password
+        return Response(str(ex), 503)
+    if not host_ok():
+        return Response("Open this page by the Pi's name or address", 403)
+    # Another website open in the same browser can't make this page do things: browsers say
+    # where a request came from, and the page's own requests carry a header no site can add
+    # without asking first.
+    if request.path != "/" and request.headers.get("Sec-Fetch-Site") == "cross-site":
+        return Response("Not from another site", 403)
+    if (request.method in ("GET", "HEAD") and request.path.startswith("/api/pi/")
+            and request.path[8:] in PAGE_ONLY and request.headers.get("X-Gpi-Page") != "1"):
+        return Response("Only the page asks for that", 403)
+    pw = settings().get("password")
+    if not pw:
+        return None
+    auth = request.authorization
+    if auth and auth.password is not None and hmac.compare_digest(auth.password.encode(), pw.encode()):
+        return None
+    return Response("Password needed", 401, {"WWW-Authenticate": 'Basic realm="gpi-media"'})
+
+
+@app.after_request
+def no_sniff(resp):
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    return resp
+
+
+# ---- the page ----------------------------------------------------------------------
+@app.get("/")
+def index():
+    resp = send_file(PAGE)
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
+FONTS = {"next-latin.woff2", "next-latin-ext.woff2"}
+
+
+@app.get("/static/fonts/<name>")
+def font(name):
+    """The page's typeface (Atkinson Hyperlegible, OFL), kept for a year: the only thing handed
+    out from a static folder."""
+    if name not in FONTS:
+        abort(404)
+    resp = send_file(os.path.join(FONTS_DIR, name), mimetype="font/woff2", conditional=True)
+    resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return resp
+
+
+@app.get("/api/info")
+def info():
+    du = shutil.disk_usage(HOME)
+    folders = []
+    for key in FOLDERS:
+        root = root_of(key)
+        folders.append({"key": key, "label": LABELS[key], "path": shown_path(key),
+                        "files": None if key in ("home", "settings") else count_files(root)})
+    return jsonify(name=socket.gethostname(), accent=accent(), folders=folders, kinds=KINDS,
+                   settingsFiles=SETTINGS_FILES, disk={"free": du.free, "total": du.total, "spare": SPARE})
+
+
+@app.get("/api/list")
+def list_folder():
+    key = request.args.get("folder", "music")
+    root, full, parts = locate(key, request.args.get("path", ""))
+    if not os.path.isdir(full):
+        abort(404)
+    keep = protected()
+    entries = []
+    with os.scandir(full) as it:
+        for e in it:
+            if e.name.startswith(".") or private(e.name):
+                continue
+            if key == "settings" and e.name.lower() not in SETTINGS_FILES:
+                continue
+            try:
+                is_dir = e.is_dir()
+                st = e.stat()
+            except OSError:
+                continue
+            entry = {"name": e.name, "dir": is_dir, "size": 0 if is_dir else st.st_size,
+                     "mtime": int(st.st_mtime)}
+            if is_dir:
+                try:
+                    with os.scandir(e.path) as sub:
+                        entry["items"] = sum(1 for x in sub if not x.name.startswith("."))
+                except OSError:
+                    entry["items"] = 0
+                # folders in your home folder (your projects) and the media folders stay put
+                entry["locked"] = key == "home" or os.path.realpath(e.path) in keep
+            elif key != "settings" and in_gpi_media(e.path):
+                entry["locked"] = True                   # the gpi-media folder stays as it is
+            entries.append(entry)
+    entries.sort(key=lambda x: (not x["dir"], natural(x["name"])))
+    return jsonify(folder=key, path="/".join(parts), entries=entries)
+
+
+@app.get("/api/recent")
+def recent():
+    """Your newest pictures, in folders too: for sending one to the bot."""
+    root = root_of("pictures")
+    try:
+        n = max(1, min(int(request.args.get("n") or 40), 200))
+    except ValueError:
+        n = 40
+    found = []
+    for folder, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        for name in files:
+            if name.startswith(".") or private(name) or os.path.splitext(name)[1].lower() not in KINDS["pictures"]:
+                continue
+            full = os.path.join(folder, name)
+            try:
+                st = os.stat(full)
+            except OSError:
+                continue
+            found.append((st.st_mtime, os.path.relpath(full, root), st.st_size))
+        if len(found) > 50000:
+            break
+    found.sort(reverse=True)
+    return jsonify(folder="pictures", pictures=[{"path": p, "name": os.path.basename(p), "mtime": int(t), "size": z}
+                                                 for t, p, z in found[:n]])
+
+
+@app.get("/api/exists")
+def exists():
+    key = request.args.get("folder", "")
+    root, full, parts = locate(key, request.args.get("path", ""), must_exist=False)
+    return jsonify(exists=bool(parts) and os.path.lexists(full))
+
+
+@app.put("/api/upload")
+def upload():
+    """The file is the request body, written straight to the card (no copy in /tmp)."""
+    key = request.args.get("folder", "")
+    root = root_of(key)
+    parts = clean_parts(request.args.get("path", ""))
+    if not parts:
+        return jsonify(error="No file name"), 400
+    if any(PASSWORD_NAME.match(x.lower()) for x in parts):
+        return jsonify(error="Change webui.txt on the Pi itself"), 403
+    if key == "settings":
+        if len(parts) != 1 or parts[0].lower() not in SETTINGS_FILES:
+            return jsonify(error="Only media mode's settings files go in Settings, like radio.txt"), 403
+        parts = [parts[0].lower()]                   # the name media mode looks for
+    folder = os.path.realpath(os.path.join(root, *parts[:-1])) if len(parts) > 1 else root
+    if not inside(root, folder):
+        return jsonify(error="Not allowed there"), 403
+    if key != "settings" and in_gpi_media(os.path.join(folder, parts[-1])):
+        return jsonify(error="The gpi-media folder stays as it is. Settings files go in Settings."), 403
+    size = request.content_length
+    if size is not None and size > shutil.disk_usage(root).free - SPARE:
+        return jsonify(error="Not enough space on the Pi"), 507
+    try:
+        os.makedirs(folder, exist_ok=True)
+    except OSError:
+        return jsonify(error="Couldn't make that folder"), 500
+    target = os.path.join(folder, parts[-1])
+    mode = request.args.get("exists", "rename")
+    if key == "settings" and mode == "rename":
+        mode = "replace"                            # a second radio.txt would never be read
+    if os.path.lexists(target):
+        if os.path.isdir(target):
+            return jsonify(error="There's a folder with that name"), 409
+        if mode == "skip":
+            return jsonify(ok=True, skipped=True, name=parts[-1])
+        if mode != "replace":
+            target = free_name(target)
+    tmp = os.path.join(folder, f".{os.path.basename(target)}.{uuid.uuid4().hex[:8]}.part")
+    got = 0
+    try:
+        with open(tmp, "wb") as f:
+            while True:
+                chunk = request.stream.read(CHUNK)
+                if not chunk:
+                    break
+                f.write(chunk)
+                got += len(chunk)
+        if size is not None and got != size:
+            raise OSError("cut short")
+        if private(os.path.basename(target)):
+            os.chmod(tmp, 0o600)                    # a key or a token: only you can read it
+        os.replace(tmp, target)
+    except Exception:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        return jsonify(error="The upload didn't finish"), 400
+    try:                                            # keep the file's own date (photos sort by it)
+        mtime = int(request.args.get("mtime", "")) / 1000
+        if 0 < mtime < time.time() + 86400:
+            os.utime(target, (time.time(), mtime))
+    except (ValueError, OSError):
+        pass
+    return jsonify(ok=True, name=os.path.basename(target), path=os.path.relpath(target, root), size=got)
+
+
+@app.post("/api/delete")
+def delete():
+    if not request.is_json:                         # JSON only: another site's form can't post here
+        abort(415)
+    data = request.get_json(silent=True) or {}
+    key = data.get("folder", "")
+    root, full, parts = locate(key, data.get("path", ""))
+    if not parts or full == root or full in protected() or holds_gpi_media(full) \
+            or (key != "settings" and in_gpi_media(full)):
+        return jsonify(error="That one stays"), 403
+    if PASSWORD_NAME.match(os.path.basename(full).lower()):
+        return jsonify(error="Change webui.txt on the Pi itself"), 403
+    try:
+        if os.path.isdir(full):
+            if key == "home":
+                return jsonify(error="Folders in your home folder stay"), 403
+            if key == "settings":
+                return jsonify(error="That one stays"), 403
+            shutil.rmtree(full)
+        else:
+            os.remove(full)
+    except OSError as ex:
+        return jsonify(error=ex.strerror or "Couldn't delete it"), 500
+    return jsonify(ok=True)
+
+
+@app.get("/api/file")
+def get_file():
+    key = request.args.get("folder", "")
+    root, full, parts = locate(key, request.args.get("path", ""))
+    if not parts or os.path.isdir(full):
+        abort(404)
+    if private(os.path.basename(full)):
+        abort(403)
+    ext = os.path.splitext(full)[1].lower()
+    download = request.args.get("download") == "1" or ext not in INLINE
+    resp = send_file(full, as_attachment=download, download_name=os.path.basename(full),
+                     conditional=True)
+    if ext in (".txt", ".md"):
+        resp.headers["Content-Type"] = "text/plain; charset=utf-8"
+    return resp
+
+
+# ---- the screen: passed on to media mode ---------------------------------------------
+def control_key():
+    try:
+        with open(CONTROL_KEY) as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+def ask_pi(method, path, body=None, timeout=10):
+    """(status, bytes, content type) from media mode, or None when it isn't answering."""
+    conn = http.client.HTTPConnection(*CONTROL, timeout=timeout)
+    try:
+        data = None if body is None else json.dumps(body).encode()
+        headers = {"X-Gpi-Key": control_key()}
+        if data:
+            headers["Content-Type"] = "application/json"
+        conn.request(method, path, body=data, headers=headers)
+        r = conn.getresponse()
+        return r.status, r.read(), r.getheader("Content-Type") or "application/json"
+    except (OSError, http.client.HTTPException):
+        return None
+    finally:
+        conn.close()
+
+
+def pi_reply(got, cache="no-store"):
+    if got is None or got[0] == 401:
+        return jsonify(error="The Pi's screen isn't answering. Is gpi-keys running?"), 503
+    status, data, ctype = got
+    resp = Response(data, status, content_type=ctype)
+    resp.headers["Cache-Control"] = cache if status == 200 else "no-store"
+    return resp
+
+
+@app.get("/api/pi/<what>")
+def pi_get(what):
+    if what not in PI_GET:
+        abort(404)
+    args = {k: request.args[k][:200] for k in PI_ARGS if k in request.args}
+    path = "/" + what + ("?" + urllib.parse.urlencode(args) if args else "")
+    slow = what in ("channels", "radio", "camframe")    # these ask the internet, or a camera
+    cache = "private, max-age=86400" if what in ("icon", "friendpic") else "no-store"   # (these never change)
+    return pi_reply(ask_pi("GET", path, timeout=40 if slow else 10), cache=cache)
+
+
+@app.post("/api/pi/<what>")
+def pi_post(what):
+    if what not in PI_POST:
+        abort(404)
+    if not request.is_json:                         # JSON only: another site's form can't post here
+        abort(415)
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(error="Bad request"), 400
+    if what == "show":                              # a file from the Files list: where it really is
+        root, full, parts = locate(data.get("folder", ""), data.get("path", ""))
+        if private(os.path.basename(full)):
+            abort(403)
+        data = {"path": full}
+    if what == "friend" and "picture" in data:      # a picture of yours for the bot: where it really is
+        pic = data.get("picture")
+        if not isinstance(pic, dict):
+            return jsonify(error="Bad request"), 400
+        root, full, parts = locate(pic.get("folder", ""), pic.get("path", ""))
+        if (not parts or not os.path.isfile(full) or private(os.path.basename(full))
+                or os.path.splitext(full)[1].lower() not in KINDS["pictures"]):
+            return jsonify(error="That isn't a picture"), 400
+        data = dict(data, picture=full)
+    return pi_reply(ask_pi("POST", "/" + what, data, timeout=60))
+
+
+# ---- small pictures for the list ------------------------------------------------------
+def prune_thumbs(keep=3000):
+    """The cache keeps the newest few thousand."""
+    try:
+        with os.scandir(THUMBS) as it:
+            found = [(e.stat().st_mtime, e.path) for e in it if e.name.endswith(".jpg")]
+    except OSError:
+        return
+    for _, path in sorted(found)[:max(0, len(found) - keep)]:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+THUMB_ONE = threading.Lock()
+THUMB_PIXELS = 30_000_000       # bigger pictures (besides JPEGs, which shrink as they load) keep their icon
+WEBP_PIXELS = 4_000_000         # WebP decodes with a lot more memory
+
+
+def make_thumb(full, out):
+    try:
+        from PIL import Image, ImageOps
+        with Image.open(full) as im:
+            im.draft("RGB", (480, 480))                 # JPEGs decode at a fraction of the size
+            if im.width * im.height > (WEBP_PIXELS if im.format == "WEBP" else THUMB_PIXELS):
+                return False
+            im.thumbnail((240, 240))
+            small = ImageOps.exif_transpose(im).convert("RGB")
+        os.makedirs(THUMBS, exist_ok=True)
+        tmp = out + f".{uuid.uuid4().hex[:6]}.part"
+        small.save(tmp, "JPEG", quality=82)
+        os.replace(tmp, out)
+        return True
+    except Exception:
+        return False
+
+
+@app.get("/api/thumb")
+def thumb():
+    root, full, parts = locate(request.args.get("folder", ""), request.args.get("path", ""))
+    if (not parts or os.path.isdir(full) or private(os.path.basename(full))
+            or os.path.splitext(full)[1].lower() not in KINDS["pictures"]):
+        abort(404)
+    st = os.stat(full)
+    out = os.path.join(THUMBS, hashlib.sha1(f"{full}:{st.st_mtime_ns}:{st.st_size}".encode()).hexdigest() + ".jpg")
+    if not os.path.exists(out):
+        with THUMB_ONE:                                 # one at a time: a Pi Zero has 512 MB
+            if not os.path.exists(out) and not make_thumb(full, out):
+                abort(404)
+        prune_thumbs()
+    resp = send_file(out, mimetype="image/jpeg", conditional=True)
+    resp.headers["Cache-Control"] = "private, max-age=86400"
+    return resp
+
+
+if __name__ == "__main__":
+    logging.getLogger("werkzeug").setLevel(logging.WARNING)    # keep the journal quiet
+    app.run(host="0.0.0.0", port=PORT, threaded=True)
