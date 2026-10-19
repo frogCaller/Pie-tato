@@ -16,6 +16,7 @@ radio, apps and your own files on the screen. It talks to this script on 127.0.0
 While a video plays, Y turns full screen on or off (the choice is kept for the next videos);
 Settings > Video size picks Fit (all of the picture), Full screen (zoomed) or Stretch.
 
+It starts in media mode (Settings > At start-up can start it in the terminal instead).
 Home button toggles between:
   terminal mode - buttons type keys in the console (arrows, Enter, Tab...)
   media mode    - opens on a home screen of app icons (d-pad and A to open one,
@@ -49,7 +50,7 @@ Tabs (edit LIBRARY below to change them):
   Weather     - like PiE-ink's: now, the next hours, the week, and the US Weather
                 Service's own words; the place is set in Settings
   Crypto      - coin prices with charts, laid out like PiE-ink's crypto screen (the coins
-                in static/crypto.txt)
+                in static/crypto.txt); Y looks coins up on CoinGecko to add, or removes them
   Files       - browse everything; opens photos, PDFs, documents, text, video, music
   Camera      - cameras on your other Pis (PiE-ink, or this repo's camera.py: setup.sh
                 --camera) or any MJPEG/JPEG link, listed in static/camera.txt or added by typing
@@ -63,7 +64,33 @@ Tabs (edit LIBRARY below to change them):
                 says what it sees, and looks at a picture you send it from Photos (X); ask it
                 to take a picture and your camera takes one, into Photos and the conversation.
                 With a voice (Piper, on the Pi) it says its replies out loud; SELECT says the
-                last one again
+                last one again. Left and right switch it between chat and work: at work it sits
+                at a desk and acts out what your coding agent is doing: typing, reading,
+                thinking, ringing its bell when it's done, waving when it needs you. Claude Code
+                tells it through hooks that coder_hooks.py sets up on the computer it runs on;
+                anything else can POST to the web page's /coder?pose=typing, and a WAV to
+                /coder/say is said out loud. At work, A types a prompt for Claude Code (which
+                takes it through coder_hooks.py's channel), Y rings the bell, X turns its sounds
+                off, up and down set the volume, START shows how to connect an agent
+  Simulator   - little worlds to watch, each in a box beside its numbers or full screen (SELECT):
+    Rock Paper Scissors - pieces bounce around, and one hit by its counter switches sides until
+                one team is left; left and right pick a winner before the first capture
+    Game of Life - Conway's rules (or HighLife, Day & Night, Seeds), cells coloured by age
+    Orbits      - planets round a sun pull on each other, and merge when they meet
+    Forest Fire - trees grow, lightning strikes, fire spreads and the forest grows back
+    Mandelbrot Set - dives into the set to one well-known place after another, down to a tiny copy
+                of the set or as deep as the numbers go; or the d-pad explores it: A zooms in,
+                Y out, for as long as they're held
+                A pauses, X gives it a poke, Y starts it again, START has its options
+  Games       - Snake: the d-pad steers it to the apples, each one makes it longer, and it's over when
+                it runs into itself (or a wall: they can wrap round instead); A starts, pauses and plays
+                again, Y is a new game, START has its speed, board and walls, SELECT is full screen.
+                X hands it to a decision model (nimble, tev1...) on your bot's computer, through
+                Ollama 0.35 or newer: told what each move would do (deadly, trapped, risky or safe, and
+                nearer the apple or not), it picks the snake's moves, asked about where the snake will be by
+                the time it answers; the game never waits for it (Keeps up: how many of the snake's
+                moves it decided in time; for the rest it goes straight on). X again, and it's yours.
+                START picks the model
   System      - CPU temperature, WiFi, storage and more; reboot and shut down
   Settings    - WiFi (scan, connect, forget), home screen background and colours, clock,
                 location, units, video size, sound (HDMI, headphones...), controller, start-up
@@ -89,6 +116,7 @@ import http.client
 import io
 import ipaddress
 import json
+import math
 import os
 import platform
 import random
@@ -114,6 +142,7 @@ import urllib.request
 import uuid
 import wave
 import zipfile
+from collections import deque
 
 from evdev import InputDevice, UInput, ecodes as e, list_devices
 
@@ -152,6 +181,7 @@ LEARN_STEPS = [   # Settings > Controller: (button, what to press, can be skippe
 ]
 LEARN_SKIP = 8             # seconds before a button your controller may not have is skipped
 CONTROL_PORT = 5480        # the web page (webui.py) works media mode through this, on this Pi only
+WEB_PORT = 5432            # ...which is itself on this port (the Bot at work gives its address to agents)
 CONTROL_KEY = "/run/gpi-keys/control-key"   # ...with this key, readable by you and root only
 WEB_PRIVATE = {"webui.txt", "homeassistant.txt", "plex.txt"}   # a password and tokens: never shown
 FILE_KINDS = ("dir", "up", "video", "audio", "image", "doc", "text", "pdf", "other")  # files on this Pi
@@ -340,11 +370,11 @@ SETTINGS = [   # key, label, choices (None: opens a page of its own)
     ("sound", "Sound", None),
     ("pad", "Controller", None),
     ("friend", "Bot", None),
-    ("start", "At start-up", ["Terminal", "Home screen"]),
+    ("start", "At start-up", ["Home screen", "Terminal"]),
 ]
 SETTINGS_DEFAULT = {"wallpaper": "Midnight", "picture": "", "accent": "Blue", "clock": "12-hour",
-                    "widget": "Weather", "units": "°F", "start": "Terminal", "location": None,
-                    "screen": "Fit", "sound": "Auto"}
+                    "widget": "Weather", "units": "°F", "start": "Home screen", "location": None,
+                    "screen": "Fit", "sound": "Auto", "coder_sound": "On", "sim_full": "Off", "bot_mode": "chat"}
 GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
 WHERE_AM_I = [   # where your internet address says you are (the same ones PiE-ink asks)
     ("https://ipapi.co/json/", lambda d: (d.get("latitude"), d.get("longitude"), d.get("city"),
@@ -934,7 +964,9 @@ HOME_ICONS = {    # tab name -> (tile colour, a line about it)
     "Crypto": ((8, 10, 10), "Coin prices and charts"),
     "Files": ((76, 114, 154), "Everything in your home folder"),
     "Camera": ((64, 72, 86), "Your cameras: watch, steer, take pictures"),
-    "Bot": ((60, 156, 104), "A bot to talk to"),
+    "Bot": ((214, 132, 56), "Chat, or watch your coding agent work"),
+    "Simulator": ((30, 38, 46), "Rock paper scissors, fractals and more"),
+    "Games": ((58, 152, 96), "Snake: eat the apples, don't crash"),
     "System": ((88, 96, 110), "Temperature, WiFi, storage"),
     "Settings": ((112, 120, 134), "WiFi, background, sound, controllers"),
     "Weather": ((60, 150, 212), "Now, the next hours and the week"),
@@ -1034,12 +1066,44 @@ def draw_icon(name, size=84):
         for x0, y0, x1, y1 in ((52, 116, 120, 184), (88, 88, 168, 168), (136, 118, 200, 182)):
             d.ellipse(B(x0, y0, x1, y1), fill=white)
         d.rounded_rectangle(B(70, 140, 186, 184), radius=int(22 * k), fill=white)
-    elif name == "Bot":                            # a speech bubble with a smile
-        d.rounded_rectangle(B(40, 54, 212, 170), radius=int(42 * k), fill=white)
-        d.polygon(P((76, 158), (60, 210), (126, 166)), fill=white)
-        d.ellipse(B(88, 90, 110, 112), fill=colour)
-        d.ellipse(B(142, 90, 164, 112), fill=colour)
-        d.arc(B(90, 96, 162, 148), 25, 155, fill=colour, width=int(11 * k))
+    elif name == "Bot":                            # its little head, antenna and all
+        d.line(P((126, 70), (126, 48)), fill=white, width=int(9 * k))
+        d.ellipse(B(114, 30, 138, 54), fill=white)
+        d.rounded_rectangle(B(40, 70, 212, 196), radius=int(40 * k), fill=white)
+        d.rounded_rectangle(B(60, 88, 192, 178), radius=int(26 * k), fill=(30, 34, 42))
+        for x in (98, 154):
+            d.rounded_rectangle(B(x - 14, 112, x + 14, 154), radius=int(12 * k), fill=colour)
+    elif name == "Simulator":                      # a sun, an orbit and three bodies going round it
+        import math
+        tilt = math.radians(-24)
+
+        def on_orbit(t, rx=88, ry=46):
+            x, y = math.cos(t) * rx, math.sin(t) * ry
+            return (126 + x * math.cos(tilt) - y * math.sin(tilt), 126 + x * math.sin(tilt) + y * math.cos(tilt))
+        glow = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+        g = ImageDraw.Draw(glow)
+        g.line(P(*[on_orbit(t / 60 * 2 * math.pi) for t in range(61)]), fill=(255, 255, 255, 46),
+               width=int(4 * k), joint="curve")
+        for r, a in ((34, 30), (26, 60), (20, 110)):
+            g.ellipse(B(126 - r, 126 - r, 126 + r, 126 + r), fill=(255, 200, 96, a))
+        im.alpha_composite(glow)
+        d.ellipse(B(110, 110, 142, 142), fill=(255, 214, 120))
+        for t0, colour in ((0.35, (226, 123, 140)), (2.45, (127, 166, 222)), (4.4, (150, 236, 196))):
+            for j in range(10, 0, -1):                # a tail, fading behind it
+                t = t0 - j * 0.07
+                x, y = on_orbit(t)
+                r = 3 + 6 * (1 - j / 10)
+                d.ellipse(B(x - r, y - r, x + r, y + r), fill=co_mix((30, 38, 46), colour, 1 - j / 11))
+            x, y = on_orbit(t0)
+            d.ellipse(B(x - 13, y - 13, x + 13, y + 13), fill=colour)
+    elif name == "Games":                          # a game controller
+        d.rounded_rectangle(B(34, 88, 218, 162), radius=int(37 * k), fill=white)
+        for x0 in (40, 142):                         # its grips
+            d.ellipse(B(x0, 104, x0 + 70, 194), fill=white)
+        d.rounded_rectangle(B(78, 104, 96, 158), radius=int(4 * k), fill=colour)    # the d-pad
+        d.rounded_rectangle(B(60, 122, 114, 140), radius=int(4 * k), fill=colour)
+        for x, y in ((170, 112), (192, 132), (148, 132), (170, 152)):
+            d.ellipse(B(x - 10, y - 10, x + 10, y + 10), fill=colour)
     elif name == "Terminal":
         green = (96, 222, 144)
         d.line(P((68, 90), (112, 126), (68, 162)), fill=green, width=int(17 * k), joint="curve")
@@ -1640,6 +1704,9 @@ LIBRARY = [
     {"name": "Files", "type": "browser", "empty": "This folder is empty"},
     {"name": "Camera", "type": "camera", "files": [settings_glob("camera.txt")], "empty": ""},
     {"name": "Bot", "type": "friend", "files": [settings_glob("bot.txt")], "empty": ""},
+    {"name": "Simulator", "type": "group", "empty": "",
+     "children": ["Rock Paper Scissors", "Game of Life", "Orbits", "Forest Fire", "Mandelbrot Set"]},
+    {"name": "Games", "type": "sim", "sim": "snake", "title": "Snake", "empty": ""},
     {"name": "System", "type": "system", "empty": ""},
     {"name": "Settings", "type": "settings", "empty": ""},
     # inside the TV tab (no tab of their own along the top)
@@ -1659,6 +1726,17 @@ LIBRARY = [
     {"name": "TV Remote", "type": "remote", "parent": "TV", "badge": "TV",
      "about": "Your TV through Home Assistant", "files": [settings_glob("homeassistant.txt")],
      "empty": ""},
+    # inside the Simulator tab
+    {"name": "Rock Paper Scissors", "type": "sim", "sim": "rps", "parent": "Simulator", "badge": "RPS",
+     "about": "Last team standing", "empty": ""},
+    {"name": "Game of Life", "type": "sim", "sim": "life", "parent": "Simulator", "badge": "LIFE",
+     "about": "Cells live, die and are born", "empty": ""},
+    {"name": "Orbits", "type": "sim", "sim": "orbit", "parent": "Simulator", "badge": "GRAV",
+     "about": "Planets round a sun", "empty": ""},
+    {"name": "Forest Fire", "type": "sim", "sim": "fire", "parent": "Simulator", "badge": "FIRE",
+     "about": "Trees grow, fires spread", "empty": ""},
+    {"name": "Mandelbrot Set", "type": "sim", "sim": "mandel", "parent": "Simulator", "badge": "ZOOM",
+     "about": "Dives into the famous fractal", "empty": ""},
 ]
 
 MEDIA_VT = 7          # spare console the menu and player draw on
@@ -1673,6 +1751,7 @@ HOT_C = 70                                     # status bar warns above this
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 FONT_MONO = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
+FONT_MONO_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
 
 VIDEO_PLAYER = ["mplayer", "-slave", "-quiet", "-vo", "fbdev2", "-sws", "0",
                 "-framedrop", "-autosync", "30",
@@ -1732,6 +1811,11 @@ CRYPTO_COINS = [("bitcoin", "BTC", "Bitcoin"), ("ethereum", "ETH", "Ethereum"),
 CRYPTO_WINDOWS = [(1, "1D"), (7, "7D"), (30, "30D"), (365, "1Y")]
 CRYPTO_GAP = 2.5          # seconds between CoinGecko calls (its free tier is ~10 a minute)
 CRYPTO_ROTATE = 20        # seconds per card when Auto is on
+CRYPTO_MOST = 20          # coins on the tab, at most
+CRYPTO_LINE = 400         # ...and characters in crypto.txt's coins = line (what a settings line holds)
+CRYPTO_FOUND = 12         # coins a search shows, at most
+CRYPTO_HEAD = ("# Crypto: the coins on the Crypto tab, by their CoinGecko ids (as in coingecko.com/en/coins/solana).\n"
+               "# Y on the Crypto tab looks coins up and adds them, or removes them.\n")
 # PiE-ink's colour-screen palette
 PI_BG, PI_FG, PI_DIM, PI_ACCENT = (0, 0, 0), (255, 255, 255), (150, 150, 150), (98, 210, 255)
 PI_UP, PI_DOWN = (0, 255, 0), (255, 80, 80)
@@ -2135,7 +2219,7 @@ def doc_text(path):
 
 # ---- cameras: other Pis (PiE-ink, or camera.py), or any MJPEG/JPEG link ------------------------
 CAMERA_HEAD = ("# Cameras for the Camera tab, one per line:   camera = address   (a name after it if you like)\n"
-               "# A Pi running PiE-ink or gpi-media's camera server (sudo bash setup.sh --camera),\n"
+               "# A Pi running gpi-media's camera server (sudo bash setup.sh --camera),\n"
                "# or any MJPEG or JPEG camera link.\n")
 
 
@@ -3347,7 +3431,7 @@ class Camera:
 
     def toggle_follow(self):
         if not self.can_follow:
-            self.action = "Following you needs PiE-ink"
+            self.action = "This camera can't follow you"
             return
         on = not self.following
         self.info.setdefault("follow", {})["on"] = on
@@ -4371,6 +4455,41 @@ def ollama_models(server, timeout=6):
     return sorted({m.get("name", "") for m in got.get("models", []) if isinstance(m, dict) and m.get("name")})
 
 
+def ollama_deciders(server, timeout=6):
+    """The decision models on that computer: those Ollama (0.35 or newer) says can decide ("decision"
+    among what /api/show says a model can do). They're asked at /v1/systemone, not chatted with."""
+    found = []
+    for name in ollama_models(server, timeout):
+        try:
+            caps = ollama_call(server, "/api/show", {"model": name, "name": name}, timeout=timeout).get("capabilities")
+        except OllamaError:
+            continue
+        if isinstance(caps, list) and "decision" in caps:
+            found.append(name)
+    return found
+
+
+def ollama_decide(server, model, state, instructions, choices, timeout):
+    """A decision model's pick of choices ({key: what it means}), given state (text, or an object it
+    reads as JSON): (key, how sure it is, 0 to 1)."""
+    body = {"model": model, "state": state, "keep_alive": "30m",
+            "questions": {"pick": {"type": "choice", "instructions": instructions, "criteria": choices}}}
+    try:
+        got = ollama_call(server, "/v1/systemone", body, timeout)
+    except OllamaError as e:
+        if e.code == 404 and "model" not in e.detail.lower():
+            raise ValueError("That computer's Ollama is too old for decision models (0.35 or newer)")
+        if e.code == 404:
+            raise ValueError(f"That computer doesn't have {model}")
+        raise ValueError(f"{model} couldn't decide: {e.detail}")
+    answer = (got.get("answers") or {}).get("pick") or {}
+    pick = answer.get("choice")
+    if pick not in choices:
+        raise ValueError(f"{model} didn't pick one of the moves")
+    sure = answer.get("confidence")
+    return pick, float(sure) if isinstance(sure, (int, float)) and not isinstance(sure, bool) else None
+
+
 def ollama_generate(server, model, system, prompt, images=None, timeout=FRIEND_TIMEOUT):
     """One answer, the same way PiE-ink asks: no reasoning pass, kept warm for the next one."""
     body = {"model": model, "prompt": prompt, "system": system, "stream": False, "think": False,
@@ -4411,11 +4530,12 @@ def ollama_generate(server, model, system, prompt, images=None, timeout=FRIEND_T
     raise ValueError(f"{model} said nothing")
 
 
-def edit_config(name, updates, head="", was=""):
+def edit_config(name, updates, head="", was="", limit=400):
     """'key = value' lines in a settings file changed or added; the rest kept. A file that isn't
-    there yet starts from `was` (its earlier name), if that one is."""
+    there yet starts from `was` (its earlier name), if that one is. Values: a line each, `limit`
+    characters at most."""
     path = settings_file(name)
-    updates = {k: clean_name(v, 400) for k, v in updates.items()}
+    updates = {k: clean_name(v, limit) for k, v in updates.items()}
     try:
         lines = read_own_text(path).splitlines()
     except FileNotFoundError:
@@ -4692,14 +4812,14 @@ class Friend:
             text, error = None, str(ex)[:200] or "That didn't work"
             self.add("friend", error, "error")
         finally:
+            try:
+                done(text, error)                      # (said out loud before it's free again)
+            except Exception as ex:
+                print(f"after the bot looked: {ex!r}", flush=True)
             with self.lock:
                 self.busy = False
                 self.doing = ""
             self.on_change()
-        try:
-            done(text, error)
-        except Exception as ex:
-            print(f"after the bot looked: {ex!r}", flush=True)
 
     def job(self, message, topic, picture=None):
         try:
@@ -5094,9 +5214,13 @@ class Crypto:
         self.backoff_until = 0.0
         self.on_change = lambda: None
         self.lock = threading.Lock()
+        self.gecko = threading.Lock()  # (CoinGecko is asked one thing at a time, the time between kept)
         self.load_cache()
 
     # settings
+    def ids(self):
+        return [c["id"] for c in self.coins]
+
     def load(self, patterns):
         self.cfg = read_config(patterns)
         ids = [c.strip().lower() for c in re.split(r"[,\s]+", self.cfg.get("coins", "")) if c.strip()]
@@ -5141,11 +5265,16 @@ class Crypto:
 
     # fetching
     def get_json(self, url, gecko=False):
-        if gecko:
+        if not gecko:
+            return self.ask(url)
+        with self.gecko:
             wait = self.last_call + CRYPTO_GAP - time.time()
             if wait > 0:
                 time.sleep(wait)
             self.last_call = time.time()
+            return self.ask(url)
+
+    def ask(self, url):
         req = urllib.request.Request(url, headers=dict(UA, Accept="application/json"))
         try:
             with urllib.request.urlopen(req, timeout=15) as r:
@@ -5154,6 +5283,31 @@ class Crypto:
             if e.code == 429:                          # too many calls: wait a minute
                 self.backoff_until = time.time() + 60
             raise
+
+    def search(self, text):
+        """Coins whose name or symbol fits what you typed, the biggest first (CoinGecko's order):
+        [{"id", "symbol", "name", "rank"}]. ValueError: why it couldn't look."""
+        if time.time() < self.backoff_until:
+            raise ValueError("CoinGecko wants a minute's rest. Try again soon")
+        try:
+            got = self.get_json(f"{COINGECKO}/search?" + urllib.parse.urlencode({"query": text}), gecko=True)
+        except urllib.error.HTTPError as e:
+            raise ValueError("CoinGecko wants a minute's rest. Try again soon" if e.code == 429
+                             else f"CoinGecko couldn't look it up ({e.code})")
+        except (OSError, ValueError, http.client.HTTPException):
+            raise ValueError("Can't reach CoinGecko. Is the WiFi on?")
+        coins = got.get("coins") if isinstance(got, dict) else None
+        found = []
+        for c in coins if isinstance(coins, list) else []:
+            cid = c.get("id") if isinstance(c, dict) else None
+            if isinstance(cid, str) and re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,99}", cid.strip().lower()):
+                rank = c.get("market_cap_rank")
+                found.append({"id": cid.strip().lower(), "symbol": clean_name(c.get("symbol") or "", 12).upper(),
+                              "name": clean_name(c.get("name") or cid, 40),
+                              "rank": rank if isinstance(rank, int) and not isinstance(rank, bool) else None})
+            if len(found) >= CRYPTO_FOUND:
+                break
+        return found
 
     def fetch_quote(self, cid):
         q = urllib.parse.urlencode({"localization": "false", "tickers": "false",
@@ -5926,6 +6080,12 @@ class Framebuffer:
         if getattr(self, "raw", None):
             return img.tobytes("raw", self.raw)
         import numpy as np
+        if self.bpp == 16 and [tuple(f) for f in self.fields] == [(11, 5), (5, 6), (0, 5)]:
+            a = np.asarray(img)                       # the usual 16-bit screen (the GPi Case's): RGB565,
+            px = (a[..., 0] >> 3).astype("<u2") << 11  # four times quicker than below, the same bytes
+            px |= (a[..., 1] >> 2).astype("<u2") << 5
+            px |= a[..., 2] >> 3
+            return px.tobytes()
         a = np.asarray(img, dtype=np.uint32)
         px = np.zeros(a.shape[:2], dtype=np.uint32)
         for c, (off, ln) in enumerate(self.fields):
@@ -5964,6 +6124,18 @@ class Framebuffer:
             data = self.pack(img.resize((self.tw, self.th), Image.NEAREST if self.sharp else Image.BILINEAR))
         self.put(data, self.ox, self.oy, self.tw, self.th)
 
+    def show_part(self, img, box):
+        """Only box (x0, y0, x1, y1) has changed since the last picture: just that goes to the screen
+        (the Bot at work moves ten times a second on a Pi Zero). The whole picture is kept, for the
+        web page."""
+        if not self.same or self.clear_next or self.last is None:
+            return self.show(img)
+        self.last = img
+        type(self).count += 1
+        self.frames = type(self).count
+        x0, y0, x1, y1 = (int(v) for v in box)
+        self.put(self.pack(img.crop((x0, y0, x1, y1))), x0, y0, x1 - x0, y1 - y0)
+
     def invalidate(self):
         """Something else drew on the screen (a video): blacken the edges again next time."""
         self.clear_next = not self.same
@@ -5990,6 +6162,3114 @@ class Framebuffer:
 
     def close(self):
         self.f.close()
+
+
+# ---- the Bot at work: it sits at a desk and acts out your coding agent ----------------------------------
+# Your coding agent says what it's doing through the web page (webui.py passes it on): Claude Code's
+# hooks (coder_hooks.py sets them up), or POST /coder?pose=typing from anything else. A WAV sent to
+# POST /coder/say is said out loud while it moves its mouth.
+CODER_POSES = ("rest", "typing", "reading", "thinking", "talking", "done", "hello", "attention",
+               "error", "shrug", "wake", "sleep")
+CODER_BUSY = ("typing", "reading", "thinking", "talking")      # these keep going until something else comes
+CODER_ONCE = {"done": 1.6, "hello": 2.8, "shrug": 2.4, "wake": 3.0, "sleep": 2.2}   # seconds, then it rests
+CODER_WAIT = {"attention": 60, "error": 60}      # held this long, then it rests
+CODER_HOLD = 1.0           # seconds each pose shows at least (one asked for meanwhile waits: the last one)
+CODER_STUCK = 300          # busy this long without a word from the agent: it asks for you
+CODER_NAP = 600            # nothing happening this long: it nods off
+CODER_EASE = 0.3           # seconds it takes to move from one pose to the next
+CODER_SAY_AS = ("talking", "typing", "reading", "thinking", "rest")   # the poses a clip can be said in
+CODER_CLIP_MAX = 8 << 20   # bytes: a clip an agent sends to be said (a few minutes of speech)
+CODER_RATE = 22050         # its own sounds
+CODER_SOUND_AT = {"done": 0.38, "hello": 0.15, "attention": 0.2, "error": 0.1, "shrug": 0.3}   # (seconds in)
+CODER_FPS = {"typing": 8, "reading": 6, "thinking": 6, "talking": 10, "done": 10, "hello": 10,   # frames a
+             "attention": 6, "error": 6, "shrug": 8, "wake": 8, "sleep": 8, "rest": 6}  # second
+CODER_TITLES = {"typing": "Typing", "reading": "Reading", "thinking": "Thinking", "talking": "Talking",
+                "hello": "Hello", "attention": "Needs you", "error": "Something went wrong",
+                "shrug": "Oh well", "wake": "Waking up", "sleep": "Falling asleep"}
+CODER_TOKENS = ["{ }", "</>", "=>", "( )", ";", "[ ]", "fn", "if", "+=", "#", "::", "&&"]
+
+# where things are on its desk (screen pixels)
+CO_X = 320                       # the coder's middle
+CO_TOP = 374                     # the desk's top
+CO_BOX = (196, 84, 500, 382)     # where it moves: drawn twice as big and halved, for smooth edges
+CO_DIRTY = (100, 69, 548, 384)   # what changes from one frame to the next (the rest is sent when it changes)
+CO_SHOULDERS = ((268, 270), (372, 270))
+CO_ARM = (56, 54, 9)             # upper arm, forearm, half its width
+CO_REST = ((232, 366), (408, 366))          # hands on the desk
+CO_KEYS = ((298, 338), (342, 338))          # ...on the keyboard, behind the laptop's lid
+CO_BELL = (466, 318)             # the top of the bell's button
+CO_LID = (252, 290, 388, 377)
+# ...and its colours (the eyes and the light on its antenna are the accent colour)
+CO_SHELL, CO_SHADE, CO_JOINT = (220, 225, 232), (184, 191, 202), (146, 154, 167)
+CO_FACE = (12, 14, 18)
+CO_LID_FILL, CO_LID_EDGE = (54, 61, 74), (82, 90, 106)
+CO_DESK, CO_DESK_EDGE, CO_DESK_FRONT = (74, 67, 62), (96, 87, 80), (40, 37, 36)
+CO_BRASS, CO_BRASS_DARK, CO_BRASS_LIGHT = (212, 170, 82), (150, 114, 48), (246, 224, 160)
+CO_MUG = (84, 120, 136)
+
+
+def co_ease(x):
+    x = max(0.0, min(1.0, x))
+    return x * x * (3 - 2 * x)
+
+
+def co_lerp(a, b, f):
+    return a + (b - a) * f
+
+
+def co_mix(c1, c2, f):
+    return tuple(int(round(a + (b - a) * f)) for a, b in zip(c1, c2))
+
+
+def co_noise(seed, i):
+    """The same number from 0 to 1 for the same seed and i: a little randomness with nothing to keep."""
+    return (math.sin(i * 12.9898 + seed * 78.233) * 43758.5453) % 1.0
+
+
+def co_between(t, t0, t1):
+    """0 before t0, 1 after t1, eased in between."""
+    return co_ease((t - t0) / (t1 - t0)) if t1 > t0 else float(t >= t1)
+
+
+def co_towards(p, q, f):
+    return (co_lerp(p[0], q[0], f), co_lerp(p[1], q[1], f))
+
+
+def co_ik(s, target, l1, l2, prefer):
+    """(elbow, hand) for an arm from shoulder s reaching for target (or as near as it can get).
+    prefer: the elbow 'out' (away from its body), 'down' or 'up'."""
+    dx, dy = target[0] - s[0], target[1] - s[1]
+    d = math.hypot(dx, dy) or 1e-3
+    d2 = max(abs(l1 - l2) + 0.5, min(d, l1 + l2 - 0.5))
+    ux, uy = dx / d, dy / d
+    hand = (s[0] + ux * d2, s[1] + uy * d2)
+    a = (l1 * l1 - l2 * l2 + d2 * d2) / (2 * d2)
+    h = math.sqrt(max(l1 * l1 - a * a, 0.0))
+    px, py = s[0] + ux * a, s[1] + uy * a
+    e1, e2 = (px - uy * h, py + ux * h), (px + uy * h, py - ux * h)
+    if prefer == "down":
+        return (e1 if e1[1] >= e2[1] else e2), hand
+    if prefer == "up":
+        return (e1 if e1[1] <= e2[1] else e2), hand
+    return (e1 if abs(e1[0] - CO_X) >= abs(e2[0] - CO_X) else e2), hand
+
+
+def co_blink(T, seed, period=4.2):
+    """Its eyelids: 1 open, 0 shut. A blink every few seconds, now and then two."""
+    k = math.floor(T / period)
+    lid = 1.0
+    for kk in (k - 1, k):
+        start = kk * period + 0.3 + co_noise(seed, kk) * (period - 0.9)
+        for extra in ((0.0, 0.28) if co_noise(seed, kk + 77) > 0.78 else (0.0,)):
+            u = T - start - extra
+            if 0 <= u < 0.17:
+                lid = min(lid, 0.08 + 0.92 * abs(math.cos(math.pi * u / 0.17)))
+    return lid
+
+
+def co_glance(T, seed, period=7.5):
+    """Now and then it looks to one side for a moment."""
+    k = math.floor(T / period)
+    r = co_noise(seed, k + 31)
+    if r < 0.45:
+        return 0.0
+    u = T - k * period
+    return (-1 if r < 0.72 else 1) * 0.75 * co_between(u, 2.0, 2.35) * (1 - co_between(u, 3.6, 3.95))
+
+
+def coder_pose(anim, t, T, asleep=False, energy=None, seed=0.0):
+    """How it looks t seconds into a pose (T: a clock that keeps going, for blinking and breathing;
+    energy: how loud the clip it's saying is just now, or None when there isn't one). Screen pixels;
+    its eyes look -1 to 1 each way."""
+    p = {"head": [0.0, 1.4 * math.sin(T * 2 * math.pi / 3.8)], "look": [co_glance(T, seed), 0.0],
+         "lid": co_blink(T, seed), "eyes": "open", "size": 1.0, "mouth": None, "light": ("dim", 0.0),
+         "hands": [CO_REST[0], CO_REST[1]], "front": [False, False], "elbow": ["out", "out"],
+         "bubble": None, "bell": 0.0, "dings": None, "dim": 0.0, "tokens": False, "zzz": False}
+    if asleep and anim in ("rest", "sleep"):
+        p.update(eyes="shut", lid=0.0, dim=0.55, look=[0.0, 0.3], light=("off", 0.0), zzz=True)
+        p["head"][1] = 11 + 2.0 * math.sin(T * 2 * math.pi / 5.0)
+    elif anim == "typing":
+        p["look"] = [0.22 * math.sin(T * 1.3), 0.6]
+        p["lid"] = min(p["lid"], 0.86)
+        p["head"][1] = 3 + 1.2 * math.sin(T * 2 * math.pi * 1.1)
+        for i, (x, y) in enumerate(CO_KEYS):
+            u = T * 2.7 + i * 0.5 + 0.2 * co_noise(seed, math.floor(T * 2.7) * 2 + i)
+            lift = max(0.0, math.sin(2 * math.pi * u)) ** 2
+            p["hands"][i] = (x + 5 * math.sin(T * 0.8 + i * 2), y - 8 * lift)
+        p.update(light=("busy", 1.0), tokens=True)
+    elif anim == "reading":
+        line = math.floor(T / 1.7)
+        u = T - line * 1.7
+        sweep = -0.65 + 1.3 * co_between(u, 0.05, 1.35) if u < 1.4 else 0.65 - 1.3 * co_between(u, 1.4, 1.62)
+        p["look"] = [sweep, 0.35 + 0.08 * (line % 3)]
+        p["head"] = [sweep * 3, 2.5]
+        tap = co_between(u, 1.38, 1.46) * (1 - co_between(u, 1.48, 1.6))
+        p["hands"] = [CO_KEYS[0], (CO_KEYS[1][0] + 4, CO_KEYS[1][1] - 6 * tap)]
+        p.update(light=("busy", 1.0), bubble=("doc", line % 5))
+    elif anim == "thinking":
+        side = 1 if math.floor(T / 6.0) % 3 != 2 else -1
+        p["look"] = [side * (0.55 + 0.2 * math.sin(T * 0.6)), -0.72 + 0.08 * math.sin(T * 0.9)]
+        p["head"] = [side * 3.0, -2.0 + 1.0 * math.sin(T * 2 * math.pi / 4.0)]
+        p["lid"] = min(p["lid"], 0.92)
+        k = T % 5.0
+        scratch = 3 * math.sin(T * 2 * math.pi * 3.2) * co_between(k, 1.0, 1.2) * (1 - co_between(k, 2.0, 2.2))
+        p["hands"][1] = (403 + p["head"][0], 194 + p["head"][1] + scratch)    # a hand at the side of its head
+        p["front"][1] = True
+        p.update(light=("busy", 0.75 + 0.25 * math.sin(T * 2.4)), bubble=("think", T))
+    elif anim == "talking":
+        e = energy
+        if e is None:                              # (no clip: it chats away as if there were one)
+            e = (0.25 + 0.75 * co_noise(seed, math.floor(T * 4.2))) * math.sin(math.pi * ((T * 4.2) % 1)) ** 0.7
+            if co_noise(seed, math.floor(T / 2.2) + 300) < 0.3:
+                e *= 0.15
+        p["mouth"], p["size"] = e, 1.06
+        p["look"] = [p["look"][0] * (1 - min(1.0, e * 3)), -0.05]
+        p["head"][1] += -2.5 * e
+        k = T % 3.0
+        lift = co_between(co_noise(seed, math.floor(T / 3.0) + 500), 0.55, 0.75) \
+            * co_between(k, 0.2, 0.6) * (1 - co_between(k, 1.6, 2.1))
+        p["hands"][1] = co_towards(CO_REST[1], (404, 292), lift)
+        p["front"][1] = lift > 0.05
+        p.update(light=("busy", 0.7 + 0.3 * min(1.0, e * 2)), bubble=("waves", e))
+    elif anim == "done":
+        up, hit = (CO_BELL[0], CO_BELL[1] - 26), (CO_BELL[0], CO_BELL[1] - 9)
+        if t < 0.32:
+            h = co_towards(CO_REST[1], up, co_between(t, 0.0, 0.3))
+        elif t < 0.4:
+            h = co_towards(up, hit, co_between(t, 0.32, 0.38))
+        elif t < 0.75:
+            h = co_towards(hit, (up[0] - 2, up[1] + 8), co_between(t, 0.4, 0.62))
+        else:
+            h = co_towards((up[0] - 2, up[1] + 8), CO_REST[1], co_between(t, 0.85, 1.45))
+        p["hands"][1] = h
+        p["front"][1] = True
+        p["elbow"][1] = "up"
+        p["look"] = [0.85, 0.55] if t < 0.5 else [0.2 * (1 - co_between(t, 0.5, 0.9)), 0.0]
+        if t >= 0.42:
+            p["eyes"] = "happy"
+        if t >= 0.38:
+            p.update(bell=max(0.0, 1 - (t - 0.38) / 0.9), dings=t - 0.38,
+                     light=("flash", 1.0 - co_between(t, 0.38, 1.4) * 0.5))
+        else:
+            p["light"] = ("flash", 0.6)
+    elif anim == "hello":
+        raised = co_between(t, 0.0, 0.45) * (1 - co_between(t, 2.2, 2.75))
+        wave = 15 * math.sin((t - 0.45) * 2 * math.pi * 2.4) * co_between(t, 0.45, 0.6) * (1 - co_between(t, 1.9, 2.2))
+        p["hands"][1] = co_towards(CO_REST[1], (414 + wave, 188), raised)
+        p["front"][1] = raised > 0.05
+        p["elbow"][1] = "down"
+        p["eyes"] = "happy" if 0.25 < t < 2.6 else "open"
+        p["head"][1] += -3 * math.sin(math.pi * co_between(t, 0.5, 0.9)) - 3 * math.sin(math.pi * co_between(t, 1.4, 1.8))
+        p["look"] = [0.0, -0.05]
+        p.update(bubble=("hi", t) if 0.3 < t < 2.5 else None, light=("flash", 0.8))
+    elif anim == "attention":
+        if t < 10:
+            raised = co_between(t, 0.0, 0.5) * (1 - co_between(t, 4.0, 4.6))
+        else:
+            k = t % 10.0
+            raised = co_between(k, 0.0, 0.4) * (1 - co_between(k, 1.6, 2.1))
+        wave = 6 * math.sin(t * 2 * math.pi * 1.8) * raised
+        p["hands"][1] = co_towards(CO_REST[1], (406 + wave, 206), raised)
+        p["front"][1] = raised > 0.05
+        p["elbow"][1] = "down"
+        p["look"] = [p["look"][0] * 0.3, -0.12]
+        p["head"][1] += -1.5
+        p.update(size=1.12, light=("alert", t), bubble=("bang", t))
+    elif anim == "error":
+        up = co_between(t, 0.0, 0.35) * (1 - co_between(t, 2.6, 3.2))
+        p["hands"] = [co_towards(CO_REST[0], (240, 190), up), co_towards(CO_REST[1], (400, 190), up)]
+        p["front"] = [up > 0.05, up > 0.05]
+        p["elbow"] = ["down", "down"]
+        p["head"][0] = 4 * math.sin(t * 2 * math.pi * 2.6) * (1 - co_between(t, 0.3, 1.6))
+        if t > 3.2:                                # now and then a worried look at the laptop
+            k = (t - 3.2) % 7.0
+            p["look"] = [0.0, 0.55 * co_between(k, 3.0, 3.4) * (1 - co_between(k, 4.6, 5.0))]
+        p.update(eyes="worried", light=("alert", t), bubble=("warn", t))
+    elif anim == "shrug":
+        s = co_between(t, 0.0, 0.4) * (1 - co_between(t, 1.8, 2.35))
+        bob = 3 * math.sin(math.pi * co_between(t, 0.55, 0.85))
+        p["hands"] = [co_towards(CO_REST[0], (214, 262 - bob), s), co_towards(CO_REST[1], (426, 262 - bob), s)]
+        p["front"] = [s > 0.05, s > 0.05]
+        p["elbow"] = ["down", "down"]
+        p.update(eyes="meh", look=[-0.55 * s, 0.1], head=[-3 * s, 2 * s - bob * 0.6], light=("warn", 0.6))
+    elif anim == "wake":
+        lid = co_between(t, 0.0, 1.4) ** 1.5
+        p["lid"] = min(lid, co_blink(T, seed)) if t > 1.5 else lid
+        for b in (1.8, 2.35):
+            u = t - b
+            if 0 <= u < 0.17:
+                p["lid"] = 0.08 + 0.92 * abs(math.cos(math.pi * u / 0.17))
+        p["head"][1] = 11 * (1 - co_between(t, 0.2, 1.4))
+        st = co_between(t, 1.0, 1.5) * (1 - co_between(t, 2.2, 2.8))      # a good stretch
+        p["hands"] = [co_towards(CO_REST[0], (226, 150), st), co_towards(CO_REST[1], (414, 150), st)]
+        p["front"] = [st > 0.05, st > 0.05]
+        p.update(dim=0.55 * (1 - co_between(t, 0.0, 1.0)), light=("dim", co_between(t, 0.0, 1.4)))
+    elif anim == "sleep":
+        if t < 0.7:
+            lid = 1 - 0.8 * co_between(t, 0.0, 0.7)
+        elif t < 1.1:
+            lid = 0.2 + 0.3 * co_between(t, 0.7, 1.1)              # (it fights it a little)
+        else:
+            lid = 0.5 * (1 - co_between(t, 1.1, 2.0))
+        p["lid"] = lid
+        p["head"][1] = 11 * co_between(t, 0.7, 2.0)
+        p.update(dim=0.55 * co_between(t, 1.1, 2.0), light=("dim", 1 - co_between(t, 0.6, 1.8)))
+    return p
+
+
+def coder_blend(a, b, f):
+    """Part of the way from pose a to pose b: what moves smoothly moves; the rest is b's already."""
+    out = dict(b)
+    out["head"] = [co_lerp(a["head"][i], b["head"][i], f) for i in (0, 1)]
+    out["look"] = [co_lerp(a["look"][i], b["look"][i], f) for i in (0, 1)]
+    out["hands"] = [co_towards(a["hands"][i], b["hands"][i], f) for i in (0, 1)]
+    out["front"] = [a["front"][i] if f < 0.35 else b["front"][i] for i in (0, 1)]   # (an arm crosses the lid's edge)
+    out["lid"] = co_lerp(a["lid"], b["lid"], f) if a["eyes"] == b["eyes"] else b["lid"]
+    out["dim"] = co_lerp(a["dim"], b["dim"], f)
+    out["size"] = co_lerp(a["size"], b["size"], f)
+    return out
+
+
+def co_light(light, accent):
+    """The light on its antenna."""
+    kind, v = light
+    off = (58, 63, 72)
+    v = v if kind == "alert" else max(0.0, min(1.0, v))
+    if kind == "dim":
+        return co_mix(off, co_mix(accent, CO_FACE, 0.45), v)
+    if kind == "busy":
+        return co_mix(co_mix(accent, CO_FACE, 0.3), accent, v)
+    if kind == "flash":
+        return co_mix(accent, (255, 255, 255), v * 0.55)
+    if kind == "alert":                            # a slow pulse: up, hold, down
+        u = (v % 1.5) / 1.5
+        return co_mix(co_mix(WARN, CO_FACE, 0.75), WARN, u * 3 if u < 1 / 3 else 1.0 if u < 2 / 3 else 3 * (1 - u))
+    if kind == "warn":
+        return co_mix(WARN, CO_FACE, 0.2)
+    return off
+
+
+def coder_desk(img):
+    """The desk and the mug on it (what doesn't move)."""
+    from PIL import ImageDraw
+    d = ImageDraw.Draw(img)
+    d.rectangle((0, CO_TOP, img.width, CO_TOP + 8), fill=CO_DESK)
+    d.line((0, CO_TOP, img.width, CO_TOP), fill=CO_DESK_EDGE, width=2)
+    d.rectangle((0, CO_TOP + 8, img.width, 431), fill=CO_DESK_FRONT)
+    d.rounded_rectangle((128, 338, 160, CO_TOP + 2), radius=6, fill=CO_MUG)
+    d.arc((114, 346, 136, 366), 90, 270, fill=CO_MUG, width=5)
+    d.rectangle((131, 341, 157, 345), fill=co_mix(CO_MUG, (255, 255, 255), 0.18))
+
+
+def coder_under(img):
+    """What's behind the coder, twice as big: what coder_draw starts from (the same every frame)."""
+    from PIL import Image
+    x0, y0, x1, y1 = CO_BOX
+    return img.crop(CO_BOX).resize(((x1 - x0) * 2, (y1 - y0) * 2), Image.NEAREST)
+
+
+def coder_draw(img, p, accent, T, under=None):
+    """The coder, its laptop and its bell, onto img (desk drawn already): twice as big, then halved,
+    for smooth edges. under: coder_under(img), made once."""
+    from PIL import ImageDraw
+    x0, y0, x1, y1 = CO_BOX
+    K = 2
+    layer = (under or coder_under(img)).copy()
+    d = ImageDraw.Draw(layer)
+
+    def P(x, y):
+        return ((x - x0) * K, (y - y0) * K)
+
+    def B(a, b, c, e):
+        return ((a - x0) * K, (b - y0) * K, (c - x0) * K, (e - y0) * K)
+
+    def rr(box, r, fill):
+        """A rounded rectangle: two boxes and four circles (much quicker than PIL's own corners)."""
+        a, b, c, e = B(*box)
+        r = max(0.0, min(r * K, (c - a) / 2, (e - b) / 2))
+        if r < 1:
+            d.rectangle((a, b, c, e), fill=fill)
+            return
+        d.rectangle((a + r, b, c - r, e), fill=fill)
+        d.rectangle((a, b + r, c, e - r), fill=fill)
+        for cx, cy in ((a + r, b + r), (c - r, b + r), (a + r, e - r), (c - r, e - r)):
+            d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=fill)
+
+    def disc(cx, cy, r, fill):
+        d.ellipse(B(cx - r, cy - r, cx + r, cy + r), fill=fill)
+
+    def limb(a, b, w, fill):
+        d.line([P(*a), P(*b)], fill=fill, width=int(w * 2 * K))
+        disc(a[0], a[1], w, fill)
+        disc(b[0], b[1], w, fill)
+
+    hx, hy = p["head"]
+    dim = p["dim"] * 0.35
+    shell, shade, joint = co_mix(CO_SHELL, BG, dim), co_mix(CO_SHADE, BG, dim), co_mix(CO_JOINT, BG, dim)
+
+    # the bell, on the desk to its right
+    bx = CO_BELL[0]
+    wob = p["bell"] * 1.6 * math.sin(T * 2 * math.pi * 14)
+    push = 3 if p["dings"] is not None and p["dings"] < 0.08 else 0
+    rr((bx - 28, 366, bx + 28, 377), 4, (34, 33, 34))
+    d.pieslice(B(bx - 24 + wob, 334, bx + 24 + wob, 382), 180, 360, fill=CO_BRASS)
+    d.arc(B(bx - 17 + wob, 340, bx + 11 + wob, 376), 200, 250, fill=CO_BRASS_LIGHT, width=3 * K)
+    rr((bx - 27 + wob, 355, bx + 27 + wob, 362), 3, CO_BRASS_DARK)
+    rr((bx - 2, 322 + push, bx + 2, 336), 1, CO_BRASS_DARK)
+    d.ellipse(B(bx - 6, 316 + push, bx + 6, 325 + push), fill=CO_BRASS)
+
+    # its body and head
+    rr((262, 250 + hy * 0.3, 378, 352), 28, shell)
+    rr((306, 232 + hy, 334, 258 + hy * 0.3), 6, joint)
+    cx = CO_X + hx
+    rr((cx - 2, 104 + hy, cx + 2, 126 + hy), 2, joint)                # its antenna, and the light on it
+    disc(cx, 100 + hy, 7, co_light(p["light"], accent))
+    rr((cx - 88, 164 + hy, cx - 74, 200 + hy), 5, shade)
+    rr((cx + 74, 164 + hy, cx + 88, 200 + hy), 5, shade)
+    rr((cx - 78, 128 + hy, cx + 78, 240 + hy), 32, shade)
+    rr((cx - 78, 124 + hy, cx + 78, 234 + hy), 32, shell)
+    rr((cx - 64, 138 + hy, cx + 64, 222 + hy), 22, CO_FACE)
+
+    # its eyes (and a mouth while it talks)
+    eye = co_mix(co_mix(accent, (255, 255, 255), 0.12), CO_FACE, p["dim"])
+    glow = co_mix(eye, CO_FACE, 0.78)
+    lx, ly = p["look"]
+    ew, eh = 26 * p["size"], 34 * p["size"]
+    for side in (-1, 1):
+        ex, ey = cx + side * 23 + lx * 12, 181 + hy + ly * 11
+        kind = p["eyes"]
+        if kind == "happy":
+            d.arc(B(ex - 13, ey - 8, ex + 13, ey + 16), 200, 340, fill=eye, width=6 * K)
+        elif kind == "shut":
+            d.arc(B(ex - 12, ey - 10, ex + 12, ey + 6), 20, 160, fill=eye, width=4 * K)
+        elif kind == "meh":
+            rr((ex - ew / 2, ey - 3, ex + ew / 2, ey + 6), 4, eye)
+        else:
+            h = max(eh * p["lid"], 4)
+            rr((ex - ew / 2 - 3, ey - h / 2 - 3, ex + ew / 2 + 3, ey + h / 2 + 3), min(ew, h) / 2.2 + 3, glow)
+            rr((ex - ew / 2, ey - h / 2, ex + ew / 2, ey + h / 2), min(ew, h) / 2.2, eye)
+            if kind == "worried":                  # the outer corners come down
+                outer = ex + side * (ew / 2 + 4)
+                d.polygon([P(outer, ey - h / 2 - 5), P(ex - side * (ew / 2 + 4), ey - h / 2 - 5),
+                           P(outer, ey - h / 2 + 13)], fill=CO_FACE)
+    if p["mouth"] is not None:
+        mh = 3 + 13 * max(0.0, min(1.0, p["mouth"]))
+        rr((cx - 10, 210 + hy - mh / 2, cx + 10, 210 + hy + mh / 2), min(20, mh) / 2, eye)
+
+    # its arms: the ones behind the laptop's lid, the lid, then the ones in front of it
+    arms = []
+    for i in (0, 1):
+        s = (CO_SHOULDERS[i][0] + hx * 0.2, CO_SHOULDERS[i][1] + hy * 0.3)
+        elbow, hand = co_ik(s, p["hands"][i], CO_ARM[0], CO_ARM[1], p["elbow"][i])
+        arms.append((p["front"][i], s, elbow, hand))
+
+    def arm(s, elbow, hand):
+        limb(s, elbow, CO_ARM[2], shell)
+        limb(elbow, hand, CO_ARM[2] - 1, shell)
+        disc(elbow[0], elbow[1], 5, joint)
+        disc(hand[0], hand[1], 11, shell)
+        disc(hand[0], hand[1], 8, shade)
+    for front, s, elbow, hand in arms:
+        if not front:
+            arm(s, elbow, hand)
+    rr(CO_LID, 9, CO_LID_FILL)
+    d.line([P(CO_LID[0] + 9, CO_LID[1] + 1), P(CO_LID[2] - 9, CO_LID[1] + 1)], fill=CO_LID_EDGE, width=2 * K)
+    mx, my = (CO_LID[0] + CO_LID[2]) / 2, (CO_LID[1] + CO_LID[3]) / 2
+    d.ellipse(B(mx - 9, my - 9, mx + 9, my + 9), outline=CO_LID_EDGE, width=2 * K)
+    for front, s, elbow, hand in arms:
+        if front:
+            arm(s, elbow, hand)
+    img.paste(layer.reduce(K), (x0, y0))
+
+
+def coder_extras(img, p, T, accent, fonts):
+    """What's drawn at the screen's own size: steam off the mug, code flying out of the laptop,
+    bubbles, the bell's ring, z's."""
+    from PIL import ImageDraw
+    d = ImageDraw.Draw(img)
+    for k in range(2):                             # steam
+        prev = None
+        for j in range(14):
+            y = 333 - j * 3
+            x = 139 + k * 10 + 2.6 * math.sin(j * 0.55 - T * 2.2 + k * 2.0) * (0.4 + j / 14)
+            c = co_mix((84, 92, 104), BG, min(1.0, 0.25 + j / 14 * 0.75 + 0.15 * math.sin(T * 0.7 + k)))
+            if prev:
+                d.line([prev, (x, y)], fill=c, width=2)
+            prev = (x, y)
+    if p["tokens"]:                                # code flying out of the laptop as it types
+        for k in range(5):
+            age = (T + k * 0.38) % 1.9 / 1.9
+            n = math.floor((T + k * 0.38) / 1.9) * 5 + k
+            side = -1 if co_noise(3, n) < 0.5 else 1
+            x = co_lerp(CO_X + side * 62, CO_X + side * (110 + 70 * co_noise(5, n)), co_ease(age))
+            y = 292 - 88 * age - 14 * math.sin(age * math.pi) * co_noise(7, n)
+            c = co_mix(co_mix(accent, (255, 255, 255), 0.2), BG, max(0.0, age - 0.3) / 0.7)
+            d.text((x, y), CODER_TOKENS[int(co_noise(9, n) * len(CODER_TOKENS))], font=fonts["code"], fill=c, anchor="mm")
+    b = p["bubble"]
+    kind = b[0] if b else ""
+    if kind == "think":                            # a thought bubble, its dots taking turns
+        for cx, cy, r in ((408, 128, 4), (420, 114, 6)):
+            d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=ROW)
+        d.rounded_rectangle((428, 76, 528, 116), radius=20, fill=ROW)
+        for k in range(3):
+            c = TEXT if math.floor(b[1] * 2.5) % 4 == k else MUTED
+            d.ellipse((456 + k * 16, 92, 464 + k * 16, 100), fill=c)
+    elif kind == "doc":                            # a page, the line it's on lit up
+        x0, y0 = 432, 82 + 2 * math.sin(T * 1.6)
+        d.polygon([(x0, y0), (x0 + 38, y0), (x0 + 50, y0 + 12), (x0 + 50, y0 + 62), (x0, y0 + 62)], fill=ROW)
+        d.polygon([(x0 + 38, y0), (x0 + 38, y0 + 12), (x0 + 50, y0 + 12)], fill=LINE)
+        for k in range(5):
+            y = y0 + 20 + k * 8
+            d.rounded_rectangle((x0 + 8, y - 2, x0 + 8 + (34 if k < 4 else 20), y + 1), radius=1,
+                                fill=accent if k == b[1] else MUTED)
+    elif kind == "waves":                          # its voice
+        for k, r in enumerate((16, 26, 36)):
+            c = co_mix(BG, accent, max(0.0, min(1.0, b[1] * 1.6 - k * 0.3)))
+            d.arc((402 - r, 182 - r, 402 + r, 182 + r), -38, 38, fill=c, width=3)
+    elif kind == "hi":
+        pop = co_between(b[1], 0.3, 0.45)
+        w, h = 56 * pop + 4, 34 * pop + 2
+        cx, cy = 196, 112
+        d.rounded_rectangle((cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), radius=h / 2, fill=ROW)
+        d.polygon([(cx + 14, cy + h / 2 - 2), (cx + 30, cy + h / 2 + 12), (cx + 4, cy + h / 2 - 2)], fill=ROW)
+        if pop > 0.8:
+            d.text((cx, cy), "Hi!", font=fonts["mark"], fill=TEXT, anchor="mm")
+    elif kind == "bang":                           # it needs you
+        r = 21 + 2 * math.sin(b[1] * 2 * math.pi / 1.5)
+        cx, cy = 194, 112
+        d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=WARN)
+        d.polygon([(cx + 10, cy + r - 6), (cx + 28, cy + r + 10), (cx + 18, cy + r - 12)], fill=WARN)
+        d.text((cx, cy + 1), "!", font=fonts["mark"], fill=BG, anchor="mm")
+    elif kind == "warn":                           # something went wrong
+        s = 1 + 0.05 * math.sin(b[1] * 2 * math.pi / 1.5)
+        cx, cy = 472, 104
+        d.polygon([(cx, cy - 26 * s), (cx + 29 * s, cy + 22 * s), (cx - 29 * s, cy + 22 * s)], fill=WARN)
+        d.text((cx, cy + 6), "!", font=fonts["mark"], fill=BG, anchor="mm")
+    if p["dings"] is not None:                     # the bell rings
+        for k in range(2):
+            v = p["dings"] - k * 0.22
+            if 0 <= v < 0.9:
+                r = 26 + v * 40
+                c = co_mix(CO_BRASS_LIGHT, BG, v / 0.9)
+                box = (CO_BELL[0] - r, 348 - r, CO_BELL[0] + r, 348 + r)
+                d.arc(box, 205, 245, fill=c, width=3)
+                d.arc(box, 295, 335, fill=c, width=3)
+    if p["zzz"]:
+        for k in range(3):
+            age = ((T + k * 1.1) % 3.3) / 3.3
+            d.text((408 + 26 * age + 6 * math.sin(age * 6), 150 - 64 * age), "z",
+                   font=fonts["z"][min(2, int(age * 3))], fill=co_mix(BODY, BG, age), anchor="mm")
+
+
+CODER_SOUNDS = {}
+
+
+def coder_sound(name):
+    """One of its own sounds, made here (16-bit mono at CODER_RATE): the bell, a hello, a call for
+    you, an uh-oh, a shrug. b"" for a pose with no sound."""
+    if name in CODER_SOUNDS:
+        return CODER_SOUNDS[name]
+    import numpy as np
+    r = CODER_RATE
+
+    def note(f, dur, decay, amp=1.0, glide=None, harmonics=((1, 1.0),), attack=0.004):
+        """A tone that dies away (glide: the frequency it slides to)."""
+        t = np.arange(int(dur * r)) / r
+        if glide:                                   # an even slide, in pitch
+            k = math.log(glide / f) / dur
+            phase = 2 * math.pi * f * (np.expm1(k * t) / k)
+        else:
+            phase = 2 * math.pi * f * t
+        env = np.exp(-t / decay) * np.minimum(1.0, t / attack)
+        return amp * env * sum(a * np.sin(phase * h) for h, a in harmonics)
+
+    def at(parts, total):
+        out = np.zeros(int(total * r))
+        for start, sig in parts:
+            i = int(start * r)
+            n = min(len(sig), len(out) - i)
+            out[i:i + n] += sig[:n]
+        return out
+
+    if name == "done":                             # a desk bell: a few out-of-tune partials, ringing on
+        f = 2093.0
+        sig = at([(0, note(f, 1.8, 1.3, 0.5)), (0, note(f + 3.5, 1.8, 1.1, 0.3)),
+                  (0, note(f * 2.32, 1.8, 0.42, 0.26)), (0, note(f * 4.25, 1.8, 0.16, 0.12))], 1.8)
+        click = np.random.default_rng(7).standard_normal(int(0.004 * r)) * np.linspace(0.25, 0, int(0.004 * r))
+        sig[:len(click)] += click
+    elif name == "hello":                        # two notes going up: hello
+        h = ((1, 1.0), (2, 0.25), (3, 0.08))
+        sig = at([(0, note(1318.5, 0.9, 0.42, 0.4, harmonics=h)), (0.13, note(1975.5, 0.9, 0.45, 0.4, harmonics=h))], 1.1)
+    elif name == "attention":                      # a soft "hey?"
+        sig = at([(0, note(880, 0.2, 0.12, 0.45, attack=0.008)), (0.16, note(1318.5, 0.35, 0.16, 0.45, attack=0.008))], 0.55)
+    elif name == "error":                          # uh-oh
+        h = ((1, 1.0), (3, 0.18))
+        sig = at([(0, note(784, 0.2, 0.16, 0.45, harmonics=h, attack=0.006)),
+                  (0.17, note(523.3, 0.45, 0.2, 0.45, harmonics=h, attack=0.006))], 0.65)
+    elif name == "shrug":                          # a shrug
+        sig = note(520, 0.45, 0.5, 0.4, glide=300, harmonics=((1, 1.0), (2, 0.15)), attack=0.01)
+    else:
+        CODER_SOUNDS[name] = b""
+        return b""
+    fade = min(len(sig), int(0.05 * r))            # (no click at the end)
+    sig[-fade:] *= np.linspace(1, 0, fade)
+    pcm = (np.clip(sig, -1, 1) * 32000).astype("<i2").tobytes()
+    CODER_SOUNDS[name] = pcm
+    return pcm
+
+
+def coder_wav(data):
+    """The samples in a WAV an agent sent: (pcm, rate, channels). ValueError says what's wrong with it."""
+    data = memoryview(data)
+    if len(data) < 12 or bytes(data[:4]) != b"RIFF" or bytes(data[8:12]) != b"WAVE":
+        raise ValueError("not a WAV file")
+    pos, fmt, pcm = 12, None, None
+    while pos + 8 <= len(data):
+        cid = bytes(data[pos:pos + 4])
+        size = struct.unpack("<I", data[pos + 4:pos + 8])[0]
+        if cid == b"data":                         # (a WAV made as it streams may say 0, or too much)
+            pcm = data[pos + 8:] if size == 0 or pos + 8 + size > len(data) else data[pos + 8:pos + 8 + size]
+            break
+        if cid == b"fmt " and size >= 16 and pos + 8 + size <= len(data):
+            tag, ch, rate, _, _, bits = struct.unpack("<HHIIHH", data[pos + 8:pos + 24])
+            if tag == 0xFFFE and size >= 26:       # WAVE_FORMAT_EXTENSIBLE: the real one is further in
+                tag = struct.unpack("<H", data[pos + 32:pos + 34])[0]
+            fmt = (tag, ch, rate, bits)
+        pos += 8 + size + (size & 1)
+    if fmt is None:
+        raise ValueError("not a WAV file")
+    if pcm is None:
+        raise ValueError("no audio data")
+    tag, ch, rate, bits = fmt
+    if tag != 1 or bits != 16 or ch not in (1, 2) or not 8000 <= rate <= 48000:
+        raise ValueError("expected 16-bit PCM, mono or stereo, 8000 to 48000 Hz")
+    n = len(pcm) - len(pcm) % (2 * ch)
+    if n <= 0:
+        raise ValueError("no audio data")
+    return bytes(pcm[:n]), rate, ch
+
+
+def coder_envelope(pcm, rate, ch, step=0.04):
+    """How loud a clip is, every step seconds, 0 to 1 (its loud parts are 1): its mouth follows it."""
+    import numpy as np
+    win = max(1, int(rate * step)) * ch
+    a = np.frombuffer(pcm, dtype="<i2")
+    out = []
+    for i in range(0, len(a), win * 256):          # a bit at a time: a long clip stays small in memory
+        part = a[i:i + win * 256].astype(np.float32)
+        n = len(part) // win * win
+        if n:
+            out.extend(np.sqrt((part[:n].reshape(-1, win) ** 2).mean(axis=1)).tolist())
+        if len(part) > n:
+            out.append(float(np.sqrt((part[n:] ** 2).mean())))
+    if not out:
+        return []
+    loud = max(float(np.percentile(out, 95)), 300.0)
+    return [min(1.0, v / loud) for v in out]
+
+
+def co_span(secs):
+    """4 min, 40 s, 1 h 12 min."""
+    secs = max(0, int(secs))
+    if secs < 60:
+        return f"{secs} s"
+    if secs < 3600:
+        return f"{secs // 60} min"
+    return f"{secs // 3600} h {secs // 60 % 60} min"
+
+
+# prompts for your coding agent, typed on the Pi (A on the Bot at work)
+CODER_CHANNEL = "gpi-media"   # what Claude Code calls coder_hooks.py --channel, which hands it your prompts
+PROMPT_MAX = 2000          # characters in a prompt
+PROMPT_WAIT = 20           # seconds your agent's request for prompts waits for one at most (then it asks again)
+PROMPT_LISTEN = 45         # seconds since it last asked that it still counts as listening
+PROMPT_ACK = 15            # seconds it has to say it got a prompt it was handed (or the next request gets it)
+PROMPT_KEEP = 60           # seconds a prompt waits to be taken, then it's yours to send again
+
+
+class AgentPrompts:
+    """Prompts typed on the Pi for your coding agent, until it takes them. coder_hooks.py --channel (Claude
+    Code runs it) asks for them: POST /coder/prompts, which waits a while for one. Each request says
+    the last prompt it got: until then, one it was handed may not have reached it, and the next request
+    gets it again. run tells this Pi's prompts from those before it restarted."""
+
+    def __init__(self):
+        self.cv = threading.Condition()
+        self.queue = []                 # {"id", "text", "at", "out"}: waiting (out None), or handed out (out: when)
+        self.run = secrets.token_hex(4)
+        self.next_id = 1
+        self.asked = -1e9               # when your agent last asked (time.monotonic())
+        self.asking = 0                 # its requests waiting now
+        self.on_taken = lambda prompt: None
+
+    def listening(self):
+        """Your agent is asking for prompts (or was, a moment ago)."""
+        with self.cv:
+            return self.asking > 0 or time.monotonic() - self.asked < PROMPT_LISTEN
+
+    def put(self, text):
+        with self.cv:
+            prompt = {"id": self.next_id, "text": text, "at": time.monotonic(), "out": None}
+            self.next_id += 1
+            self.queue.append(prompt)
+            self.cv.notify_all()
+            return prompt["id"]
+
+    def take(self, wait, got=0, run=""):
+        """For your agent: the prompts waiting, at once or as soon as one comes (wait seconds at most),
+        or none. got: the last one it got (from this run)."""
+        if run != self.run:
+            got = 0
+        with self.cv:
+            taken = [p for p in self.queue if p["id"] <= got]
+            self.queue = [p for p in self.queue if p["id"] > got]
+        for p in taken:
+            self.on_taken(p)
+        with self.cv:
+            self.asking += 1
+            end = time.monotonic() + max(0.0, min(float(wait), PROMPT_WAIT))
+            try:
+                while True:
+                    now = time.monotonic()
+                    for p in self.queue:            # handed out, but it never said it got it
+                        if p["out"] is not None and now - p["out"] > PROMPT_ACK:
+                            p["out"] = None
+                    out = [p for p in self.queue if p["out"] is None]
+                    if out or now >= end:
+                        break
+                    self.cv.wait(end - now)
+                for p in out:
+                    p["out"] = now
+            finally:
+                self.asking -= 1
+                self.asked = time.monotonic()
+        return {"ok": True, "run": self.run, "prompts": [{"id": p["id"], "text": p["text"]} for p in out]}
+
+    def expire(self):
+        """The prompts nobody took in time, back to you (oldest first)."""
+        with self.cv:
+            now = time.monotonic()
+            old = [p for p in self.queue if now - p["at"] > PROMPT_KEEP
+                   and (p["out"] is None or now - p["out"] > PROMPT_ACK)]
+            self.queue = [p for p in self.queue if p not in old]
+        return old
+
+
+class Coder:
+    """What the Bot is doing at work, from your coding agent's hooks: the pose, how long it has had it,
+    and what comes next. It keeps time whether or not it's on screen, and makes its sounds itself
+    (sound_ok says how loud and where, or None when it should keep quiet)."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.cv = threading.Condition(self.lock)
+        now = time.monotonic()
+        self.anim, self.since = "rest", now - CODER_HOLD   # (at rest already: the first word from an agent shows at once)
+        self.prev = ("rest", now - 2, now - 1, False)   # the pose before (name, since, until, asleep): it moves on smoothly
+        self.pending = None           # asked for while the pose before had its moment
+        self.fresh = now              # the agent's last word about a busy pose
+        self.asleep = False
+        self.heard = 0.0              # when an agent last said something (time.time(); 0: not yet)
+        self.work_from = None         # when this stretch of work began (time.time())
+        self.done = None              # (when it was last done, how long it took)
+        self.clip = None              # a clip being said: {"env", "step", "start"}
+        self.seed = random.random()
+        self.speaker = threading.Lock()     # one sound at a time
+        self.sounds = []              # [(when, name)] still to make (time.monotonic())
+        self.sound_ok = lambda: None  # -> (aplay's device, volume), or None to keep quiet
+        self.on_change = lambda: None
+        self.on_news = lambda name: None    # it's done, or it needs you
+        self.news_q = []              # ...said by its own clock, for run() to pass on
+        threading.Thread(target=self.run, daemon=True, name="coder").start()
+
+    def changed(self):
+        try:
+            self.on_change()
+        except Exception as ex:                      # (its clock keeps going, whatever happens)
+            print(f"coder: {ex!r}", flush=True)
+
+    @staticmethod
+    def hold(name):
+        """How long a pose has before the next one: a one-off gesture finishes first, and resting
+        has no need to wait."""
+        return 0.0 if name == "rest" else CODER_ONCE.get(name, CODER_HOLD)
+
+    def begin(self, name, now, sound=True):
+        """On to a pose (the lock is held)."""
+        self.prev = (self.anim, self.since, now, self.asleep)
+        self.anim, self.since, self.fresh = name, now, now
+        if name not in ("rest", "sleep"):
+            self.asleep = False
+        wall = time.time()
+        if name in ("typing", "reading", "thinking"):
+            if self.work_from is None:
+                self.work_from, self.done = wall, None
+        elif name == "done":
+            self.done = (wall, wall - self.work_from if self.work_from else 0.0)
+            self.work_from = None
+        elif name in ("hello", "wake", "sleep"):
+            self.work_from = None
+        if sound and name in CODER_SOUND_AT:
+            self.sounds.append((now + CODER_SOUND_AT[name], name))
+            self.sounds.sort()
+        self.cv.notify()                               # (its clock has something new to keep time for)
+
+    def step(self, now):
+        """Moves on to whatever is due by now (the lock is held)."""
+        for _ in range(6):
+            a, t = self.anim, now - self.since
+            if self.clip:
+                return
+            if self.pending and t >= self.hold(a):
+                name, self.pending = self.pending, None
+                self.begin(name, now)
+            elif a in CODER_ONCE and t >= CODER_ONCE[a]:
+                if a == "sleep":
+                    self.asleep = True
+                self.begin("rest", self.since + CODER_ONCE[a], sound=False)
+            elif a in CODER_WAIT and t >= CODER_WAIT[a]:
+                self.begin("rest", self.since + CODER_WAIT[a])
+            elif a in CODER_BUSY and now - self.fresh >= CODER_STUCK:
+                late = now - self.fresh > CODER_STUCK + 5      # (the Pi was busy, or asleep itself)
+                self.begin("attention", self.fresh + CODER_STUCK, sound=not late)
+                self.news_q.append("attention")
+            elif a == "rest" and not self.asleep and t >= CODER_NAP:
+                self.begin("sleep", self.since + CODER_NAP)
+            else:
+                return
+
+    def due(self, now):
+        """When step has something to do next (the lock is held)."""
+        a, ds = self.anim, [now + 3600]
+        if self.clip:
+            return now + 3600                          # (say() moves on when the clip ends)
+        if self.pending:
+            ds.append(self.since + self.hold(a))
+        if a in CODER_ONCE:
+            ds.append(self.since + CODER_ONCE[a])
+        if a in CODER_WAIT:
+            ds.append(self.since + CODER_WAIT[a])
+        if a in CODER_BUSY:
+            ds.append(self.fresh + CODER_STUCK)
+        if a == "rest" and not self.asleep:
+            ds.append(self.since + CODER_NAP)
+        if self.sounds:
+            ds.append(self.sounds[0][0])
+        return min(ds)
+
+    def run(self):
+        """Its clock: poses that have had their time move on, and sounds go out when they're due,
+        on screen or not."""
+        while True:
+            with self.cv:
+                now = time.monotonic()
+                was = (self.anim, self.since, self.asleep)
+                self.step(now)
+                news, self.news_q = self.news_q, []
+                sound = self.sounds.pop(0)[1] if self.sounds and self.sounds[0][0] <= now else None
+                moved = (self.anim, self.since, self.asleep) != was
+                if not moved and sound is None and not news:
+                    self.cv.wait(max(0.01, self.due(now) - now))
+                    continue
+            if moved:
+                self.changed()
+            for name in news:
+                self.news(name)
+            if sound:
+                threading.Thread(target=self.effect, args=(sound,), daemon=True, name="coder-sound").start()
+
+    def news(self, name):
+        try:
+            self.on_news(name)
+        except Exception as ex:
+            print(f"coder: {ex!r}", flush=True)
+
+    def ask(self, name, agent=True):
+        """An agent (or you, with a button) asks for a pose. What it's doing now, which may still be
+        the one before: each pose has at least a second, and a one-off gesture finishes first."""
+        with self.cv:
+            now = time.monotonic()
+            self.step(now)
+            if agent:
+                self.heard = time.time()
+            if self.clip:
+                self.pending = name                    # (after the clip)
+            elif self.asleep and name in ("rest", "sleep") and self.anim == "rest":
+                self.pending = None                    # asleep already
+            elif name == self.anim and (name in CODER_BUSY or name in CODER_WAIT):
+                self.pending, self.fresh = None, now   # still at it (or still needs you: no second call)
+            elif now - self.since >= self.hold(self.anim):
+                self.pending = None
+                self.begin(name, now)
+            else:
+                self.pending = name
+            self.cv.notify()
+            cur = self.anim
+        self.changed()
+        if agent and name in ("done", "attention"):
+            self.news(name)
+        return cur
+
+    def current(self):
+        with self.cv:
+            self.step(time.monotonic())
+            return self.anim
+
+    def snapshot(self, now):
+        """All the screen needs, at once."""
+        with self.cv:
+            self.step(now)
+            energy = None
+            if self.clip:
+                c = self.clip
+                i = int((now - c["start"]) / c["step"])
+                energy = c["env"][i] if 0 <= i < len(c["env"]) else 0.0
+            return {"anim": self.anim, "t": now - self.since, "asleep": self.asleep, "prev": self.prev,
+                    "since": self.since, "energy": energy, "heard": self.heard, "work_from": self.work_from,
+                    "done": self.done, "seed": self.seed, "clip": self.clip is not None}
+
+    def pose(self, now, s=None):
+        """Its pose now, moving smoothly on from the one before."""
+        s = s or self.snapshot(now)
+        p = coder_pose(s["anim"], s["t"], now, s["asleep"], s["energy"], s["seed"])
+        if s["t"] < CODER_EASE:
+            name, since, until, asleep = s["prev"]
+            before = coder_pose(name, until - since, now, asleep, None, s["seed"])
+            p = coder_blend(before, p, co_ease(s["t"] / CODER_EASE))
+        return p
+
+    # its sounds
+    def effect(self, name):
+        """One of its own sounds, when nothing else is using the speaker."""
+        how = self.sound_ok()
+        pcm = coder_sound(name) if how else b""
+        if not pcm or not self.speaker.acquire(blocking=False):
+            return
+        try:
+            self.aplay(pcm, CODER_RATE, 1, *how)
+        finally:
+            self.speaker.release()
+
+    @staticmethod
+    def aplay(pcm, rate, ch, device, volume):
+        """Samples to the speaker (16-bit) at the media volume. True once they've all played."""
+        if not shutil.which("aplay"):
+            return False
+        cmd = ["aplay", "-q", "-t", "raw", "-f", "S16_LE", "-c", str(ch), "-r", str(rate)]
+        if device:
+            cmd += ["-D", device]
+        try:
+            play = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
+            return False
+        import numpy
+        k = max(0, min(100, volume)) / 100.0
+        try:
+            for i in range(0, len(pcm), 16384):
+                part = pcm[i:i + 16384]
+                if k < 1:
+                    part = (numpy.frombuffer(part, dtype="<i2").astype(numpy.float32) * k).astype("<i2").tobytes()
+                play.stdin.write(part)
+            play.stdin.close()
+            play.wait(timeout=len(pcm) / (2 * ch * rate) + 10)
+            return play.returncode == 0
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            try:
+                play.kill()
+            except OSError:
+                pass
+            return False
+
+    def say(self, pcm, rate, ch, pose="talking"):
+        """A clip an agent sent, said in a pose (its mouth following it when talking), then back to
+        what it was busy with; whatever was asked for meanwhile comes after it. Clips take turns.
+        Without a speaker to use (sound off, or something playing) it mouths it. How long it took
+        (ms), once it's done."""
+        secs = len(pcm) / (2 * ch * rate)
+        env = coder_envelope(pcm, rate, ch)
+        with self.speaker:
+            how = self.sound_ok()
+            with self.cv:
+                now = time.monotonic()
+                self.step(now)
+                back = self.anim if self.anim in CODER_BUSY else "rest"
+                self.begin(pose, now, sound=False)
+                self.clip = {"env": env, "step": 0.04, "start": now}
+                self.heard = time.time()
+                self.cv.notify()
+            self.changed()
+            t0 = time.monotonic()
+            if not (how and self.aplay(pcm, rate, ch, *how)):
+                time.sleep(max(0.0, secs - (time.monotonic() - t0)))
+            with self.cv:
+                now = time.monotonic()
+                self.clip = None
+                nxt, self.pending = self.pending or back, None
+                self.begin(nxt, now)
+                self.cv.notify()
+            self.changed()
+        return int(secs * 1000)
+
+    def talking(self):
+        """A clip is being said."""
+        return self.clip is not None
+
+
+# ---- the Simulator tab: little worlds to watch ---------------------------------------------------------
+# Each sim runs in a box beside its numbers, or on the whole screen (SELECT, or START's Full screen). A
+# pauses, X gives it a poke, Y starts it again, START has its options, B goes back to the list.
+# Rock Paper Scissors: pieces bounce around, and one hit by its counter switches sides until one team is
+# left (pick a winner before the first capture). Game of Life, Orbits, Forest Fire and the Mandelbrot Set:
+# see their blurbs below.
+SIM_FLOOR = (21, 27, 33)                      # the box
+SIM_BOX = (12, 78, 452, 424)                  # ...on the screen
+SIM_IN = 2                                    # pieces keep this far in from its wall
+SIM_PANEL = (468, 78, 628, 424)               # the numbers, beside it
+SIM_DIRTY = (SIM_BOX[0], SIM_BOX[1], SIM_PANEL[2], SIM_PANEL[3])   # what changes from one frame to the next
+SIM_FPS, SIM_FPS_BIG = 20, 10                 # frames a second (a bigger screen gets whole pictures)
+SIM_SAMPLE = 0.2                              # seconds between a chart's points
+SIM_FULL = ("full", "Full screen", ("Off", "On"), "Off")   # (the last row of every sim's START card)
+
+
+def sim_clock(secs):
+    """1:05"""
+    return f"{int(secs) // 60}:{int(secs) % 60:02d}"
+
+
+def sim_hue(h, s=0.45, v=1.0):
+    import colorsys
+    return tuple(int(c * 255) for c in colorsys.hsv_to_rgb(h % 1.0, s, v))
+
+
+class Sim:
+    """A little world in a box, w x h px. update moves it on, draw puts it on the screen (the box's
+    top-left at x0, y0), poke is X, restart is Y. Its options - (key, label, choices, default) - are
+    START's card; values holds what you picked."""
+    key = ""
+    blurb = ""
+    poke_label = None               # X: what it does, or None
+    options = ()
+    restart_for = ()                # options it starts again for
+
+    def __init__(self, w, h, rng=None, values=None):
+        self.w, self.h = w, h
+        self.rng = rng or random.Random()
+        self.values = {k: d for k, _, _, d in self.options}
+        self.values.update(values or {})
+        self.paused = False
+        self.clock = self.sampled = 0.0
+        self.history = []               # (seconds, counts...), for a chart
+        self.started = {}               # the options it last started with (those it starts again for)
+
+    def configure(self, values):
+        """Your choices, put to use: True if it has to start again for them."""
+        changed = {k for k, v in values.items() if self.values.get(k) != v}
+        self.values.update(values)
+        self.apply()
+        return bool(changed & set(self.restart_for))
+
+    def apply(self):
+        pass
+
+    def needs_restart(self):
+        """An option it starts again for has changed since it last started."""
+        return any(self.values.get(k) != self.started.get(k) for k in self.restart_for)
+
+    def restart(self):
+        self.clock = self.sampled = 0.0
+        self.history = []
+        self.started = {k: self.values.get(k) for k in self.restart_for}
+
+    def refit(self, w, h):
+        """The box changes size (full screen, and back)."""
+        self.w, self.h = w, h
+        self.restart()
+
+    def update(self, dt):
+        return None
+
+    def poke(self):
+        pass
+
+    def draw(self, img, x0, y0):
+        pass
+
+    def stats(self):
+        """(label, value) rows for beside the box."""
+        return []
+
+    def chart(self):
+        """(history, colours, top) for a chart beside the box, or None."""
+        return None
+
+    def note(self):
+        """(title, words) for a card at the foot of the box, or None."""
+        return None
+
+    def note_top(self):
+        """The card goes at the top of the box instead (out of the way of something at the foot)."""
+        return False
+
+    def inset(self, w, h):
+        """(a picture w x h, a line under it) for beside the box instead of a chart, or None."""
+        return None
+
+    def hints(self):
+        """Its buttons along the bottom, if it has its own: [(button, what it does)], or None."""
+        return None
+
+    def look(self):
+        """Something that changes what's beside the box besides its numbers (drawn again when it does), or
+        None."""
+        return None
+
+    def sample(self, counts):
+        self.history.append((self.clock, tuple(counts)))
+        if len(self.history) > 400:              # a long run: every other point
+            self.history = self.history[:-1:2] + self.history[-1:]
+
+    def np_rng(self):
+        import numpy as np
+        return np.random.default_rng(self.rng.randrange(1 << 30))
+
+    @staticmethod
+    def regrid(old, rows, cols, fill):
+        """A board made bigger or smaller round its middle: what fits is kept, new edges come from
+        fill(shape)."""
+        new = fill((rows, cols)).astype(old.dtype)
+        h, w = min(rows, old.shape[0]), min(cols, old.shape[1])
+        ny, nx, oy, ox = (rows - h) // 2, (cols - w) // 2, (old.shape[0] - h) // 2, (old.shape[1] - w) // 2
+        new[ny:ny + h, nx:nx + w] = old[oy:oy + h, ox:ox + w]
+        return new
+
+
+# ---- Rock Paper Scissors ---------------------------------------------------------------------------------
+RPS_TEAMS = ("Rock", "Scissors", "Paper")      # each one beats the next, and Paper beats Rock
+RPS_COLOUR = ((154, 148, 139), (226, 123, 140), (127, 166, 222))      # ...their colours
+RPS_ROCK_EDGE = (94, 89, 82)
+RPS_SHEET, RPS_SHEET_EDGE = (230, 236, 241), (127, 142, 156)
+RPS_BLADE, RPS_BLADE_EDGE = (201, 210, 217), (134, 146, 156)
+RPS_COUNTS = (5, 10, 15, 20, 25, 30)                            # pieces per team
+RPS_SIZES = (("Small", 10), ("Medium", 13), ("Large", 16))       # how big a piece is (its radius, px)
+RPS_SPEEDS = (("Slow", 40), ("Normal", 70), ("Fast", 120), ("Very fast", 200))   # px a second
+RPS_READY = 3               # seconds to pick a winner before a round starts
+RPS_NEXT = 10               # seconds the winner shows, then the next round starts by itself
+RPS_TURNS = 48              # the angles a piece is drawn at (each one drawn once, then kept)
+RPS_EASE = 1.5              # how quickly a piece gets back to the speed (after a bump or a shake)
+RPS_LOOKS = random.Random(5)
+RPS_ROCKS = [[0.78 + RPS_LOOKS.random() * 0.22 for _ in range(10)] for _ in range(6)]   # six rocks' shapes
+
+
+def rps_span(r):
+    """How wide a piece's picture is (square): room for it at any angle."""
+    return 2 * int(math.ceil(r * 1.1)) + 4
+
+
+def rps_sprite(team, r, turn, look=0):
+    """A piece of a team (0 rock, 1 scissors, 2 paper), turned to one of RPS_TURNS angles: drawn four
+    times bigger and shrunk, for smooth edges. RGBA, the piece's middle in its middle."""
+    from PIL import Image, ImageDraw
+    K = 4
+    S = rps_span(r)
+    big = Image.new("RGBA", (S * K, S * K), (0, 0, 0, 0))
+    d = ImageDraw.Draw(big)
+    c = S * K / 2
+    a = turn * 2 * math.pi / RPS_TURNS
+    ca, sa = math.cos(a), math.sin(a)
+
+    def P(px, py):
+        return (c + (px * ca - py * sa) * K, c + (px * sa + py * ca) * K)
+
+    def dot(px, py, rad, fill):
+        x, y = P(px, py)
+        d.ellipse((x - rad * K, y - rad * K, x + rad * K, y + rad * K), fill=fill)
+
+    def seg(p, q, w, fill):                    # a line with round ends
+        for x, y in (P(*p), P(*q)):
+            d.ellipse((x - w * K / 2, y - w * K / 2, x + w * K / 2, y + w * K / 2), fill=fill)
+        d.line((P(*p), P(*q)), fill=fill, width=max(1, round(w * K)))
+
+    def edge(pts, w, fill):                    # an outline, its corners rounded (round once more)
+        d.line(pts + pts[:2], fill=fill, width=max(1, round(w * K)), joint="curve")
+
+    if team == 0:                              # a lumpy stone
+        shape = RPS_ROCKS[look % len(RPS_ROCKS)]
+        n = len(shape)
+        pts = [P(math.cos(i / n * 2 * math.pi) * r * s, math.sin(i / n * 2 * math.pi) * r * s)
+               for i, s in enumerate(shape)]
+        d.polygon(pts, fill=RPS_COLOUR[0])
+        edge(pts, max(1, r * 0.09), RPS_ROCK_EDGE)
+        dot(-r * 0.25, -r * 0.25, r * 0.28, co_mix(RPS_COLOUR[0], (255, 255, 255), 0.18))
+        dot(r * 0.3, r * 0.15, r * 0.08, RPS_ROCK_EDGE)
+        dot(-r * 0.05, r * 0.42, r * 0.06, RPS_ROCK_EDGE)
+    elif team == 2:                            # a sheet with a folded corner, written on
+        w, hh, f = r * 0.62, r * 0.8, r * 0.3
+        pts = [P(-w, -hh), P(w - f, -hh), P(w, -hh + f), P(w, hh), P(-w, hh)]
+        d.polygon(pts, fill=RPS_SHEET)
+        lw = max(1, r * 0.07)
+        edge(pts, lw, RPS_SHEET_EDGE)
+        d.line((P(w - f, -hh), P(w - f, -hh + f), P(w, -hh + f)), fill=RPS_SHEET_EDGE,
+               width=max(1, round(lw * K)), joint="curve")
+        for y in (-0.22, 0.08, 0.38):
+            seg((-w * 0.62, y * r), (w * (0.3 if y < 0 else 0.62), y * r), max(1.2, r * 0.1), RPS_COLOUR[2])
+    else:                                      # two blades and two rings
+        for sgn in (1, -1):
+            seg((-r * 0.3, sgn * r * 0.2), (r * 0.92, -sgn * r * 0.34), r * 0.22, RPS_BLADE_EDGE)
+            seg((-r * 0.3, sgn * r * 0.2), (r * 0.9, -sgn * r * 0.33), r * 0.12, RPS_BLADE)
+        o = (0.26 + 0.08) * r * K
+        for sgn in (1, -1):
+            x, y = P(-r * 0.56, sgn * r * 0.36)
+            d.ellipse((x - o, y - o, x + o, y + o), outline=RPS_COLOUR[1], width=max(1, round(r * 0.16 * K)))
+        dot(r * 0.12, 0, r * 0.08, RPS_BLADE_EDGE)
+    return big.reduce(K)
+
+
+class RockPaperScissors(Sim):
+    """Rock, paper and scissors bounce around the box; a piece hit by its counter switches sides, until
+    one team is left. A round: a moment to pick a winner (ready), the round (on), the winner (over), then
+    the next round by itself. Positions are px inside the box."""
+    key = "rps"
+    blurb = "Paper covers rock, rock crushes scissors, scissors cut paper. A piece hit by its counter switches sides."
+    poke_label = "Shake"
+    options = (("count", "Pieces per team", RPS_COUNTS, 20),
+               ("size", "Size", tuple(n for n, _ in RPS_SIZES), "Medium"),
+               ("speed", "Speed", tuple(n for n, _ in RPS_SPEEDS), "Normal"))
+    restart_for = ("count",)
+
+    def __init__(self, w, h, rng=None, values=None):
+        super().__init__(w, h, rng, values)
+        self.count, self.r, self.speed = 20, 13, 70   # pieces per team, their radius, px a second
+        self.x, self.y, self.vx, self.vy = [], [], [], []
+        self.t = []                     # each piece's team
+        self.ang, self.spin, self.look = [], [], []
+        self.round = 0
+        self.phase = "ready"            # ready (a moment to pick a winner), on, over (a team has won)
+        self.wait = 0.0                 # ready: seconds until it starts; over: until the next round
+        self.captures = 0
+        self.pick = None                # the team you think will win (kept for the next rounds)
+        self.winner = None
+        self.calls = [0, 0]             # winners you picked, rounds you picked one in
+        self.sprites = {}               # (team, look, turn) -> a piece's picture, at the size it is now
+        self.apply()
+        self.new_round()
+
+    def apply(self):
+        self.count = self.values["count"]
+        self.resize(dict(RPS_SIZES)[self.values["size"]])
+        self.speed = dict(RPS_SPEEDS)[self.values["speed"]]
+
+    def restart(self):
+        self.new_round()
+
+    # -- a round ------------------------------------------------------------------------------
+    def new_round(self):
+        """Each team in a bunch of its own, round the middle, set off in all directions."""
+        rnd, W, H = self.rng, self.w, self.h
+        base = rnd.random() * math.pi * 2
+        homes = [(W / 2 + math.cos(base + t * math.pi * 2 / 3) * W * 0.3,
+                  H / 2 + math.sin(base + t * math.pi * 2 / 3) * H * 0.3) for t in range(3)]
+        xs, ys, ts = [], [], []
+        for t in range(3):
+            for _ in range(self.count):
+                x, y = self.free_spot(xs, ys, homes, t)
+                xs.append(x)
+                ys.append(y)
+                ts.append(t)
+        order = list(range(len(xs)))
+        rnd.shuffle(order)                      # (no team always drawn on top)
+        self.x, self.y, self.t = [xs[i] for i in order], [ys[i] for i in order], [ts[i] for i in order]
+        self.vx, self.vy = [], []
+        for _ in order:
+            a = rnd.random() * math.pi * 2
+            self.vx.append(math.cos(a) * self.speed)
+            self.vy.append(math.sin(a) * self.speed)
+        self.ang = [rnd.random() * math.pi * 2 for _ in order]
+        self.spin = [(rnd.random() - 0.5) * 1.2 for _ in order]
+        self.look = [rnd.randrange(len(RPS_ROCKS)) for _ in order]
+        self.round += 1
+        self.phase, self.wait, self.paused = "ready", float(RPS_READY), False
+        self.clock = self.sampled = 0.0
+        self.captures = 0
+        self.winner = None
+        self.history = []
+        self.started = {k: self.values.get(k) for k in self.restart_for}
+        self.sample(self.counts())
+
+    def free_spot(self, xs, ys, homes, t):
+        """A place no piece is on yet, near team t's home and nearer it than the others' (a small box
+        fills up: the bunch spreads out on its own side), or anywhere on its side."""
+        rnd, r, W, H = self.rng, self.r, self.w, self.h
+        far = (2 * r) ** 2
+        cx, cy = homes[t]
+        spread = min(W, H) * 0.2
+        best = None
+        for k in range(150):
+            a, d = rnd.random() * math.pi * 2, math.sqrt(rnd.random()) * spread * (1 + k / 25)
+            x = min(max(cx + math.cos(a) * d, r), W - r)
+            y = min(max(cy + math.sin(a) * d, r), H - r)
+            mine = (x - cx) ** 2 + (y - cy) ** 2
+            if any((x - hx) ** 2 + (y - hy) ** 2 < mine for hx, hy in homes):
+                continue                                   # (another team's side)
+            if all((ox - x) ** 2 + (oy - y) ** 2 >= far for ox, oy in zip(xs, ys)):
+                return x, y
+            if best is None:
+                best = (x, y)
+        return best or (min(max(cx, r), W - r), min(max(cy, r), H - r))
+
+    def is_open(self):
+        """Picks are open until the first capture."""
+        return self.phase == "ready" or (self.phase == "on" and not self.captures)
+
+    def choose(self, d):
+        """Left and right: no pick, Rock, Scissors, Paper."""
+        ways = [None, 0, 1, 2]
+        self.pick = ways[(ways.index(self.pick) + d) % len(ways)]
+
+    def start(self):
+        if self.phase == "ready":
+            self.phase, self.wait = "on", 0.0
+
+    def shake(self):
+        for i in range(len(self.x)):
+            a = self.rng.random() * math.pi * 2
+            self.vx[i], self.vy[i] = math.cos(a) * self.speed * 1.8, math.sin(a) * self.speed * 1.8
+
+    def poke(self):
+        if self.phase != "ready":
+            self.shake()
+
+    def resize(self, r):
+        self.r = r
+        for i in range(len(self.x)):
+            self.x[i] = min(max(self.x[i], r), max(r, self.w - r))
+            self.y[i] = min(max(self.y[i], r), max(r, self.h - r))
+
+    def refit(self, w, h):
+        """The box changes size (full screen, and back): everything spreads out or closes up with it."""
+        sx, sy = w / self.w, h / self.h
+        self.w, self.h = w, h
+        r = self.r
+        for i in range(len(self.x)):
+            self.x[i] = min(max(self.x[i] * sx, r), max(r, w - r))
+            self.y[i] = min(max(self.y[i] * sy, r), max(r, h - r))
+
+    def counts(self):
+        c = [0, 0, 0]
+        for t in self.t:
+            c[t] += 1
+        return c
+
+    def update(self, dt):
+        """Time goes on: "won" when a team has just won, "next" when the next round has begun."""
+        if self.paused or dt <= 0:
+            return None
+        if self.phase == "ready":
+            for i in range(len(self.ang)):
+                self.ang[i] += self.spin[i] * dt
+            self.wait -= dt
+            if self.wait <= 0:
+                self.start()
+            return None
+        self.move(dt)
+        if self.phase == "over":
+            self.wait -= dt
+            if self.wait <= 0:
+                self.new_round()
+                return "next"
+            return None
+        self.clock += dt
+        self.sampled += dt
+        if self.sampled >= SIM_SAMPLE:
+            self.sampled = 0.0
+            self.sample(self.counts())
+        left = set(self.t)
+        if len(left) == 1:
+            self.winner = left.pop()
+            self.phase, self.wait = "over", float(RPS_NEXT)
+            self.sample(self.counts())
+            if self.pick is not None:
+                self.calls = [self.calls[0] + (self.pick == self.winner), self.calls[1] + 1]
+            return "won"
+        return None
+
+    def move(self, dt):
+        """Everything moves on: off the walls, off each other, and a piece hit by its counter
+        changes sides. (Small steps, with only nearby pieces checked: quick enough for a Pi Zero.)"""
+        n = len(self.x)
+        if not n:
+            return
+        X, Y, VX, VY, T = self.x, self.y, self.vx, self.vy, self.t
+        r, W, H = self.r, self.w, self.h
+        rr = 2 * r
+        rr2 = rr * rr
+        lo, hi_x, hi_y = r, W - r, H - r
+        top = max(max(map(abs, VX)), max(map(abs, VY)))
+        steps = max(2, min(8, int(math.ceil(top * 1.42 * dt / (0.5 * r)))))
+        h = dt / steps
+        cols = int(W // rr) + 1
+        sqrt = math.sqrt
+        caps = 0
+        for _ in range(steps):
+            for i in range(n):
+                x = X[i] + VX[i] * h
+                y = Y[i] + VY[i] * h
+                if x < lo:
+                    x = lo
+                    if VX[i] < 0:
+                        VX[i] = -VX[i]
+                elif x > hi_x:
+                    x = hi_x
+                    if VX[i] > 0:
+                        VX[i] = -VX[i]
+                if y < lo:
+                    y = lo
+                    if VY[i] < 0:
+                        VY[i] = -VY[i]
+                elif y > hi_y:
+                    y = hi_y
+                    if VY[i] > 0:
+                        VY[i] = -VY[i]
+                X[i] = x
+                Y[i] = y
+            grid = {}
+            for i in range(n):
+                k = int(Y[i] // rr) * cols + int(X[i] // rr)
+                cell = grid.get(k)
+                if cell is None:
+                    grid[k] = [i]
+                else:
+                    cell.append(i)
+            for k, cell in grid.items():
+                for nb in (k, k + 1, k + cols - 1, k + cols, k + cols + 1):   # (the other half
+                    other = cell if nb == k else grid.get(nb)            # checks this one)
+                    if other is None:
+                        continue
+                    for a in range(len(cell)):
+                        i = cell[a]
+                        for j in (other[a + 1:] if nb == k else other):
+                            dx = X[j] - X[i]
+                            dy = Y[j] - Y[i]
+                            d2 = dx * dx + dy * dy
+                            if d2 >= rr2:
+                                continue
+                            d = sqrt(d2) or 0.0001
+                            nx, ny = dx / d, dy / d
+                            corr = (rr - d) / 2
+                            X[i] -= nx * corr
+                            Y[i] -= ny * corr
+                            X[j] += nx * corr
+                            Y[j] += ny * corr
+                            vn = (VX[j] - VX[i]) * nx + (VY[j] - VY[i]) * ny
+                            if vn < 0:                   # coming together: they bounce
+                                VX[i] += vn * nx
+                                VY[i] += vn * ny
+                                VX[j] -= vn * nx
+                                VY[j] -= vn * ny
+                                if T[i] != T[j]:
+                                    if T[j] == (T[i] + 1) % 3:
+                                        T[j] = T[i]
+                                    else:
+                                        T[i] = T[j]
+                                    caps += 1
+        self.captures += caps
+        k = min(1.0, dt * RPS_EASE)               # back toward the speed, gently
+        sp, ang, spin = self.speed, self.ang, self.spin
+        for i in range(n):
+            X[i] = min(max(X[i], lo), hi_x)          # (a crowd can push one into the wall: not through it)
+            Y[i] = min(max(Y[i], lo), hi_y)
+            ang[i] += spin[i] * dt
+            s = sqrt(VX[i] * VX[i] + VY[i] * VY[i])
+            if s < 1:
+                a = self.rng.random() * math.pi * 2
+                VX[i], VY[i] = math.cos(a) * sp, math.sin(a) * sp
+                continue
+            f = 1 + (sp / s - 1) * k
+            VX[i] *= f
+            VY[i] *= f
+
+    def draw(self, img, x0, y0):
+        """Every piece, where it is: its picture at the nearest of RPS_TURNS angles."""
+        sprites = self.sprites
+        if sprites.get("r") != self.r:                 # (another size: drawn again, as needed)
+            sprites.clear()
+            sprites["r"] = self.r
+        half = rps_span(self.r) // 2
+        ox, oy = x0 - half, y0 - half
+        k = RPS_TURNS / (2 * math.pi)
+        for x, y, t, a, look in zip(self.x, self.y, self.t, self.ang, self.look):
+            turn = int(a * k + 0.5) % RPS_TURNS
+            key = (t, look if t == 0 else 0, turn)
+            s = sprites.get(key)
+            if s is None:
+                s = sprites[key] = rps_sprite(t, self.r, turn, look)
+            img.paste(s, (ox + int(x + 0.5), oy + int(y + 0.5)), s)
+
+
+# ---- Game of Life ----------------------------------------------------------------------------------------
+LIFE_RULES = {"Life": ({3}, {2, 3}), "HighLife": ({3, 6}, {2, 3}),          # born with, lives on with
+              "Day & Night": ({3, 6, 7, 8}, {3, 4, 6, 7, 8}), "Seeds": ({2}, set())}
+LIFE_SOUP = {"Life": 0.3, "HighLife": 0.3, "Day & Night": 0.5, "Seeds": 0.04}   # how full it starts
+
+
+def life_colours():
+    """Each cell's colour by its age (1..255), then a cell just gone, fading (256..263)."""
+    import numpy as np
+    lut = np.zeros((264, 3), np.uint8)
+    lut[0] = SIM_FLOOR
+    stops = [(1, (236, 255, 226)), (3, (150, 236, 196)), (10, (70, 196, 186)), (30, (64, 132, 214)),
+             (80, (88, 90, 196)), (255, (110, 72, 170))]
+    for (a0, c0), (a1, c1) in zip(stops, stops[1:]):
+        for a in range(a0, a1 + 1):
+            lut[a] = co_mix(c0, c1, (a - a0) / (a1 - a0))
+    for k in range(8):
+        lut[256 + k] = co_mix(SIM_FLOOR, (46, 84, 96), (k + 1) / 9)
+    return lut
+
+
+class Life(Sim):
+    """Conway's Game of Life (and three other rules), on a board whose edges meet. Cells are coloured by
+    age; when the board settles (or dies out) it starts again by itself."""
+    key = "life"
+    blurb = "A cell lives on, dies or is born by how many of its eight neighbours are alive."
+    poke_label = "Add life"
+    options = (("rules", "Rules", tuple(LIFE_RULES), "Life"),
+               ("cells", "Cells", ("Small", "Large"), "Small"),
+               ("speed", "Speed", ("Slow", "Normal", "Fast"), "Normal"))
+    restart_for = ("rules", "cells")
+    CELL = {"Small": 4, "Large": 7}                 # px
+    GENS = {"Slow": 5, "Normal": 12, "Fast": 25}    # generations a second
+    WAIT = 4.0                                      # seconds a settled board shows, then a new one
+
+    def __init__(self, w, h, rng=None, values=None):
+        super().__init__(w, h, rng, values)
+        self.lut = life_colours()
+        self.restart()
+
+    def restart(self):
+        import numpy as np
+        super().restart()
+        c = self.CELL[self.values["cells"]]
+        self.cols, self.rows = max(8, self.w // c), max(8, self.h // c)
+        alive = self.np_rng().random((self.rows, self.cols)) < LIFE_SOUP[self.values["rules"]]
+        self.age = alive.astype(np.uint16)
+        self.gone = np.zeros((self.rows, self.cols), np.uint8)
+        self.gen, self.carry = 0, 0.0
+        self.seen = deque(maxlen=60)                # recent boards, to see it repeat
+        self.steady, self.last_pop = 0, -1
+        self.ended, self.wait = None, 0.0
+        self.sample((self.alive(),))
+
+    def refit(self, w, h):
+        """Full screen, and back: the board grows or shrinks round its middle (new edges: new soup)."""
+        import numpy as np
+        c = self.CELL[self.values["cells"]]
+        rows, cols = max(8, h // c), max(8, w // c)
+        rnd, soup = self.np_rng(), LIFE_SOUP[self.values["rules"]]
+        self.age = self.regrid(self.age, rows, cols, lambda sh: rnd.random(sh) < soup)
+        self.gone = self.regrid(self.gone, rows, cols, lambda sh: np.zeros(sh, np.uint8))
+        self.w, self.h, self.rows, self.cols = w, h, rows, cols
+        self.seen.clear()
+        self.steady = 0
+
+    def alive(self):
+        return int((self.age > 0).sum())
+
+    def update(self, dt):
+        if self.paused or dt <= 0:
+            return None
+        if self.ended:
+            self.wait -= dt
+            if self.wait <= 0:
+                self.restart()
+                return "next"
+            return None
+        self.clock += dt
+        self.carry = min(self.carry + dt * self.GENS[self.values["speed"]], 4)
+        while self.carry >= 1 and not self.ended:
+            self.carry -= 1
+            self.step()
+        self.sampled += dt
+        if self.sampled >= SIM_SAMPLE:
+            self.sampled = 0.0
+            self.sample((self.alive(),))
+        return "ended" if self.ended else None
+
+    def step(self):
+        import numpy as np
+        born, stay = LIFE_RULES[self.values["rules"]]
+        a = self.age > 0
+        n = np.zeros(a.shape, np.uint8)
+        for dy in (-1, 0, 1):
+            row = np.roll(a, dy, 0)
+            for dx in (-1, 0, 1):
+                if dy or dx:
+                    n += np.roll(row, dx, 1)
+        b, s = np.zeros(9, bool), np.zeros(9, bool)
+        b[list(born)] = True
+        s[list(stay)] = True
+        new = (~a & b[n]) | (a & s[n])
+        self.gone = np.where(a & ~new, 8, np.where(self.gone > 0, self.gone - 1, 0)).astype(np.uint8)
+        self.age = np.where(new, np.minimum(self.age + 1, 255), 0).astype(np.uint16)
+        self.gen += 1
+        pop = int(new.sum())
+        h = hash(new.tobytes())
+        if pop == 0:
+            self.end("Everything died")
+        elif h in self.seen:
+            self.end("Settled")
+        self.seen.append(h)
+        self.steady = self.steady + 1 if abs(pop - self.last_pop) <= max(2, pop // 200) else 0
+        self.last_pop = pop
+        if self.steady >= 400 and not self.ended:      # (a few gliders going round for ever)
+            self.end("Settled")
+
+    def end(self, why):
+        self.ended, self.wait = (why, self.gen), self.WAIT
+
+    def poke(self):
+        """X: a patch of new life somewhere."""
+        ph, pw = min(16, self.rows), min(16, self.cols)
+        y, x = self.rng.randrange(self.rows - ph + 1), self.rng.randrange(self.cols - pw + 1)
+        patch = self.np_rng().random((ph, pw)) < 0.4
+        view = self.age[y:y + ph, x:x + pw]
+        view[patch & (view == 0)] = 1
+        if self.ended:
+            self.ended, self.seen, self.steady = None, deque(maxlen=60), 0
+
+    def draw(self, img, x0, y0):
+        import numpy as np
+        from PIL import Image
+        idx = np.where(self.age > 0, self.age,
+                       np.where(self.gone > 0, 255 + (9 - self.gone.astype(np.uint16)), 0))
+        c = self.CELL[self.values["cells"]]
+        pic = Image.fromarray(self.lut[np.minimum(idx, 263)], "RGB").resize((self.cols * c, self.rows * c),
+                                                                             Image.NEAREST)
+        img.paste(pic, (x0 + (self.w - self.cols * c) // 2, y0 + (self.h - self.rows * c) // 2))
+
+    def stats(self):
+        return [("Generation", str(self.gen)), ("Alive", str(self.alive())), ("Rules", self.values["rules"])]
+
+    def chart(self):
+        return self.history, [(150, 236, 196)], max(1, self.rows * self.cols // 3)
+
+    def note(self):
+        if not self.ended:
+            return None
+        why, gen = self.ended
+        return why, f"After {gen} generations. A new one in {max(1, math.ceil(self.wait))} s"
+
+
+# ---- Orbits ----------------------------------------------------------------------------------------------
+ORBIT_SPEEDS = {"Slow": 0.6, "Normal": 1.0, "Fast": 1.7}      # how fast time goes
+ORBIT_TRAILS = {"Off": 0, "Short": 30, "Long": 110}            # points behind each planet
+ORBIT_SUN = 12                                                 # px
+
+
+def orbit_sun(r=ORBIT_SUN):
+    """The sun, glowing."""
+    from PIL import Image, ImageDraw
+    K, R = 4, r * 3
+    big = Image.new("RGBA", (2 * R * K, 2 * R * K), (0, 0, 0, 0))
+    d = ImageDraw.Draw(big)
+    for k in range(18, 0, -1):
+        rad = r + (R - r) * k / 18
+        d.ellipse((R * K - rad * K, R * K - rad * K, R * K + rad * K, R * K + rad * K),
+                  fill=(255, 196, 90, int(70 * (1 - k / 18) ** 2)))
+    d.ellipse((R * K - r * K, R * K - r * K, R * K + r * K, R * K + r * K), fill=(255, 214, 120, 255))
+    d.ellipse((R * K - r * 0.6 * K, R * K - r * 0.7 * K, R * K + r * 0.3 * K, R * K + r * 0.2 * K),
+              fill=(255, 240, 190, 255))
+    return big.reduce(K)
+
+
+class Orbits(Sim):
+    """A sun and planets: each pulls on the sun and on every other planet (leapfrog steps). Planets that
+    touch become one; one that falls into the sun or flies far away is gone. New planets come in when
+    there are few left."""
+    key = "orbit"
+    blurb = "Every planet pulls on the sun and on every other planet. Planets that meet become one."
+    poke_label = "Add planet"
+    options = (("planets", "Planets", (6, 12, 20, 30), 12),
+               ("trails", "Trails", tuple(ORBIT_TRAILS), "Short"),
+               ("speed", "Speed", tuple(ORBIT_SPEEDS), "Normal"))
+    restart_for = ("planets",)
+    GM = 560000.0           # the sun's pull, px³/s²
+    SOFT = 3.0              # px: so a close pass doesn't fling one off for ever
+
+    def __init__(self, w, h, rng=None, values=None):
+        super().__init__(w, h, rng, values)
+        self.sun = None
+        self.restart()
+
+    def restart(self):
+        import numpy as np
+        super().restart()
+        self.cx, self.cy = self.w / 2, self.h / 2
+        self.p, self.v, self.m = np.zeros((0, 2)), np.zeros((0, 2)), np.zeros(0)
+        self.colour, self.trails = [], []
+        self.merged = self.lost = 0
+        self.trail_t = self.refill = 0.0
+        for _ in range(self.values["planets"]):
+            self.add()
+
+    def add(self):
+        """A planet on a roughly round orbit somewhere it fits."""
+        import numpy as np
+        rnd = self.rng
+        lim = max(46.0, min(self.w, self.h) / 2 - 10)
+        for _ in range(20):
+            r = rnd.uniform(36, lim)
+            a = rnd.uniform(0, 2 * math.pi)
+            pos = np.array((self.cx + math.cos(a) * r, self.cy + math.sin(a) * r))
+            if not len(self.p) or ((self.p - pos) ** 2).sum(1).min() > 24 ** 2:
+                break
+        speed = math.sqrt(self.GM / r) * rnd.uniform(0.86, 1.06)
+        self.p = np.vstack([self.p, pos])
+        self.v = np.vstack([self.v, (-math.sin(a) * speed, math.cos(a) * speed)])
+        self.m = np.append(self.m, self.GM * rnd.uniform(0.0006, 0.004))
+        self.colour.append(sim_hue(rnd.random(), 0.42))
+        self.trails.append(deque(maxlen=ORBIT_TRAILS["Long"]))
+
+    def radius(self, m):
+        return 2.4 + 2.2 * (m / (self.GM * 0.002)) ** (1 / 3)
+
+    def refit(self, w, h):
+        dx, dy = w / 2 - self.cx, h / 2 - self.cy
+        self.w, self.h, self.cx, self.cy = w, h, w / 2, h / 2
+        if len(self.p):
+            self.p += (dx, dy)
+        for tr in self.trails:
+            pts = [(x + dx, y + dy) for x, y in tr]
+            tr.clear()
+            tr.extend(pts)
+
+    def accel(self, p):
+        import numpy as np
+        d = (self.cx, self.cy) - p
+        r2 = (d * d).sum(1) + self.SOFT ** 2
+        a = d * (self.GM / (r2 * np.sqrt(r2)))[:, None]
+        if len(p) > 1:
+            dd = p[None, :, :] - p[:, None, :]
+            rr = (dd * dd).sum(-1) + self.SOFT ** 2
+            np.fill_diagonal(rr, np.inf)
+            a += (dd * (self.m[None, :] / (rr * np.sqrt(rr)))[:, :, None]).sum(1)
+        return a
+
+    def update(self, dt):
+        if self.paused or dt <= 0:
+            return None
+        dt *= ORBIT_SPEEDS[self.values["speed"]]
+        self.clock += dt
+        h = dt / 4
+        for _ in range(4):
+            if not len(self.p):
+                break
+            self.v += self.accel(self.p) * (h / 2)
+            self.p += self.v * h
+            self.v += self.accel(self.p) * (h / 2)
+            self.collide()
+        self.trail_t += dt
+        if self.trail_t >= 0.05:
+            self.trail_t = 0.0
+            for tr, (x, y) in zip(self.trails, self.p.tolist()):
+                tr.append((x, y))
+        self.refill = self.refill + dt if len(self.p) < max(2, self.values["planets"] // 2) else 0.0
+        if self.refill > 4:                              # few left: a new one comes in
+            self.refill = 0.0
+            self.add()
+        return None
+
+    def collide(self):
+        import numpy as np
+        if not len(self.p):
+            return
+        d = self.p - (self.cx, self.cy)
+        r = np.sqrt((d * d).sum(1))
+        rad = self.radius(self.m)
+        gone = (r <= ORBIT_SUN + rad * 0.5) | (r > 2.5 * max(self.w, self.h))   # into the sun, or far off
+        self.lost += int(gone.sum())
+        keep = ~gone
+        if len(self.p) > 1:
+            dd = self.p[None, :, :] - self.p[:, None, :]
+            dist = np.sqrt((dd * dd).sum(-1))
+            touch = dist < (rad[:, None] + rad[None, :]) * 0.8
+            np.fill_diagonal(touch, False)
+            for i, j in zip(*np.nonzero(np.triu(touch))):
+                if keep[i] and keep[j]:
+                    mi, mj = self.m[i], self.m[j]
+                    self.v[i] = (self.v[i] * mi + self.v[j] * mj) / (mi + mj)
+                    self.p[i] = (self.p[i] * mi + self.p[j] * mj) / (mi + mj)
+                    self.m[i] = mi + mj
+                    keep[j] = False
+                    self.merged += 1
+        if not keep.all():
+            idx = np.nonzero(keep)[0].tolist()
+            self.p, self.v, self.m = self.p[keep], self.v[keep], self.m[keep]
+            self.colour = [self.colour[i] for i in idx]
+            self.trails = [self.trails[i] for i in idx]
+
+    def poke(self):
+        self.add()
+
+    def draw(self, img, x0, y0):
+        from PIL import ImageDraw
+        d = ImageDraw.Draw(img)
+        if self.sun is None:
+            self.sun = orbit_sun()
+        n = ORBIT_TRAILS[self.values["trails"]]
+        for tr, c, (x, y) in zip(self.trails, self.colour, self.p.tolist()):
+            pts = list(tr)[-n:] if n else []
+            if len(pts) > 1:                             # a tail: dimmer the older it is
+                pts = [(x0 + px, y0 + py) for px, py in pts] + [(x0 + x, y0 + y)]
+                k = len(pts)
+                for part, f in ((pts[:k // 3 + 1], 0.25), (pts[k // 3:2 * k // 3 + 1], 0.45),
+                                (pts[2 * k // 3:], 0.75)):
+                    if len(part) > 1:
+                        d.line(part, fill=co_mix(SIM_FLOOR, c, f), width=1)
+        s = self.sun
+        img.paste(s, (x0 + int(self.cx) - s.width // 2, y0 + int(self.cy) - s.height // 2), s)
+        for c, (x, y), m in zip(self.colour, self.p.tolist(), self.m.tolist()):
+            r = self.radius(m)
+            d.ellipse((x0 + x - r, y0 + y - r, x0 + x + r, y0 + y + r), fill=c)
+
+    def stats(self):
+        return [("Planets", str(len(self.p))), ("Merged", str(self.merged)), ("Lost", str(self.lost))]
+
+
+# ---- Forest Fire -----------------------------------------------------------------------------------------
+FIRE_GROW = {"Slow": 0.004, "Normal": 0.01, "Fast": 0.025}            # a tree in empty ground, a generation
+FIRE_STRIKE = {"Rare": 0.000001, "Normal": 0.000004, "Often": 0.00002}   # lightning, a tree, a generation
+
+
+class ForestFire(Sim):
+    """Trees grow in empty ground; lightning sets one alight now and then; fire spreads to the trees
+    next to it, burns out, and the forest grows back."""
+    key = "fire"
+    blurb = "Trees grow in empty ground. Lightning starts fires that spread from tree to tree, and the forest grows back."
+    poke_label = "Lightning"
+    options = (("growth", "Growth", tuple(FIRE_GROW), "Normal"),
+               ("lightning", "Lightning", tuple(FIRE_STRIKE), "Normal"),
+               ("cells", "Cells", ("Small", "Large"), "Small"),
+               ("speed", "Speed", ("Slow", "Normal", "Fast"), "Normal"))
+    restart_for = ("cells",)
+    CELL = {"Small": 4, "Large": 7}
+    GENS = {"Slow": 6, "Normal": 14, "Fast": 28}
+    GROUND, TREE, FIRE, EMBER = 0, 1, 2, 3
+
+    def __init__(self, w, h, rng=None, values=None):
+        super().__init__(w, h, rng, values)
+        self.lut = self.colours()
+        self.restart()
+
+    @staticmethod
+    def colours():
+        """0..63 ground and ash, 64..127 trees by age, 128..131 fire, 132 embers."""
+        import numpy as np
+        lut = np.zeros((136, 3), np.uint8)
+        for k in range(64):
+            lut[k] = co_mix((30, 26, 22), (70, 66, 62), min(1.0, k / 12))   # ash, fading to ground
+        for k in range(64):
+            lut[64 + k] = co_mix((120, 196, 96), (34, 104, 62), min(1.0, k / 40))
+        for k, c in enumerate(((255, 232, 140), (255, 190, 80), (250, 140, 50), (236, 96, 40))):
+            lut[128 + k] = c
+        lut[132] = (140, 46, 30)
+        return lut
+
+    def restart(self):
+        import numpy as np
+        super().restart()
+        c = self.CELL[self.values["cells"]]
+        self.cols, self.rows = max(8, self.w // c), max(8, self.h // c)
+        self.rnd = self.np_rng()
+        self.state = np.where(self.rnd.random((self.rows, self.cols)) < 0.45, self.TREE,
+                              self.GROUND).astype(np.uint8)
+        self.age = self.rnd.integers(0, 40, (self.rows, self.cols)).astype(np.uint8)
+        self.ash = np.zeros((self.rows, self.cols), np.uint8)
+        self.fires, self.carry, self.gen = 0, 0.0, 0
+        self.sample(self.counts())
+
+    def refit(self, w, h):
+        """Full screen, and back: the forest grows or shrinks round its middle (new edges: new trees)."""
+        import numpy as np
+        c = self.CELL[self.values["cells"]]
+        rows, cols = max(8, h // c), max(8, w // c)
+        self.state = self.regrid(self.state, rows, cols,
+                                 lambda sh: np.where(self.rnd.random(sh) < 0.45, self.TREE, self.GROUND))
+        self.age = self.regrid(self.age, rows, cols, lambda sh: self.rnd.integers(0, 40, sh))
+        self.ash = self.regrid(self.ash, rows, cols, lambda sh: np.zeros(sh, np.uint8))
+        self.w, self.h, self.rows, self.cols = w, h, rows, cols
+
+    def counts(self):
+        st = self.state
+        return int((st == self.TREE).sum()), int(((st == self.FIRE) | (st == self.EMBER)).sum())
+
+    def update(self, dt):
+        if self.paused or dt <= 0:
+            return None
+        self.clock += dt
+        self.carry = min(self.carry + dt * self.GENS[self.values["speed"]], 4)
+        while self.carry >= 1:
+            self.carry -= 1
+            self.step()
+        self.sampled += dt
+        if self.sampled >= SIM_SAMPLE:
+            self.sampled = 0.0
+            self.sample(self.counts())
+        return None
+
+    def step(self):
+        import numpy as np
+        st = self.state
+        fire = st == self.FIRE
+        near = np.zeros_like(fire)                       # next to a fire (the edges don't meet)
+        near[1:, :] |= fire[:-1, :]
+        near[:-1, :] |= fire[1:, :]
+        near[:, 1:] |= fire[:, :-1]
+        near[:, :-1] |= fire[:, 1:]
+        near[1:, 1:] |= fire[:-1, :-1]
+        near[:-1, :-1] |= fire[1:, 1:]
+        near[1:, :-1] |= fire[:-1, 1:]
+        near[:-1, 1:] |= fire[1:, :-1]
+        tree = st == self.TREE
+        strike = tree & (self.rnd.random(st.shape) < FIRE_STRIKE[self.values["lightning"]])
+        self.fires += int((strike & ~near).sum())
+        catch = tree & (near | strike)
+        grow = (st == self.GROUND) & (self.rnd.random(st.shape) < FIRE_GROW[self.values["growth"]])
+        new = st.copy()
+        out = st == self.EMBER
+        new[out] = self.GROUND
+        self.ash = np.where(out, 12, np.where(self.ash > 0, self.ash - 1, 0)).astype(np.uint8)
+        new[fire] = self.EMBER
+        new[catch] = self.FIRE
+        new[grow] = self.TREE
+        self.age = np.where(grow, 0, np.minimum(self.age.astype(np.uint16) + 1, 63)).astype(np.uint8)
+        self.state = new
+        self.gen += 1
+
+    def poke(self):
+        """X: lightning hits a tree."""
+        import numpy as np
+        trees = np.flatnonzero(self.state == self.TREE)
+        if len(trees):
+            self.state.flat[int(trees[self.rng.randrange(len(trees))])] = self.FIRE
+            self.fires += 1
+
+    def draw(self, img, x0, y0):
+        import numpy as np
+        from PIL import Image
+        st = self.state
+        idx = np.where(st == self.TREE, 64 + self.age,
+                       np.where(st == self.FIRE, 128 + self.rnd.integers(0, 4, st.shape),    # (it flickers)
+                                np.where(st == self.EMBER, 132, self.ash))).astype(np.uint8)
+        c = self.CELL[self.values["cells"]]
+        pic = Image.fromarray(self.lut[idx], "RGB").resize((self.cols * c, self.rows * c), Image.NEAREST)
+        img.paste(pic, (x0 + (self.w - self.cols * c) // 2, y0 + (self.h - self.rows * c) // 2))
+
+    def stats(self):
+        trees, burning = self.counts()
+        return [("Trees", f"{100 * trees // max(1, self.rows * self.cols)}%"), ("Burning", str(burning)),
+                ("Fires", str(self.fires))]
+
+    def chart(self):
+        return self.history, [(120, 196, 96), (255, 170, 70)], max(1, self.rows * self.cols)
+
+
+# ---- Mandelbrot Set --------------------------------------------------------------------------------------
+# For each point c on the screen, z is squared and c added, again and again: where z never runs off, the
+# point is in the set (dark); the others are coloured by how soon theirs did. A dive goes a level at a time,
+# each twice as close as the last, to one of the set's well-known places. Each level's picture is worked out
+# on a thread of its own, a slice of points at a time (a Pi Zero takes a few seconds for one); meanwhile the
+# level before grows on the screen, with the next drawn into its middle as it comes, so the middle stays
+# sharp. The zoom waits for the pictures, so a slower Pi just dives more slowly.
+MANDEL_START = (-0.65, 0.0, 3.6)        # the whole set: the view's middle (re, im) and its width
+MANDEL_DRIFT = 4.0                      # levels it takes the place it dives to to come to the middle
+MANDEL_DIVES = (    # (the place, re, im, the level it goes to, the period of the tiny copy of the set it ends at)
+    ("Seahorse Valley", -0.77568377, 0.13646737, 41.0, 0),
+    ("Elephant Valley", 0.2964859389371122, 0.01617421642689549, 41.0, 0),
+    ("Elephant Valley", 0.31444217671524638, 0.03029686155752508, 28.4, 65),
+    ("Triple Spiral Valley", -0.0746892945923173, 0.6600388096734732, 41.0, 0),
+    ("Quad-Spiral Valley", 0.2884594492858742, 0.47044988315285424, 41.0, 0),
+    ("The Antenna", -0.1058191436831112, 0.92167750935953, 41.0, 0),
+    ("West Valley", -1.2560158121687501, 0.030788241491828364, 38.8, 177),
+    ("Southern Snowflakes", -0.57773001526196366, -0.65074018725816474, 38.0, 53),
+)
+MANDEL_SPEEDS = {"Slow": 1 / 7, "Normal": 1 / 4.5, "Fast": 1 / 2.5}     # levels a second, at most
+MANDEL_COLOURS = {     # the colours a point gets by how soon it ran off, round and round
+    "Classic": ((0.0, (0, 7, 100)), (0.16, (32, 107, 203)), (0.42, (237, 255, 255)), (0.6425, (255, 170, 0)),
+                (0.8575, (0, 2, 0)), (1.0, (0, 7, 100))),
+    "Ember": ((0.0, (14, 6, 22)), (0.3, (120, 24, 52)), (0.55, (228, 92, 36)), (0.75, (255, 212, 120)),
+              (0.88, (255, 246, 222)), (1.0, (14, 6, 22))),
+    "Ice": ((0.0, (6, 14, 34)), (0.3, (24, 76, 130)), (0.55, (98, 182, 216)), (0.75, (234, 248, 255)),
+            (0.88, (120, 168, 208)), (1.0, (6, 14, 34))),
+    "Ink": ((0.0, (12, 12, 14)), (0.35, (92, 96, 106)), (0.6, (238, 240, 244)), (0.8, (150, 154, 162)),
+            (1.0, (12, 12, 14))),
+}
+MANDEL_INSIDE = (8, 9, 12)              # the set itself
+MANDEL_BANDS = 64                       # steps (z squared) to go once round the colours
+MANDEL_HOLD = 6.0                       # seconds at the end of a dive, then the next
+MANDEL_FADE = 1.2                       # seconds one dive takes to fade into the next
+MANDEL_LUTS = {}
+
+
+def mandel_lut(name):
+    """1024 colours, round the palette."""
+    if name not in MANDEL_LUTS:
+        import numpy as np
+        stops = MANDEL_COLOURS[name]
+        xs = np.linspace(0, 1, 1024, endpoint=False)
+        MANDEL_LUTS[name] = np.stack([np.interp(xs, [p for p, _ in stops], [c[k] for _, c in stops])
+                                      for k in range(3)], 1).astype(np.uint8)
+    return MANDEL_LUTS[name]
+
+
+def mandel_zoom(m):
+    """×2,048, ×340 thousand, ×1.2 million, ×2.2 trillion."""
+    if m < 1e4:
+        return f"×{m:,.0f}"
+    for div, word in ((1e12, "trillion"), (1e9, "billion"), (1e6, "million"), (1e3, "thousand")):
+        if m >= div:
+            v = m / div
+            return f"×{v:.1f} {word}" if v < 10 else f"×{v:.0f} {word}"
+    return f"×{m:,.0f}"
+
+
+class MandelLevel:
+    """One level of a dive, worked out a slice of points at a time (step): for each point, how soon z ran
+    off (smoothed: nu), or -1 for one in the set (or still going after maxit steps)."""
+    SLICE = 16384                       # points a step
+    K = 8                               # times z is squared between looks at it
+
+    def __init__(self, level, middle, width, w, h, maxit):
+        import numpy as np
+        self.level, self.w, self.h, self.maxit = level, w, h, maxit
+        px = width / w
+        xs = middle[0] + (np.arange(w) - (w - 1) / 2) * px
+        ys = middle[1] + ((h - 1) / 2 - np.arange(h)) * px
+        c = (xs[None, :] + 1j * ys[:, None]).ravel()
+        self.nu = np.full(w * h, -1.0, np.float32)
+        q = (c.real - 0.25) ** 2 + c.imag ** 2       # (in the big heart, or the bulb on its left: in the set)
+        out = (q * (q + c.real - 0.25) > 0.25 * c.imag ** 2) & ((c.real + 1) ** 2 + c.imag ** 2 > 0.0625)
+        self.idx = np.flatnonzero(out)
+        self.c = c[self.idx]
+        self.z = self.c.copy()
+        self.alive = np.ones(self.idx.size, bool)
+        self.it, self.pos = 1, 0
+        self.done = self.idx.size == 0
+
+    def step(self):
+        import numpy as np
+        if self.done:
+            return
+        a, b = self.pos, min(self.pos + self.SLICE, self.idx.size)
+        z, c = self.z[a:b], self.c[a:b]
+        with np.errstate(over="ignore", invalid="ignore"):
+            for _ in range(self.K):
+                np.multiply(z, z, out=z)
+                z += c
+            a2 = z.real * z.real + z.imag * z.imag           # (one that ran off early can be too big: inf)
+        gone = a2 > 64.0
+        if gone.any():
+            e = np.flatnonzero(gone)
+            nu = (self.it + self.K) - np.log2(np.log2(np.abs(z[e])))
+            self.nu[self.idx[a + e]] = np.maximum(nu, 0.0)
+            self.alive[a + e] = False
+        self.pos = b
+        if b < self.idx.size:
+            return
+        self.it += self.K                                # the end of a pass: those that ran off are let go
+        self.pos = 0
+        if not self.alive.all():
+            keep = self.alive
+            self.idx, self.z, self.c = self.idx[keep], self.z[keep], self.c[keep]
+            self.alive = np.ones(self.idx.size, bool)
+        if self.it >= self.maxit or not self.idx.size:
+            self.done = True
+            self.idx = self.z = self.c = self.alive = None
+
+
+class Mandelbrot(Sim):
+    """Tour: dives into the Mandelbrot set, one well-known place after another (MANDEL_DIVES), from the
+    whole set down as far as a computer's numbers go, or to a tiny copy of the set; then the next.
+    Explore: the d-pad moves round the set and A zooms in, Y out (held, on and on): a quick rough
+    picture of each new view comes first, then a sharp one once it stays put."""
+    key = "mandel"
+    blurb = "For each point c, z becomes z² + c, again and again. Where z never runs off, c is in the set."
+    poke_label = "Colours"
+    options = (("mode", "Mode", ("Tour", "Explore"), "Tour"),
+               ("colours", "Colours", tuple(MANDEL_COLOURS), "Classic"),
+               ("speed", "Zoom", tuple(MANDEL_SPEEDS), "Normal"))
+    THREADED = True                     # pictures worked out on a thread of their own (or as it goes)
+    AHEAD = 2                           # levels worked out ahead of the one on screen
+    PAN, ZOOM = 0.6, 1.0                # exploring, held: the view's width a second; levels a second
+    NUDGE = (0.08, 0.15)                # ...pressed once: the view's width; levels
+    DEEPEST = 41.0                      # as deep as exploring goes (as far as the numbers hold out)
+    REACH = (-2.6, 1.4, -1.6, 1.6)      # where the view's middle can go: re from, to; im from, to
+    MOVES = {"up": (0, 1, 0), "down": (0, -1, 0), "left": (-1, 0, 0), "right": (1, 0, 0),
+             "a": (0, 0, 1), "y": (0, 0, -1)}
+
+    def __init__(self, w, h, rng=None, values=None):
+        super().__init__(w, h, rng, values)
+        self.lock = threading.Condition()
+        self.gen = 0                    # up by one whenever the pictures in hand are no use any more
+        self.levels = {}                # touring: level -> {"nu", "maxit", "w", "h", "pic", "colours"}
+        self.job = None                 # the picture being worked out
+        self.starts = {}                # (w, h) -> the whole set's nu and maxit: every dive starts there
+        self.order, self.dive = [], None
+        self.shift = 0.0                # where in the colours the counts start (X moves it on)
+        self.pic, self.pic_key = None, None    # the picture last drawn
+        self.fade = None                # (the last dive's picture, how far it has faded)
+        self.stand_in = None            # a picture to show until the first level comes (after refit)
+        self.wanted = 0.0               # the thread works until then (time.perf_counter())
+        self.map = (None, None)
+        self.ex = None                  # exploring: {"cx", "cy", "L"}: the view's middle (re, im) and level
+        self.ex_quick = self.ex_full = None    # ...its latest rough picture and sharp one (each: where it is)
+        self.held, self.held_at = set(), 0.0   # ...the buttons held down
+        self.mode_now = "Tour"
+        self.restart()
+        if self.THREADED:
+            threading.Thread(target=self.run, daemon=True, name="mandelbrot").start()
+
+    def restart(self):
+        """A new dive: the next place (in a shuffled order), new colours; the last fades away. (Exploring:
+        from the whole set.)"""
+        super().restart()
+        with self.lock:
+            old = self.pic if self.pic is not None else self.stand_in
+            if old is not None:
+                self.fade, self.stand_in = (old, 0.0), None
+            if not self.order:
+                order = list(range(len(MANDEL_DIVES)))
+                self.rng.shuffle(order)
+                if self.dive is not None and len(order) > 1 and MANDEL_DIVES[order[-1]] == self.dive:
+                    order.insert(0, order.pop())               # (not the same place twice in a row)
+                self.order = order
+            self.dive = MANDEL_DIVES[self.order.pop()]
+            self.shift = self.rng.uniform(-0.08, 0.04) % 1.0   # (dark round the whole set, to start with)
+            self.L, self.phase, self.wait = 0.0, "dive", 0.0
+            self.gen += 1
+            self.job = None
+            self.levels = {}
+            self.ex = self.ex_quick = self.ex_full = None
+            self.held = set()
+            start = self.starts.get((self.w, self.h))
+            if start is not None:
+                self.levels[0] = {"nu": start[0], "maxit": start[1], "w": self.w, "h": self.h, "pic": None,
+                                  "colours": None}
+            self.lock.notify_all()
+        self.mode_now = "Tour"
+        if self.values.get("mode") == "Explore":
+            self.mode_now = "Explore"
+            self.explore_from_here(keep_pic=False)
+
+    def apply(self):
+        """Tour or Explore, as chosen."""
+        mode = self.values.get("mode", "Tour")
+        if mode == self.mode_now:
+            return
+        if mode == "Explore":
+            self.mode_now = mode
+            self.explore_from_here()
+        else:
+            self.restart()
+
+    def explore_from_here(self, keep_pic=True):
+        """Exploring, from the view the tour is at (its picture stands in until the first of its own)."""
+        with self.lock:
+            if self.phase == "explore":
+                return
+            dx, dy, W = self.view(self.L)
+            cx, cy = self.dive[1] + dx, self.dive[2] + dy
+            self.ex = {"cx": cx, "cy": cy, "L": self.L}
+            pic = (self.pic if self.pic is not None else self.stand_in) if keep_pic else None
+            self.ex_quick = None
+            self.ex_full = None if pic is None else {"cx": cx, "cy": cy, "width": W, "w": pic.width, "h": pic.height,
+                                                     "pic": pic, "nu": None, "colours": None, "maxit": None}
+            if keep_pic:
+                self.fade = None
+            self.phase, self.paused = "explore", False
+            self.gen += 1
+            self.job = None
+            self.levels = {}
+            self.held = set()
+            self.pic_key = None
+            self.lock.notify_all()
+
+    def refit(self, w, h):
+        """Full screen, and back: the same place and depth, its pictures worked out again at the new size
+        (the last one, stretched, stands in meanwhile; exploring, the pictures in hand still fit where
+        they are)."""
+        from PIL import Image
+        with self.lock:
+            self.w, self.h = w, h
+            self.gen += 1
+            self.job = None
+            self.levels = {}
+            self.pic_key = None
+            if self.phase == "explore":
+                self.lock.notify_all()
+                return
+            if self.L == 0 and (w, h) in self.starts:
+                start = self.starts[(w, h)]
+                self.levels[0] = {"nu": start[0], "maxit": start[1], "w": w, "h": h, "pic": None, "colours": None}
+            old = self.pic if self.pic is not None else self.stand_in
+            self.stand_in = old.resize((w, h), Image.BILINEAR) if old is not None else None
+            self.pic, self.fade = None, None
+            self.lock.notify_all()
+
+    def view(self, L):
+        """L levels into the dive: the view's middle, from the place it's diving to, and its width."""
+        _, tx, ty, _, _ = self.dive
+        cx0, cy0, w0 = MANDEL_START
+        f = 2.0 ** -L * math.exp(-L / MANDEL_DRIFT)
+        return (cx0 - tx) * f, (cy0 - ty) * f, w0 * 2.0 ** -L
+
+    def here(self):
+        """The view now: its middle (re, im) and width."""
+        if self.phase == "explore" and self.ex:
+            return self.ex["cx"], self.ex["cy"], MANDEL_START[2] * 2.0 ** -self.ex["L"]
+        dx, dy, W = self.view(self.L)
+        return self.dive[1] + dx, self.dive[2] + dy, W
+
+    def colours(self):
+        return self.values["colours"], round(self.shift, 6)
+
+    @staticmethod
+    def paint(lv, colours):
+        """A picture (lv: its nu, h x w), in these colours."""
+        import numpy as np
+        from PIL import Image
+        nu = lv["nu"]
+        idx = (nu * (1024.0 / MANDEL_BANDS) + colours[1] * 1024).astype(np.int64) & 1023
+        rgb = mandel_lut(colours[0])[idx]
+        rgb[nu < 0] = MANDEL_INSIDE
+        lv["pic"] = Image.fromarray(rgb.reshape(lv["h"], lv["w"], 3), "RGB")
+        lv["colours"] = colours
+
+    # the thread: each picture
+    def next_spec(self):
+        """What to work out next (the lock is held), or None: touring, the level on screen, then up to
+        AHEAD more; exploring, a rough picture of the view, then a sharp one."""
+        if self.job is not None or self.dive is None:
+            return None
+        if self.phase == "explore":
+            return self.ex_next()
+        if self.phase != "dive":
+            return None
+        n = int(self.L)
+        for lv in range(n, min(n + self.AHEAD, math.ceil(self.dive[3])) + 1):
+            if lv not in self.levels:
+                dx, dy, width = self.view(lv)
+                return {"kind": "level", "level": lv, "middle": (self.dive[1] + dx, self.dive[2] + dy),
+                        "width": width, "size": (self.w, self.h), "L": lv, "prev": self.levels.get(lv - 1)}
+        return None
+
+    def ex_next(self):
+        v = self.ex
+        if v is None:
+            return None
+        W = MANDEL_START[2] * 2.0 ** -v["L"]
+        qw, qh = max(8, -(-self.w // 4)), max(8, -(-self.h // 4))    # (a pixel of it: 4 x 4 of the view's,
+        jobs = {"full": ((self.w, self.h), W), "quick": ((qw, qh), W * 4 * qw / self.w)}   # all of it covered)
+
+        def same(p, kind):
+            size, width = jobs[kind]
+            return (p is not None and p.get("nu") is not None and (p["w"], p["h"]) == size
+                    and (p["cx"], p["cy"], p["width"]) == (v["cx"], v["cy"], width))
+        if same(self.ex_full, "full"):
+            return None
+        prev = self.ex_full if self.ex_full is not None and self.ex_full.get("nu") is not None \
+            and abs(math.log2(self.ex_full["width"] / W)) < 2 else None
+        kind = "full" if same(self.ex_quick, "quick") else "quick"
+        return {"kind": kind, "middle": (v["cx"], v["cy"]), "width": jobs[kind][1], "size": jobs[kind][0],
+                "L": v["L"], "prev": prev, "level": int(v["L"])}
+
+    def maxit_for(self, lv, prev):
+        """How many times to square z at most: enough for the slowest points of the picture before it,
+        with room to spare (the deeper, the more it may take)."""
+        import numpy as np
+        cap = int(min(3200, 250 + 64 * lv))
+        if prev is None:
+            return cap
+        nu = prev["nu"]
+        out = nu[nu >= 0]
+        if not out.size:
+            return cap
+        return int(max(300, min(cap, 1.4 * float(np.quantile(out, 0.999)) + 150)))
+
+    def work(self, budget):
+        """Pictures worked out for up to budget seconds. False when there's nothing left to do."""
+        end = time.perf_counter() + budget
+        while time.perf_counter() < end:
+            with self.lock:
+                job, gen = self.job, self.gen
+                spec = None if job else self.next_spec()
+                if job is None and spec is None:
+                    return False
+            if job is None:
+                size = spec["size"]
+                job = MandelLevel(spec["level"], spec["middle"], spec["width"], size[0], size[1],
+                                  self.maxit_for(spec["L"], spec["prev"]))
+                job.spec = spec
+                with self.lock:
+                    if self.gen != gen or self.job is not None:
+                        continue
+                    self.job = job
+            job.step()
+            if job.done:
+                got = {"nu": job.nu, "maxit": job.maxit, "w": job.w, "h": job.h, "pic": None, "colours": None}
+                self.paint(got, self.colours())
+                with self.lock:
+                    if self.gen == gen and self.job is job:
+                        self.publish(job.spec, got)
+                        self.job = None
+        return True
+
+    def publish(self, spec, got):
+        """A picture done (the lock is held)."""
+        if spec["kind"] == "level":
+            self.levels[spec["level"]] = got
+            if spec["level"] == 0:
+                self.starts[spec["size"]] = (got["nu"], got["maxit"])
+            return
+        got.update(cx=spec["middle"][0], cy=spec["middle"][1], width=spec["width"])
+        if spec["kind"] == "quick":
+            self.ex_quick = got
+        else:
+            self.ex_full = got
+
+    def run(self):
+        while True:
+            with self.lock:
+                while time.perf_counter() > self.wanted or (self.job is None and self.next_spec() is None):
+                    self.lock.wait(0.5)
+            try:
+                self.work(0.04)
+            except Exception as ex:                     # (the sim carries on, whatever happens)
+                print(f"mandelbrot: {ex!r}", flush=True)
+                with self.lock:
+                    self.job = None
+                time.sleep(1)
+            time.sleep(0.001)
+
+    def finish(self):
+        """Everything due worked out now (tests)."""
+        while self.work(5.0):
+            pass
+
+    # moving on
+    def update(self, dt):
+        self.wanted = time.perf_counter() + 1.0          # (the thread works while it's on screen)
+        if self.THREADED:
+            with self.lock:
+                self.lock.notify_all()
+        else:
+            self.work(0.02)
+        if self.phase == "explore":
+            now = time.perf_counter()
+            if now - self.held_at > 1.0:
+                self.held.clear()                      # (let go while it was off the screen)
+            self.held_at = now
+            if dt > 0:
+                self.clock += dt
+                if self.fade and (self.ex_quick or self.ex_full):
+                    f = self.fade[1] + dt / MANDEL_FADE
+                    self.fade = (self.fade[0], f) if f < 1 else None
+                self.ex_step(dt)
+            return None
+        if self.paused or dt <= 0:
+            return None
+        self.clock += dt
+        with self.lock:
+            n = int(self.L)
+            ready = n - 1
+            while ready + 1 in self.levels:
+                ready += 1
+            for k in [k for k in self.levels if k < n]:   # (behind it now)
+                del self.levels[k]
+        if self.fade and ready >= n:
+            f = self.fade[1] + dt / MANDEL_FADE
+            self.fade = (self.fade[0], f) if f < 1 else None
+        if self.phase == "hold":
+            self.wait -= dt
+            if self.wait <= 0:
+                self.restart()
+                return "next"
+            return None
+        if ready < n:
+            return None                                  # (nothing to show yet)
+        end = self.dive[3]
+        limit = min(end, ready + 0.5)
+        room = (limit - self.L) / (1.2 if limit >= end else 0.4)
+        ease = max(0.06, min(1.0, room) ** 2 * (3 - 2 * min(1.0, room)))
+        start = min(1.0, 0.3 + self.clock / 4)
+        self.L = min(limit, self.L + MANDEL_SPEEDS[self.values["speed"]] * dt * ease * start)
+        if self.L >= end - 1e-3:
+            self.L, self.phase, self.wait = end, "hold", MANDEL_HOLD
+        return None
+
+    def poke(self):
+        """X: new colours."""
+        self.shift = (self.shift + 0.381966) % 1.0
+
+    # exploring: the buttons
+    def hold(self, name):
+        """A button pressed while exploring: a step at once, and on and on while it's held."""
+        if name in self.MOVES:
+            self.held.add(name)
+            self.held_at = time.perf_counter()
+            self.nudge(name)
+
+    def nudge(self, name):
+        """One step (a button pressed once, or a press repeated by the web page)."""
+        if name in self.MOVES:
+            mx, my, mz = self.MOVES[name]
+            self.ex_go(mx * self.NUDGE[0], my * self.NUDGE[0], mz * self.NUDGE[1])
+
+    def release(self, name):
+        self.held.discard(name)
+
+    def ex_step(self, dt):
+        """The buttons held down move the view on (zooming as quickly as Zoom says)."""
+        mx = sum(self.MOVES[k][0] for k in self.held if k in self.MOVES)
+        my = sum(self.MOVES[k][1] for k in self.held if k in self.MOVES)
+        mz = sum(self.MOVES[k][2] for k in self.held if k in self.MOVES)
+        rate = MANDEL_SPEEDS.get(self.values.get("speed"), MANDEL_SPEEDS["Normal"]) / MANDEL_SPEEDS["Normal"]
+        self.ex_go(mx * self.PAN * dt, my * self.PAN * dt, mz * self.ZOOM * rate * dt)
+
+    def ex_go(self, dx, dy, dz):
+        """The view moves (dx, dy: in its own widths) and zooms (dz: levels). A sharp picture being worked
+        out for a view it has left behind is given up."""
+        if not (dx or dy or dz) or self.ex is None:
+            return
+        lo_x, hi_x, lo_y, hi_y = self.REACH
+        with self.lock:
+            v = self.ex
+            W = MANDEL_START[2] * 2.0 ** -v["L"]
+            v["cx"] = min(hi_x, max(lo_x, v["cx"] + dx * W))
+            v["cy"] = min(hi_y, max(lo_y, v["cy"] + dy * W))
+            v["L"] = self.L = min(self.DEEPEST, max(0.0, v["L"] + dz))
+            j = self.job
+            if j is not None and j.spec["kind"] == "full":
+                jw, (jx, jy) = j.spec["width"], j.spec["middle"]
+                W = MANDEL_START[2] * 2.0 ** -v["L"]
+                if abs(math.log2(jw / W)) > 0.25 or max(abs(v["cx"] - jx), abs(v["cy"] - jy)) > 0.25 * jw:
+                    self.job = None
+                    self.gen += 1
+            self.lock.notify_all()
+
+    # drawing
+    def picture(self):
+        """The view now. Touring: the level it's at, grown to fit, with the next level drawn into its
+        middle. Exploring: the rough picture and then the sharp one, each where it falls in the view."""
+        from PIL import Image
+        new = None
+        if self.phase == "explore":
+            new = self.ex_picture()
+        else:
+            with self.lock:
+                n = int(self.L)
+                A, B = self.levels.get(n), self.levels.get(n + 1) if self.L > n else None
+            if A is not None:
+                colours = self.colours()
+                for lv in (A, B):
+                    if lv is not None and lv["colours"] != colours:
+                        self.paint(lv, colours)
+                key = (self.L, id(A), id(B), colours, self.w, self.h)
+                if key != self.pic_key:
+                    self.pic, self.pic_key, self.stand_in = self.compose(n, A, B), key, None
+                new = self.pic
+        if self.fade:
+            old = self.fade[0]
+            if old.size != (self.w, self.h):
+                old = old.resize((self.w, self.h), Image.BILINEAR)
+            return Image.blend(old, new, co_ease(self.fade[1])) if new is not None else old
+        return new if new is not None else self.stand_in
+
+    def compose(self, n, A, B):
+        from PIL import Image
+        w, h = self.w, self.h
+        vx, vy, W = self.view(self.L)
+        H = W * h / w
+        ax, ay, AW = self.view(n)
+        AH = AW * h / w
+        left, top = ((vx - W / 2) - (ax - AW / 2)) / AW * w, ((ay + AH / 2) - (vy + H / 2)) / AH * h
+        box = (max(0.0, left), max(0.0, top), min(float(w), left + W / AW * w), min(float(h), top + H / AH * h))
+        pic = A["pic"].resize((w, h), Image.BILINEAR, box=box)
+        if B is not None:                                # the next level, sharp, in the middle
+            bx, by, BW = self.view(n + 1)
+            BH = BW * h / w
+            l, t = ((bx - BW / 2) - (vx - W / 2)) / W * w, ((vy + H / 2) - (by + BH / 2)) / H * h
+            r, b = l + BW / W * w, t + BH / H * h
+            x0, y0, x1, y1 = max(0, math.ceil(l)), max(0, math.ceil(t)), min(w, math.floor(r)), min(h, math.floor(b))
+            if x1 - x0 >= 2 and y1 - y0 >= 2:
+                sx, sy = w / (r - l), h / (b - t)
+                src = (max(0.0, (x0 - l) * sx), max(0.0, (y0 - t) * sy), min(float(w), (x1 - l) * sx),
+                       min(float(h), (y1 - t) * sy))
+                pic.paste(B["pic"].resize((x1 - x0, y1 - y0), Image.BILINEAR, box=src), (x0, y0))
+        return pic
+
+    def ex_picture(self):
+        from PIL import Image
+        with self.lock:
+            v = dict(self.ex) if self.ex else None
+            quick, full = self.ex_quick, self.ex_full
+        if v is None:
+            return None
+        colours = self.colours()
+        for p in (quick, full):
+            if p is not None and p.get("nu") is not None and p["colours"] != colours:
+                self.paint(p, colours)
+        key = ("ex", v["cx"], v["cy"], v["L"], id(quick), id(full), quick and quick["colours"],
+               full and full["colours"], self.w, self.h)
+        if key == self.pic_key:
+            return self.pic
+        W = MANDEL_START[2] * 2.0 ** -v["L"]
+        img = Image.new("RGB", (self.w, self.h), MANDEL_INSIDE)
+        got = [p for p in (quick, full) if p is not None and p.get("pic") is not None]
+        for p in sorted(got, key=lambda p: p["w"] / p["width"]):     # (the sharper one on top)
+            self.place(img, p, v["cx"], v["cy"], W)
+        self.pic, self.pic_key = img, key
+        return img
+
+    @staticmethod
+    def place(img, p, cx, cy, W):
+        """Picture p, as much of it as falls in the view (its middle cx, cy and width W), drawn where it
+        falls on img."""
+        from PIL import Image
+        w, h = img.size
+        H = W * h / w
+        pw, ph = p["width"], p["width"] * p["h"] / p["w"]
+        l0, t0 = (p["cx"] - cx) - pw / 2, (p["cy"] - cy) + ph / 2      # its edges, from the view's middle
+        il, ir = max(l0, -W / 2), min(l0 + pw, W / 2)
+        it, ib = min(t0, H / 2), max(t0 - ph, -H / 2)
+        if ir <= il or it <= ib:
+            return
+        x0, x1 = math.ceil((il + W / 2) / W * w - 1e-9), math.floor((ir + W / 2) / W * w + 1e-9)
+        y0, y1 = math.ceil((H / 2 - it) / H * h - 1e-9), math.floor((H / 2 - ib) / H * h + 1e-9)
+        if x1 - x0 < 1 or y1 - y0 < 1:
+            return
+        def sx(X):
+            return ((X / w * W - W / 2) - l0) / pw * p["w"]
+
+        def sy(Y):
+            return (t0 - (H / 2 - Y / h * H)) / ph * p["h"]
+        box = (max(0.0, sx(x0)), max(0.0, sy(y0)), min(float(p["w"]), sx(x1)), min(float(p["h"]), sy(y1)))
+        if box[2] <= box[0] or box[3] <= box[1]:
+            return
+        if (x1 - x0, y1 - y0) == p["pic"].size and box == (0.0, 0.0, float(p["w"]), float(p["h"])):
+            img.paste(p["pic"], (x0, y0))
+        else:
+            img.paste(p["pic"].resize((x1 - x0, y1 - y0), Image.BILINEAR, box=box), (x0, y0))
+
+    def draw(self, img, x0, y0):
+        pic = self.picture()
+        if pic is not None:
+            img.paste(pic, (x0, y0))
+        if self.phase == "explore":                    # (where A zooms in to)
+            from PIL import ImageDraw
+            d = ImageDraw.Draw(img)
+            x, y = x0 + self.w // 2, y0 + self.h // 2
+            arms = [((x - 7, y), (x - 3, y)), ((x + 3, y), (x + 7, y)), ((x, y - 7), (x, y - 3)), ((x, y + 3), (x, y + 7))]
+            for colour, width in (((0, 0, 0), 3), ((255, 255, 255), 1)):
+                for arm in arms:
+                    d.line(arm, fill=colour, width=width)
+
+    def hints(self):
+        """Its buttons (beside the usual ones' place along the bottom)."""
+        if self.phase == "explore":
+            return [("✚", "Move"), ("A", "Zoom in"), ("Y", "Zoom out"), ("X", "Colours"), ("START", "Options")]
+        return [("A", "Play" if self.paused else "Pause"), ("X", "Colours"), ("Y", "New start"), ("✚", "Explore"),
+                ("START", "Options")]
+
+    def inset(self, w, h):
+        """For beside the box: the whole set, small, with where the view is now marked on it, and the
+        place's name (or, exploring, where it is)."""
+        from PIL import ImageDraw
+        cx0, cy0, w0 = MANDEL_START
+        h0 = w0 * h / w
+        key = (w, h, self.colours())
+        if self.map[0] != key:
+            lv = MandelLevel(0, (cx0, cy0), w0, w, h, 300)
+            while not lv.done:
+                lv.step()
+            got = {"nu": lv.nu, "w": w, "h": h}
+            self.paint(got, self.colours())
+            self.map = (key, got["pic"])
+        img = self.map[1].copy()
+        d = ImageDraw.Draw(img)
+        cx, cy, W = self.here()
+        mx, my = (cx - (cx0 - w0 / 2)) / w0 * w, ((cy0 + h0 / 2) - cy) / h0 * h
+        rw, rh = W / w0 * w, W / w0 * w * self.h / self.w
+        if rw >= 8:
+            d.rectangle((mx - rw / 2, my - rh / 2, mx + rw / 2, my + rh / 2), outline=(255, 255, 255))
+        else:
+            d.ellipse((mx - 5, my - 5, mx + 5, my + 5), outline=(0, 0, 0), width=3)
+            d.ellipse((mx - 5, my - 5, mx + 5, my + 5), outline=(255, 255, 255), width=1)
+        if self.phase == "explore":
+            return img, f"{cx:.5f} {'-' if cy < 0 else '+'} {abs(cy):.5f}i"
+        return img, self.dive[0]
+
+    def look(self):
+        """Exploring: where the view is (the map beside the box shows it)."""
+        if self.phase != "explore":
+            return None
+        cx, cy, W = self.here()
+        return round(cx, 5), round(cy, 5), round(math.log2(W), 1)
+
+    def stats(self):
+        if self.phase == "explore":
+            full = self.ex_full
+            its = full.get("maxit") if full else None
+        else:
+            lv = self.levels.get(int(self.L))
+            its = lv["maxit"] if lv else None
+        return [("Zoom", mandel_zoom(2.0 ** self.L)), ("Iterations", f"{its:,}" if its else "…")]
+
+    def note(self):
+        if self.phase != "hold":
+            return None
+        left = f"The next dive in {max(1, math.ceil(self.wait))} s"
+        if self.dive[4]:
+            return "A tiny copy of the whole set", f"{mandel_zoom(2.0 ** self.L)} closer. {left}"
+        return self.dive[0], f"As deep as it can go. {left}"
+
+
+# ---- Snake (the Games tab) -------------------------------------------------------------------------------
+SNAKE_BOARDS = (("Small", (16, 12)), ("Medium", (24, 19)), ("Large", (32, 25)))   # cells across and down
+SNAKE_SPEEDS = (("Slow", 6.0), ("Normal", 9.0), ("Fast", 12.0))                     # steps a second
+SNAKE_FASTER = (0.03, 1.5)     # each apple makes it this much quicker, up to this many times the speed
+SNAKE_HEAD, SNAKE_TAIL = (126, 214, 112), (44, 120, 70)                             # its colours, head to tail
+SNAKE_APPLE, SNAKE_LEAF, SNAKE_STEM = (232, 78, 64), (104, 184, 84), (120, 86, 52)
+SNAKE_DIRS = {"up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}
+SNAKE_OPTIONS = (("speed", "Speed", tuple(n for n, _ in SNAKE_SPEEDS), "Normal"),
+                 ("board", "Board", tuple(n for n, _ in SNAKE_BOARDS), "Medium"),
+                 ("walls", "Walls", ("Solid", "Wrap"), "Solid"))
+SNAKE_AI_WAIT = 8.0        # seconds a move may take to come (the game goes on meanwhile), or it's lost
+SNAKE_AI_WAKE = 120.0      # ...the first, while the model wakes up on the other computer (the game waits)
+SNAKE_AI_TRIES = 3         # moves lost in a row, and the AI gives up
+SNAKE_AI_AGAIN = 3.0       # seconds the AI's game over shows, then it plays again
+SNAKE_AI_FRESH = 60.0      # seconds a list of the decision models is good for
+SNAKE_AI_GUESS = 0.2       # seconds a move's reckoned to take, till its moves have been timed
+SNAKE_AI_SPARE = 1.25      # ...and some to spare (it's asked about where the snake will be when its answer comes)
+SNAKE_AI_AHEAD = 30        # moves ahead it's asked about, at most (slower than that, it can't play)
+SNAKE_AI_BEHIND = 0.5      # less than this share of the moves decided by it: it's told it can't keep up...
+SNAKE_AI_JUDGE = 100       # ...once a game's gone on this many moves
+SNAKE_AI_SAYS = ("Which way should the snake go next? Never pick a deadly move, and avoid trapped and risky "
+                 "ones. Of the safe moves, pick one that eats the apple, or else one that gets closer to it.")
+
+
+class Snake(Sim):
+    """Snake: the d-pad steers it to the apples, and each one it eats makes it longer, until it runs
+    into itself (or a wall: Walls can wrap round instead). A game: ready (A or the d-pad starts it), on,
+    over (A plays again). The board is so many cells (Board) in the box and full screen alike, so a
+    game carries on when the box changes size."""
+    key = "snake"
+    blurb = "Steer with the d-pad and eat the apples: each one makes the snake longer. Don't run into yourself."
+    poke_label = None
+    options = SNAKE_OPTIONS             # (and AI: the decision models on your bot's computer, once found)
+    restart_for = ("board", "walls")
+    holds = True                        # (it follows the d-pad itself: no key repeat)
+
+    def __init__(self, w, h, rng=None, values=None):
+        super().__init__(w, h, rng, values)
+        self.best = 0                   # the most apples in a game (kept with your settings)
+        self.ai_best = 0                # ...in a game the AI played
+        self.ai = False                 # a decision model is playing (X)
+        self.ai_model = ""              # ...which
+        self.ai_waking = False          # ...waiting for its first move (the game waits too)
+        self.ai_ms = None               # how long its moves take to come, of late (ms)
+        self.ai_want = False            # X pressed: it takes over once a decision model is found
+        self.ai_lost = 0                # its moves lost in a row
+        self.games = 0                  # (each game's number: a move meant for one isn't used in the next)
+        self.pic, self.pic_key, self.floor = None, None, (None, None)
+        self.restart()
+
+    def restart(self):
+        """A new game: a short snake in the middle, heading right, and an apple."""
+        super().restart()
+        self.cols, self.rows = dict(SNAKE_BOARDS)[self.values["board"]]
+        x, y = self.cols // 2, self.rows // 2
+        self.body = deque([(x - 2, y), (x - 1, y), (x, y)])         # tail first, head last
+        self.taken = set(self.body)
+        self.dir = (1, 0)
+        self.turns = []                 # d-pad presses still to come (two at most: a quick U-turn)
+        self.apples = 0
+        self.phase = "on" if self.ai and not self.ai_waking else "ready"   # ready, on, over (the AI: straight on)
+        self.why = None                 # over: what it ran into (None: it filled the board)
+        self.acc = 0.0                  # seconds towards the next step
+        self.steps = 0
+        self.paused = False
+        self.new_best = False
+        self.ai_used = self.ai          # (a game the AI had a hand in counts towards its best, not yours)
+        self.plan = {}                  # the AI's moves, decided ahead: {k: its move after the k-th step}
+        self.ai_moves = self.ai_kept = 0    # (moves made while it plays, and those it picked in time)
+        self.again = SNAKE_AI_AGAIN     # (the AI's game over: seconds until it plays again)
+        self.games += 1
+        self.apple = self.place_apple()
+
+    def refit(self, w, h):
+        """Full screen, and back: the same board with bigger or smaller cells, the game carrying on."""
+        self.w, self.h = w, h
+        self.pic_key = None
+
+    def place_apple(self):
+        """An empty cell for the next apple (None: there are none left)."""
+        for _ in range(60):
+            cell = (self.rng.randrange(self.cols), self.rng.randrange(self.rows))
+            if cell not in self.taken:
+                return cell
+        free = [(x, y) for y in range(self.rows) for x in range(self.cols) if (x, y) not in self.taken]
+        return self.rng.choice(free) if free else None
+
+    # the buttons
+    def steer(self, name):
+        """A d-pad press: its next turn (and the one after, if you're quick). Straight back the way it
+        came, no. Ready: off it goes (that way). Paused: on again. While the AI plays, the d-pad does
+        nothing (its moves are its plan: see step)."""
+        d = SNAKE_DIRS[name]
+        if self.phase == "over" or self.ai:
+            return
+        if self.phase == "ready":
+            if d == (-self.dir[0], -self.dir[1]):     # (back the other way: the snake turns round first)
+                self.body.reverse()
+                self.dir = d
+            elif d != self.dir:
+                self.turns = [d]
+            self.phase = "on"
+            return
+        self.paused = False
+        last = self.turns[-1] if self.turns else self.dir
+        if d != last and d != (-last[0], -last[1]) and len(self.turns) < 2:
+            self.turns.append(d)
+
+    def press_a(self):
+        """A: start, pause or play on, or play again."""
+        if self.ai_waking:
+            return                      # (the AI isn't ready to play yet)
+        if self.phase == "ready":
+            self.phase = "on"
+        elif self.phase == "on":
+            self.paused = not self.paused
+        else:
+            self.restart()
+
+    # moving on
+    def rate(self):
+        """Steps a second: quicker for each apple eaten, up to a point."""
+        step, most = SNAKE_FASTER
+        return dict(SNAKE_SPEEDS)[self.values["speed"]] * min(most, 1 + step * self.apples)
+
+    def update(self, dt):
+        if self.phase == "over" and self.ai and dt > 0:     # (the AI plays again, after a moment)
+            self.again -= dt
+            if self.again <= 0:
+                self.restart()
+                return "again"
+            return None
+        if self.phase != "on" or self.paused or dt <= 0:
+            return None
+        self.clock += dt
+        self.acc += dt
+        out = None
+        while self.phase == "on" and self.acc >= 1.0 / self.rate():
+            self.acc -= 1.0 / self.rate()
+            out = self.step() or out
+        return out
+
+    def step(self):
+        """One cell on: "ate" an apple, "over" (it ran into something, or filled the board), or None.
+        While the AI plays, it goes the way it picked for here, if its answer came in time (else straight
+        on: the game doesn't wait for it)."""
+        picked = self.plan.pop(self.steps, None) if self.plan else None
+        if picked is not None:
+            d = SNAKE_DIRS[picked]
+            if d != (-self.dir[0], -self.dir[1]):
+                self.dir = d
+        elif self.turns:
+            self.dir = self.turns.pop(0)
+        if self.ai:
+            self.ai_moves += 1
+            if picked is not None:
+                self.ai_kept += 1
+        hx, hy = self.body[-1]
+        x, y = hx + self.dir[0], hy + self.dir[1]
+        if self.values["walls"] == "Wrap":
+            x, y = x % self.cols, y % self.rows
+        elif not (0 <= x < self.cols and 0 <= y < self.rows):
+            return self.end("the wall")
+        head, tail = (x, y), self.body[0]
+        eats = head == self.apple
+        if head in self.taken and (eats or head != tail):  # (where its tail was is free: the tail moves on)
+            return self.end("itself")
+        if not eats:
+            self.taken.discard(self.body.popleft())
+        self.body.append(head)
+        self.taken.add(head)
+        self.steps += 1
+        if not eats:
+            return None
+        self.apples += 1
+        if self.ai_used and self.apples > self.ai_best:
+            self.ai_best, self.new_best = self.apples, True
+        elif not self.ai_used and self.apples > self.best:
+            self.best, self.new_best = self.apples, True
+        self.apple = self.place_apple()
+        return "ate" if self.apple is not None else self.end(None)
+
+    def end(self, why):
+        self.phase, self.why, self.paused = "over", why, False
+        return "over"
+
+    # what's shown
+    def stats(self):
+        if not self.ai:
+            return [("Score", str(self.apples)), ("Best", str(self.best)), ("Length", str(len(self.body)))]
+        name = self.ai_model[:-7] if self.ai_model.endswith(":latest") else self.ai_model
+        return [("Score", str(self.apples)), ("AI best", str(self.ai_best)), ("Length", str(len(self.body))),
+                ("AI", name if len(name) <= 13 else name[:12] + "…"),
+                ("Decides in", "…" if self.ai_ms is None else f"{self.ai_ms:,.0f} ms"),
+                ("Keeps up", f"{round(100 * self.ai_kept / self.ai_moves)}%" if self.ai_moves else "…")]
+
+    def keeps_up(self):
+        """The share of the snake's moves (this game) the AI decided in time: None, too soon to say."""
+        return self.ai_kept / self.ai_moves if self.ai_moves >= SNAKE_AI_JUDGE else None
+
+    def note(self):
+        name = (self.ai_model[:-7] if self.ai_model.endswith(":latest") else self.ai_model) or "The AI"
+        if self.ai_waking:
+            return f"Waking up {name}", "Its first move can take a moment"
+        if self.phase == "ready":
+            return "Snake", "A or the d-pad to start"
+        if self.phase != "over":
+            return None
+        apples = f"{self.apples} apple{'' if self.apples == 1 else 's'}"
+        if self.ai:
+            title = f"{name}: a new best!" if self.new_best else f"{name}: game over"
+            if self.why is None:
+                title = f"{name} filled the board!"
+            into = f", then into {self.why}" if self.why else ""
+            return title, f"{apples}{into}. Again in {max(1, math.ceil(self.again))} s"
+        if self.why is None:
+            return "You filled the board!", f"{apples}. A to play again"
+        return ("A new best!" if self.new_best else "Game over"), f"{apples}, then into {self.why}. A to play again"
+
+    def note_top(self):
+        return self.body[-1][1] >= self.rows / 2           # (not over where it crashed)
+
+    def hints(self):
+        if self.ai:
+            if self.ai_waking or self.phase != "on":
+                return [("X", "You play"), ("START", "Options")]
+            return [("X", "You play"), ("A", "Play" if self.paused else "Pause"), ("Y", "New game"),
+                    ("START", "Options")]
+        if self.phase == "ready":
+            return [("✚", "Steer"), ("A", "Start"), ("X", "AI plays"), ("START", "Options")]
+        if self.phase == "over":
+            return [("A", "Play again"), ("X", "AI plays"), ("START", "Options")]
+        return [("✚", "Steer"), ("A", "Play" if self.paused else "Pause"), ("X", "AI plays"), ("Y", "New game"),
+                ("START", "Options")]
+
+    # the AI: what it's told
+    def ahead(self, d):
+        """Where a move takes the head: (cell, what's there: "wall", "body", "apple" or None)."""
+        hx, hy = self.body[-1]
+        x, y = hx + d[0], hy + d[1]
+        if self.values["walls"] == "Wrap":
+            x, y = x % self.cols, y % self.rows
+        elif not (0 <= x < self.cols and 0 <= y < self.rows):
+            return None, "wall"
+        cell = (x, y)
+        if cell == self.apple:
+            return cell, "apple"
+        if cell in self.taken and cell != self.body[0]:    # (its tail moves on: that's free)
+            return cell, "body"
+        return cell, None
+
+    def steps_to(self, a, b):
+        """Moves from cell a to cell b, if nothing were in the way (round the edges when they wrap)."""
+        dx, dy = abs(a[0] - b[0]), abs(a[1] - b[1])
+        if self.values["walls"] == "Wrap":
+            dx, dy = min(dx, self.cols - dx), min(dy, self.rows - dy)
+        return dx + dy
+
+    def room(self, start, most):
+        """Free cells the head could get to from start (up to `most`: enough is enough). Its body is in the
+        way, except the tail, which moves on."""
+        wrap = self.values["walls"] == "Wrap"
+        blocked = self.taken - {self.body[0]}
+        seen, todo = {start}, [start]
+        while todo and len(seen) < most:
+            x, y = todo.pop()
+            for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                nx, ny = x + dx, y + dy
+                if wrap:
+                    nx, ny = nx % self.cols, ny % self.rows
+                elif not (0 <= nx < self.cols and 0 <= ny < self.rows):
+                    continue
+                if (nx, ny) not in seen and (nx, ny) not in blocked:
+                    seen.add((nx, ny))
+                    todo.append((nx, ny))
+        return len(seen)
+
+    def copy(self):
+        """The game as it stands, to look ahead with (the next apple lands where it will in the game)."""
+        c = object.__new__(type(self))
+        c.__dict__.update(self.__dict__)
+        c.body, c.taken, c.turns, c.plan = deque(self.body), set(self.taken), list(self.turns), dict(self.plan)
+        c.rng = random.Random()
+        c.rng.setstate(self.rng.getstate())
+        return c
+
+    def later(self, moves):
+        """The game so many moves on (the AI's moves as it decided them, else straight on): where the
+        snake will be. Or as far on as it gets before it runs into something: (that, how many moves on)."""
+        c = self.copy()
+        for k in range(moves):
+            picked = c.plan.get(c.steps)
+            d = SNAKE_DIRS[picked] if picked else (c.turns[0] if c.turns else c.dir)
+            if d == (-c.dir[0], -c.dir[1]):
+                d = c.dir                                  # (as step does: straight back isn't a move)
+            if c.ahead(d)[1] in ("wall", "body"):
+                return c, k
+            c.step()
+            if c.phase == "over":                          # (it filled the board)
+                return c, k + 1
+        return c, moves
+
+    def run_into(self, d, moves):
+        """That move, then straight on, for so many moves in all: (how many moves till it runs into
+        something, what) or None."""
+        c = self.copy()
+        c.plan, c.turns = {}, [d]
+        for k in range(1, moves + 1):
+            what = c.ahead(c.turns[0] if c.turns else c.dir)[1]
+            if what in ("wall", "body"):
+                return k, what
+            c.step()
+            if c.phase == "over":                          # (it filled the board)
+                return None
+        return None
+
+    def situation(self, gap=1):
+        """For the AI: the game as it stands, in words (state), and its moves (choices: straight back the
+        way it came isn't one), each deadly (into a wall or its body), trapped, risky or safe, and what it
+        does about the apple. Trapped: into a dead end too small for the snake (unless the other moves have
+        no more room: late in a game, that's all there is). Risky, when the AI's slow (gap: how many moves
+        the snake makes for each of its decisions): it runs into something going on straight before it
+        could turn again, so it must turn soon (the apple's worth it: eating it isn't risky)."""
+        hx, hy = self.body[-1]
+        names = {v: k for k, v in SNAKE_DIRS.items()}
+        n = len(self.body)
+        words = [f"Snake, on a grid {self.cols} columns wide and {self.rows} rows high (column 0 on the left, "
+                 "row 0 at the top), " + ("with walls all round." if self.values["walls"] == "Solid"
+                                          else "with no walls: off one edge, the snake comes back on at the opposite edge."),
+                 f"The snake is {n} cells long, heading {names[self.dir]}, its head at column {hx}, row {hy}."]
+        if self.apple is not None:
+            ax, ay = self.apple
+
+            def way(off, size):                         # (the short way: round the edge, when they wrap)
+                if self.values["walls"] == "Wrap" and abs(off) > size - abs(off):
+                    return off - size if off > 0 else off + size, " round the edge"
+                return off, ""
+            dx, rx = way(ax - hx, self.cols)
+            dy, ry = way(ay - hy, self.rows)
+            across = f"{abs(dx)} column{'' if abs(dx) == 1 else 's'} to the {'right' if dx > 0 else 'left'}{rx}"
+            down = f"{abs(dy)} row{'' if abs(dy) == 1 else 's'} {'down' if dy > 0 else 'up'}{ry}"
+            where = " and ".join(x for x, k in ((across, dx), (down, dy)) if k)
+            words.append(f"The apple is at column {ax}, row {ay}: {where} from the head.")
+        back = (-self.dir[0], -self.dir[1])                 # (straight back: into its neck)
+        moves = {name: (d, *self.ahead(d)) for name, d in SNAKE_DIRS.items() if d != back}
+        rooms = {name: self.room(cell, n + 2) for name, (_, cell, what) in moves.items() if what in (None, "apple")}
+        most = max(rooms.values(), default=0)
+        things = {"wall": "the wall", "body": "its own body"}
+        choices = {}
+        for name, (d, cell, what) in moves.items():
+            if what in things:
+                choices[name] = f"Deadly: the snake runs into {things[what]}."
+                continue
+            if what == "apple":
+                food = "it eats the apple"
+            elif self.apple is not None:
+                now, then = self.steps_to(self.body[-1], self.apple), self.steps_to(cell, self.apple)
+                away = f"{then} move{'' if then == 1 else 's'} away"
+                food = (f"it gets closer to the apple ({away})" if then < now
+                        else f"it gets further from the apple ({away})" if then > now
+                        else f"it gets no closer to the apple ({away})")
+            else:
+                food = ""
+            more = f" {food[0].upper()}{food[1:]}." if food else ""
+            long = n + 1 if what == "apple" else n          # (an apple: one longer)
+            hit = self.run_into(d, gap) if gap > 1 and what != "apple" else None   # (the apple: it's worth it)
+            if rooms[name] <= long and rooms[name] < most:
+                choices[name] = (f"Trapped: it's a dead end with room for only {rooms[name]} "
+                                 f"cell{'' if rooms[name] == 1 else 's'}.{more}")
+            elif hit:                                  # (it can turn in time, if its next answer comes in time)
+                choices[name] = (f"Risky: it must turn soon. Going on straight, it runs into {things[hit[1]]} "
+                                 f"in {hit[0]} moves.{more}")
+            elif food.startswith(("it eats", "it gets closer")):
+                choices[name] = f"Safe: {food}."
+            else:
+                choices[name] = f"Safe, but {food}." if food else "Safe."
+        return " ".join(words), choices
+
+    def layout(self):
+        """The size of a cell (px), and where the board starts in the box."""
+        c = max(4, min(self.w // self.cols, self.h // self.rows))
+        return c, (self.w - c * self.cols) // 2, (self.h - c * self.rows) // 2
+
+    def board(self):
+        """The empty board, kept: faint squares, and an edge when the walls are solid."""
+        from PIL import Image, ImageDraw
+        c, ox, oy = self.layout()
+        key = (self.w, self.h, self.cols, self.rows, c, self.values["walls"])
+        if self.floor[0] != key:
+            img = Image.new("RGB", (self.w, self.h), SIM_FLOOR)
+            d = ImageDraw.Draw(img)
+            light = co_mix(SIM_FLOOR, (255, 255, 255), 0.025)
+            for y in range(self.rows):
+                for x in range(y % 2, self.cols, 2):
+                    d.rectangle((ox + x * c, oy + y * c, ox + x * c + c - 1, oy + y * c + c - 1), fill=light)
+            if self.values["walls"] == "Solid":
+                d.rectangle((ox - 1, oy - 1, ox + c * self.cols, oy + c * self.rows), outline=LINE)
+            self.floor = (key, img)
+        return self.floor[1].copy()
+
+    def picture(self):
+        """The board with the apple and the snake on it: a band from its tail to its head, round at
+        both ends, its eyes looking where it's going."""
+        from PIL import ImageDraw
+        img = self.board()
+        d = ImageDraw.Draw(img)
+        c, ox, oy = self.layout()
+        if self.apple is not None:
+            ax, ay = ox + self.apple[0] * c + c / 2, oy + self.apple[1] * c + c / 2 + c * 0.05
+            r = c * 0.34
+            d.line((ax, ay - r * 0.8, ax + c * 0.07, ay - r - c * 0.12), fill=SNAKE_STEM, width=max(1, c // 12))
+            d.ellipse((ax - r, ay - r, ax + r, ay + r), fill=SNAKE_APPLE)
+            d.ellipse((ax + c * 0.05, ay - r - c * 0.13, ax + c * 0.27, ay - r - c * 0.02), fill=SNAKE_LEAF)
+        cells, n = list(self.body), len(self.body)
+        w = c - 2 * max(1, c // 10)                   # (how thick it is)
+
+        def mid(cell):
+            return ox + cell[0] * c + (c - 1) / 2, oy + cell[1] * c + (c - 1) / 2
+
+        def dot(at, colour):                          # (as round as the lines are thick)
+            r = (w - 1) / 2
+            d.ellipse((at[0] - r, at[1] - r, at[0] + r, at[1] + r), fill=colour)
+        # a few thick lines, each a stretch of it in one colour (from the tail's to the head's); one
+        # wrapped round an edge goes off that side, and on again from the other
+        pieces = min(8, n - 1)
+        line, colour, was = [mid(cells[0])], None, None
+        for k in range(n - 1):
+            a, b = cells[k], cells[k + 1]
+            hue = co_mix(SNAKE_TAIL, SNAKE_HEAD, (k * pieces // (n - 1) + 0.5) / pieces)
+            dx, dy = b[0] - a[0], b[1] - a[1]
+            wrap = abs(dx) + abs(dy) != 1
+            if wrap:
+                dx = -1 if dx > 1 else 1 if dx < -1 else dx
+                dy = -1 if dy > 1 else 1 if dy < -1 else dy
+            pa, pb = mid(a), mid(b)
+            if colour is not None and (hue != colour or wrap):
+                if len(line) >= 2:
+                    d.line(line, fill=colour, width=w, joint="curve")
+                if not wrap and (dx, dy) != was:
+                    dot(pa, hue)                      # (a corner where the colour changes: round it)
+                line = [pa]
+            colour = hue
+            if wrap:
+                line.append((pa[0] + dx * c / 2, pa[1] + dy * c / 2))
+                d.line(line, fill=colour, width=w, joint="curve")
+                line = [(pb[0] - dx * c / 2, pb[1] - dy * c / 2), pb]
+            elif (dx, dy) == was and len(line) >= 2:
+                line[-1] = pb                         # (straight on: one longer line)
+            else:
+                line.append(pb)
+            was = (dx, dy)
+        if len(line) >= 2:
+            d.line(line, fill=colour, width=w, joint="curve")
+        dot(mid(cells[0]), SNAKE_TAIL)
+        dot(mid(cells[-1]), SNAKE_HEAD)
+        hx, hy = cells[-1]
+        cx, cy = ox + hx * c + c / 2, oy + hy * c + c / 2
+        dx, dy = self.dir
+        e, pr = max(1.5, c * 0.15), max(1.0, c * 0.08)
+        for side in (-1, 1):                          # its eyes: ahead of the middle, either side
+            ex, ey = cx + dx * c * 0.12 - dy * side * c * 0.2, cy + dy * c * 0.12 + dx * side * c * 0.2
+            if self.phase == "over" and self.why is not None:
+                d.line((ex - e, ey - e, ex + e, ey + e), fill=(24, 30, 26), width=max(1, c // 14))
+                d.line((ex - e, ey + e, ex + e, ey - e), fill=(24, 30, 26), width=max(1, c // 14))
+                continue
+            d.ellipse((ex - e, ey - e, ex + e, ey + e), fill=(246, 248, 250))
+            px, py = ex + dx * pr * 0.8, ey + dy * pr * 0.8
+            d.ellipse((px - pr, py - pr, px + pr, py + pr), fill=(24, 30, 26))
+        return img
+
+    def draw(self, img, x0, y0):
+        key = (self.steps, self.phase, self.apple, self.dir, self.w, self.h, self.cols, self.rows,
+               self.values["walls"])
+        if key != self.pic_key:
+            self.pic, self.pic_key = self.picture(), key
+        img.paste(self.pic, (x0, y0))
+
+
+class SnakeBrain:
+    """Snake's AI: a decision model on your bot's computer, asked on a thread of its own, so the game
+    never waits for it (a move that comes too late is the model's own fault). One question at a time:
+    which decision models that computer has, or the next move."""
+
+    def __init__(self):
+        self.cv = threading.Condition()
+        self.job = None                 # ("models", server) or ("move", server, model, state, choices, tag, timeout)
+        self.done = []                  # what came back, for the main loop: (kind, tag, answer, ms, error)
+        self.models, self.models_for, self.models_at = [], "", -1e9    # the decision models, from where, when
+        self.thread = None
+
+    def busy(self):
+        """Still on a question, or its answer's not been taken yet."""
+        with self.cv:
+            return self.job is not None or bool(self.done)
+
+    def ask(self, job):
+        """A question for the thread (False: it's still on the last one)."""
+        with self.cv:
+            if self.job is not None:
+                return False
+            self.job = job
+            self.cv.notify()
+        if self.thread is None or not self.thread.is_alive():
+            self.thread = threading.Thread(target=self.run, daemon=True, name="snake-ai")
+            self.thread.start()
+        return True
+
+    def take(self):
+        with self.cv:
+            out, self.done = self.done, []
+        return out
+
+    def run(self):
+        while True:
+            with self.cv:
+                while self.job is None:
+                    self.cv.wait()
+                job = self.job
+            t0, out = time.monotonic(), None
+            try:
+                if job[0] == "models":
+                    found = ollama_deciders(job[1])
+                    with self.cv:
+                        self.models, self.models_for, self.models_at = found, job[1], time.monotonic()
+                    out = ("models", None, found, 0.0, "")
+                else:
+                    _, server, model, state, choices, tag, timeout = job
+                    pick, _ = ollama_decide(server, model, state, SNAKE_AI_SAYS, choices, timeout)
+                    out = ("move", tag, pick, (time.monotonic() - t0) * 1000, "")
+            except Exception as ex:                    # (it says why; the game carries on regardless)
+                out = (job[0], job[5] if job[0] == "move" else None, None, 0.0, str(ex) or repr(ex))
+            with self.cv:
+                self.done.append(out)
+                self.job = None
+
+
+SIMS = {s.key: s for s in (RockPaperScissors, Life, Orbits, ForestFire, Mandelbrot, Snake)}
 
 
 # ---- media mode -------------------------------------------------------------
@@ -6051,17 +9331,56 @@ class Media:
         self.voice_want = None       # a voice you picked that's on its way
         self.voice_arrived = None    # ...and here (for the main loop to use)
         self.voice_told = ""         # the last of the voice's troubles shown
+        self.coder = Coder()         # the Bot at work: your coding agent, acted out
+        self.coder.on_change = self.coder_changed
+        self.coder.on_news = self.coder_news
+        self.coder.sound_ok = self.coder_may_sound
+        self.coder_help = False      # its card on connecting an agent (START)
+        self.coder_where = None      # ...and what that says: the web page's addresses, whether it has a password
+        self.coder_base = (None, None, None)        # the tab without the coder: (what it shows, it, behind the coder)
+        self.coder_shown = (None, None, 0.0, 0.0)   # the last frame: (that, the screen's count, when, when whole)
+        self.coder_next = 0.0        # when its next frame is due
+        self.prompts = AgentPrompts()  # prompts for your coding agent, typed here (A on the Bot at work)
+        self.prompts.on_taken = self.prompt_taken
+        self.prompt_draft = ""       # ...one you haven't sent yet
+        self.sims = {}               # the Simulator tab's sims, by key (each made the first time it's opened)
+        self.brain = SnakeBrain()     # Snake's AI: a decision model on your bot's computer
+        self.brain_asked = None       # (game, step, round) it was last asked about
+        self.brain_round = 0          # (one more each time it wakes up: an answer from before isn't used)
+        self.brain_frame = 1.0 / SIM_FPS  # seconds a frame takes, of late (an answer's used on the next)
+        self.brain_warned = set()     # models it's said can't keep up
+        self.brain_server = ""        # ...on which computer
+        self.brain_looking = False    # it's asking which decision models there are
+        self.sim_opts = None         # a sim's START card: the row picked on it, or None
+        self.sim_t = None            # when the sim on screen last moved on
+        self.sim_next = 0.0          # when its next frame is due
+        self.sim_base = (None, None, None)       # what doesn't move: (what it shows, it, the box's corners)
+        self.sim_panel = (None, None, 0.0)       # the numbers beside the box: (what they show, them, when)
+        self.sim_card = (None, None)             # a card over the box: (what it says, it)
+        self.sim_shown = (None, None, 0.0, 0.0)  # the last frame: (that, the screen's count, when, when whole)
+        self.sim_head = (None, None)             # the status bar and tabs: (what they show, them)
+        self.sim_feet = {}                       # the buttons along the bottom, for each set of them
+        self.sim_still = (None, None)            # the numbers' words: (what they say, them)
+        self.sim_tiles = {}                      # pictures of words and figures, kept
+        self.sim_mask = None                     # the round corners of a picture beside the box
         self.friend_scroll = 0       # how far back the conversation is scrolled (pixels)
         self.friend_seen = len(self.friend.log)
         self.friend_opened_at = 0.0
         self.friend_jitter = 1.0     # its remarks come not quite on the dot
         self.friend_more = None      # the Bot page's X menu, when open: {"sel": n}
         self.friend_pics = {}        # a picture's id -> (it, its rounded corners) as the Bot page shows it
+        self.friend_work_shown = None    # what the chat said about your coding agent, last it was drawn
         self.pie = PieInk(cameras=self.pie_cameras)   # PiE-ink on another Pi: asked first for what it has
         self.camera.on_pie = self.pie.hear
         self.crypto = Crypto(self.pie)
         self.crypto_card = 0
         self.crypto_auto = False
+        self.coin_list = False       # the Crypto tab shows your coins and the search for more (Y)
+        self.coin_sel = 0
+        self.coin_query = ""         # what you looked up last
+        self.coin_found = None       # ...what CoinGecko found: [{"id", "symbol", "name", "rank"}] (None: not yet)
+        self.coin_status = None      # "Looking…", or why it couldn't
+        self.coin_token = 0          # (a search's answer is used only if it's the latest)
         self.last_shot = None        # a picture the Camera tab just saved, to select in Photos
         self.hass = HomeAssistant()
         self.home_sel = 0            # the icon picked on the home screen
@@ -6220,11 +9539,37 @@ class Media:
 
     def holds_buttons(self):
         """Pages that follow buttons held down themselves (no key repeat)."""
-        return self.on_camera_page()
+        return self.on_camera_page() or self.on_mandel_page() or (
+            self.on_sim_page() and self.sim_opts is None and getattr(SIMS.get(LIBRARY[self.tab].get("sim")), "holds", False))
+
+    def on_bot_page(self):
+        """The Bot is on screen (chatting or at work)."""
+        return self.active and self.view == "list" and self.tab_type() == "friend"
+
+    def bot_mode(self):
+        """The Bot chats ("chat") or acts out your coding agent ("work"): left and right switch."""
+        return "work" if self.setting("bot_mode") == "work" else "chat"
+
+    def on_coder_page(self):
+        """The Bot is on screen at work."""
+        return self.on_bot_page() and self.bot_mode() == "work"
+
+    def bot_label(self, d):
+        """Top left on the Bot: chatting, or at work (left and right switch)."""
+        F = self.fonts
+        word = "Work" if self.bot_mode() == "work" else "Chat"
+        x, y = 28, self.LIST_TOP + 16
+        w = d.textlength(word, font=F["small"]) + 34
+        d.rounded_rectangle((x, y, x + w, y + 26), radius=13, fill=ROW if word == "Work" else BG)
+        d.ellipse((x + 11, y + 10, x + 17, y + 16), fill=ACCENT)
+        d.text((x + 24, y + 13), word, font=F["small"], fill=TEXT, anchor="lm")
+
 
     def tick_limit(self):
         """How long the input loop may wait before the next tick."""
-        return 0.1 if self.on_camera_page() else 0.25
+        if self.on_sim_page() and self.sim_opts is None:
+            return max(0.0, min(0.05, self.sim_next - time.monotonic()))   # (its next frame)
+        return 0.1 if self.on_camera_page() or self.on_coder_page() else 0.25
 
     def load_tab(self, i):
         tab = LIBRARY[i]
@@ -6293,7 +9638,7 @@ class Media:
         elif tab["type"] == "friend":
             self.friend.load(tab["files"])
             self.items[i] = []
-            if self.active and self.tab == i and self.view == "list":
+            if self.active and self.tab == i and self.view == "list" and self.bot_mode() == "chat":
                 self.friend_opened()
         elif tab["type"] == "camera":
             self.friend.load(self.friend_files())     # (SELECT: the bot, if there's one)
@@ -6308,6 +9653,11 @@ class Media:
                 else:
                     self.camera.start()
             self.items[i] = []
+        elif tab["type"] == "sim":
+            self.items[i] = []
+            self.sim_t = None                          # (it waited while you were away)
+            if tab.get("sim") == "snake":
+                self.snake_models()                    # (the decision models on your bot's computer, for its AI)
         elif tab["type"] == "system":
             self.items[i] = system_info()
             if not (self.sysloop and self.sysloop.is_alive()):
@@ -6325,12 +9675,15 @@ class Media:
             self.camera.stop()
         if self.tab_type() == "crypto":
             self.crypto.stop()
+            self.coins_close()
         if self.tab_type() == "remote":
             self.hass.stop()
             self.remote_more = None
         self.confirm = (None, 0.0)
         self.picking = None                            # (picking a picture: not any more)
         self.friend_more = None
+        self.coder_help = False
+        self.sim_close()
         vis = self.visible_tabs()
         self.tab = vis[(vis.index(self.strip_tab()) + d) % len(vis)]
         self.load_tab(self.tab)
@@ -6836,6 +10189,7 @@ class Media:
         self.camera.stop()
         self.voice.stop(unload=True)
         self.crypto.stop()
+        self.coins_close()
         self.hass.stop()
         self.remote_more = None
         if self.remote_pad is not None:
@@ -7551,6 +10905,8 @@ class Media:
         if self.msg and now > self.msg_until:
             self.msg = None
             self.dirty = True
+        if self.prompts.queue:                         # (prompts nobody took: yours again)
+            self.prompt_expired()
         if self.confirm[0] and now > self.confirm[1]:
             self.confirm = (None, 0.0)
             self.dirty = True
@@ -7592,6 +10948,20 @@ class Media:
                 self.dirty = True                     # time to take the little picture away
             if self.camera.action and 3 <= now - self.cam_said[1] < 7:
                 self.dirty = True                     # and a message that has had its turn
+        if self.on_coder_page() and not self.coder_help and now >= self.coder_next:
+            co = self.coder
+            fps = 4 if co.asleep else CODER_FPS.get(co.anim, 6)
+            if self.fb is not None and not getattr(self.fb, "same", True):
+                fps = min(fps, 5)                      # (a bigger screen gets the whole picture each time)
+            self.coder_next = now + 1.0 / fps
+            self.dirty = True
+        if self.on_sim_page() and self.sim_opts is None and now >= self.sim_next:
+            fps = SIM_FPS if self.fb is None or getattr(self.fb, "same", True) else SIM_FPS_BIG
+            nxt = self.sim_next + 1.0 / fps              # (a steady beat; behind, it starts again)
+            self.sim_next = nxt if nxt > now else now + 1.0 / fps
+            self.dirty = True
+        if self.coder.heard and not self.setting("coder_seen"):
+            self.set_setting("coder_seen", "yes")     # (an agent has found it: no more "how to connect")
         if (self.crypto_auto and self.active and self.view == "list"
                 and self.tab_type() == "crypto" and now >= self.crypto_next):
             self.press_crypto("right", False)
@@ -7711,8 +11081,145 @@ class Media:
         elif name == "x" and not repeat:
             self.crypto.force = True
             self.toast("Refreshing", 2)
+        elif name == "y" and not repeat:
+            self.coins_open()
         self.dirty = True
         return None
+
+    # the Crypto tab's coins: look them up, add them, remove them (Y)
+    def coins_open(self):
+        self.coin_list, self.coin_sel = True, 0
+        self.coin_token += 1                           # (a search from before isn't wanted now)
+        self.coin_query, self.coin_found, self.coin_status = "", None, None
+        self.confirm = (None, 0.0)
+        self.dirty = True
+
+    def coins_close(self):
+        self.coin_list = False
+        self.coin_token += 1                           # (a search still out there isn't wanted now)
+        self.coin_found, self.coin_status = None, None
+        self.confirm = (None, 0.0)
+        self.dirty = True
+
+    def coin_rows(self):
+        """The search bar, what it found (if you've looked), then your coins."""
+        rows = [("search", None)]
+        if self.coin_found:
+            rows.append(("label", f"Found for “{self.coin_query}”"))
+            rows += [("found", c) for c in self.coin_found]
+        rows.append(("label", "Your coins"))
+        rows += [("coin", c) for c in self.crypto.coins]
+        return rows
+
+    def press_coins(self, name, repeat):
+        rows = self.coin_rows()
+        n = len(rows)
+        sel = max(0, min(self.coin_sel, n - 1))
+        kind, entry = rows[sel]
+        if name in ("up", "down"):
+            step = 1 if name == "down" else -1
+            sel = (sel + step) % n
+            if rows[sel][0] == "label":
+                sel = (sel + step) % n
+            self.coin_sel = sel
+            self.confirm = (None, 0.0)
+        elif name == "a" and not repeat:
+            if kind == "search":
+                self.open_keyboard("Look up a coin (its name or symbol)", "", self.coin_search, limit=40)
+            elif kind == "found" and entry["id"] not in self.crypto.ids():
+                self.coin_add(entry)
+            elif kind in ("found", "coin"):
+                self.coin_show(entry["id"])
+        elif name == "x" and not repeat and kind == "coin":
+            key = "coindel:" + entry["id"]
+            if len(self.crypto.coins) < 2:
+                self.toast("That's your only coin. Add another before removing it", 4)
+            elif self.confirm[0] == key:
+                self.confirm = (None, 0.0)
+                self.coin_remove(entry["id"])
+            else:
+                self.confirm = (key, time.monotonic() + 4)
+                self.toast(f"Press X again to remove {entry['name']}", 4)
+        elif name in ("b", "y") and not repeat:
+            self.coins_close()
+        elif name in ("l", "r"):
+            return "pass"                              # (tabs, as everywhere: it closes as you go)
+        self.dirty = True
+        return None
+
+    def coin_search(self, text):
+        """What you typed, looked up on CoinGecko (on a thread: the screen says it's looking)."""
+        text = " ".join(text.split())
+        if not text:
+            return
+        self.coin_token += 1
+        token = self.coin_token
+        self.coin_query, self.coin_status, self.coin_sel, self.coin_found = text, "Looking…", 0, None
+
+        def job():
+            try:
+                found, status = self.crypto.search(text), None
+                if not found:
+                    status = f"Nothing found for “{text}”"
+            except ValueError as ex:
+                found, status = None, str(ex)
+            except Exception:
+                found, status = None, "Couldn't look that up. Try again"
+            if token != self.coin_token:
+                return                                 # (another search since, or the list's closed)
+            self.coin_found, self.coin_status = found, status
+            self.coin_sel = 2 if found else 0          # (the first coin it found)
+            self.dirty = True
+        threading.Thread(target=job, daemon=True, name="coin-search").start()
+        self.dirty = True
+
+    def coins_save(self, ids):
+        """Your coins into crypto.txt (for good), and on the tab. False: it couldn't."""
+        line = ", ".join(ids)
+        try:
+            edit_config("crypto.txt", {"coins": line}, head=CRYPTO_HEAD, limit=max(CRYPTO_LINE, len(line)))
+        except OSError as ex:
+            self.toast(f"Couldn't save it ({ex.strerror or ex})", 4)
+            return False
+        self.crypto.load(LIBRARY[self.tab_index("crypto")]["files"])
+        return True
+
+    def coin_add(self, coin):
+        ids = self.crypto.ids()
+        if len(ids) >= CRYPTO_MOST or len(", ".join(ids + [coin["id"]])) > CRYPTO_LINE:
+            self.toast("That's as many coins as there's room for. Remove one first", 4)
+            return
+        if not self.coins_save(ids + [coin["id"]]):
+            return
+        c = self.crypto.coin(coin["id"])
+        if c in self.crypto.coins:                     # (its name and symbol, till its prices come)
+            c["symbol"], c["name"] = coin["symbol"] or c["symbol"], coin["name"] or c["name"]
+        self.crypto_card = len(self.crypto.coins) - 1  # (its card's next: it's fetched first)
+        self.crypto_focus()
+        self.toast(f"Added {coin['name']}", 3)
+
+    def coin_remove(self, cid):
+        name = self.crypto.coin(cid)["name"]
+        at = self.crypto.ids().index(cid) if cid in self.crypto.ids() else -1
+        if not self.coins_save([i for i in self.crypto.ids() if i != cid]):
+            return
+        if 0 <= at < self.crypto_card or self.crypto_card >= len(self.crypto.coins):
+            self.crypto_card = max(0, self.crypto_card - 1)
+        self.crypto_focus()
+        rows = self.coin_rows()
+        self.coin_sel = min(self.coin_sel, len(rows) - 1)
+        if rows[self.coin_sel][0] == "label":
+            self.coin_sel -= 1
+        self.toast(f"Removed {name}", 3)
+
+    def coin_show(self, cid):
+        """That coin's card."""
+        ids = self.crypto.ids()
+        if cid in ids:
+            self.crypto_card = ids.index(cid)
+            self.crypto_focus()
+            self.crypto_next = time.monotonic() + CRYPTO_ROTATE
+        self.coins_close()
 
     # TV Remote
     def remote_changed(self):
@@ -7859,7 +11366,8 @@ class Media:
         return LIBRARY[self.tab_index("friend")]["files"]
 
     def on_friend_page(self):
-        return self.active and self.view == "list" and self.tab_type() == "friend"
+        """The Bot is on screen, chatting."""
+        return self.on_bot_page() and self.bot_mode() == "chat"
 
     def friend_changed(self):
         """It said something, or started or stopped thinking (from its thread)."""
@@ -7895,6 +11403,8 @@ class Media:
         has the sound, and the memory). (True, "") or (False, why not)."""
         if self.proc:
             return False, "Not while something's playing"
+        if self.coder.talking():
+            return False, "Not while your coding agent is talking"
         if text is None:
             last = next((x for x in reversed(self.friend.log)
                          if x["who"] == "friend" and x.get("kind") != "error"), None)
@@ -8052,6 +11562,7 @@ class Media:
         opts = [("Send a picture from Photos", "send")]
         if self.friend_camera():
             opts.append(("Take a picture", "snap"))
+        opts.append(("Set up your bot", "setup"))
         opts.append(("Press A again to clear it" if self.confirm[0] == "friendclear" else "Clear the conversation",
                      "clear"))
         return opts
@@ -8117,6 +11628,8 @@ class Media:
                         self.friend_pick()
                     elif what == "snap":
                         self.friend_send("Take a picture")
+                    elif what == "setup":
+                        self.friend_setup()
             elif name in ("b", "x") and not repeat:
                 self.friend_more = None
                 self.confirm = (None, 0.0)
@@ -8151,6 +11664,46 @@ class Media:
         elif name in ("up", "down"):
             self.friend_scroll = max(0, self.friend_scroll + (72 if name == "up" else -72))
         self.dirty = True
+        return None
+
+    def press_bot(self, name, repeat):
+        """The Bot: left and right switch it between chatting and work (not while its menu or a card is
+        open); the rest is up to the one on screen."""
+        work = self.bot_mode() == "work"
+        if name in ("left", "right") and self.friend_more is None and not self.coder_help:
+            if not repeat:
+                self.bot_set_mode("chat" if work else "work")
+            return None
+        return self.press_coder(name, repeat) if work else self.press_friend(name, repeat)
+
+    def bot_set_mode(self, mode):
+        """Chat or work, kept for next time."""
+        self.friend_more, self.coder_help = None, False
+        self.confirm = (None, 0.0)
+        self.set_setting("bot_mode", mode)
+        if mode == "chat" and self.on_friend_page():
+            self.friend_opened()
+        self.dirty = True
+
+    def bot_open(self, mode):
+        """The Bot on the screen, chatting or at work (the web page)."""
+        self.set_setting("bot_mode", mode)
+        self.web_tab("Bot")
+
+    def bot_work_line(self):
+        """While it chats: a word on what your coding agent is up to, (words, colour), or None."""
+        s = self.coder.snapshot(time.monotonic())
+        a = s["anim"]
+        if not s["heard"] or s["asleep"]:
+            return None
+        if a in CODER_BUSY:
+            return f"Your agent is {CODER_TITLES[a].lower()}", ACCENT
+        if a == "attention":
+            return "Your agent needs you", WARN
+        if a == "error":
+            return CODER_TITLES[a], WARN
+        if s["done"] and time.time() - s["done"][0] < 600:
+            return "Your agent is done", MUTED
         return None
 
     def friend_send(self, text, picture=None):
@@ -8307,6 +11860,11 @@ class Media:
             self.fit(d, fr.model, F["small"], cx1 - cx0 - 24) if fr.ready() else "Not set up"
         d.text(((cx0 + cx1) / 2, mid + 50), status, font=F["small"], fill=ACCENT if fr.busy or speaking else MUTED,
                anchor="mm")
+        self.bot_label(d)
+        work = self.friend_work_shown = self.bot_work_line()
+        if work:                                      # (your coding agent: left or right shows it)
+            d.text(((cx0 + cx1) / 2, bottom - 24), self.fit(d, work[0], F["small"], cx1 - cx0 - 20), font=F["small"],
+                   fill=work[1], anchor="mm")
 
         # the conversation on the right, the newest at the bottom (above a notice while one is up)
         x0, x1 = cx1 + 14, W - 16
@@ -8383,13 +11941,991 @@ class Media:
                        fill=colour, anchor="lm")
             hints = [("▲▼", "Choose"), ("A", "OK"), ("B", "Close")]
         elif fr.ready():
-            hints = [("A", "Talk"), ("Y", "Say something"), ("X", "More")]
+            hints = [("◀▶", "Work"), ("A", "Talk"), ("Y", "Say something"), ("X", "More")]
             hints += [("SELECT", "Stop" if speaking else "Speak")] if self.bot_voice() else [("▲▼", "Scroll")]
-            hints += [("START", "Set up")]
         else:
-            hints = [("A", "Set up"), ("L R", "Tabs"), ("B", "Home")]
+            hints = [("◀▶", "Work"), ("A", "Set up"), ("L R", "Tabs"), ("B", "Home")]
         self.footer(d, hints)
         self.fb.show(img)
+
+    # -- the Bot at work: your coding agent, acted out ----------------------------------------
+    def coder_changed(self):
+        if self.on_coder_page():
+            self.dirty = True
+        elif self.on_friend_page() and self.bot_work_line() != self.friend_work_shown:
+            self.dirty = True                         # (the chat's word about your agent)
+
+    def coder_may_sound(self):
+        """Where the Bot's sounds at work go and how loud, or None to keep quiet: its sounds are off, or the
+        speaker is busy (something playing, the bot talking, the Pi shutting down). (Any thread.)"""
+        if self.setting("coder_sound") == "Off" or self.proc or self.voice.speaking \
+                or time.monotonic() < self.halting:
+            return None
+        return aplay_device(self.setting("sound")), self.volume
+
+    def coder_news(self, name):
+        """It's done, or it needs you, while you're elsewhere in media mode: a word about it."""
+        if self.active and not self.on_coder_page() and not self.proc_owns_screen():
+            self.toast("Your coding agent is done" if name == "done" else "Your coding agent needs you", 4)
+
+    def coder_status(self, s):
+        """The words on its desk: what it's doing, and since when."""
+        a, now = s["anim"], time.time()
+        if not s["heard"] and not self.setting("coder_seen"):
+            return "Waiting for your coding agent", "START shows how to connect it"
+        if s["asleep"] or (a == "sleep" and s["t"] > 1.2):
+            return "Asleep", ""
+        if a in CODER_BUSY:
+            busy = now - s["work_from"] if s["work_from"] else 0
+            return CODER_TITLES[a], f"for {co_span(busy)}" if busy >= 10 else ""
+        if a in ("done", "rest") and s["done"]:
+            when, took = s["done"]
+            return "Done", f"at {self.clock_text(time.localtime(when))}" + (f", after {co_span(took)}" if took >= 60 else "")
+        if a == "attention":
+            return CODER_TITLES[a], f"since {self.clock_text(time.localtime(now - s['t']))}"
+        if a == "error":
+            return CODER_TITLES[a], f"at {self.clock_text(time.localtime(now - s['t']))}"
+        return CODER_TITLES.get(a, "Ready"), ""
+
+    def coder_hints(self, s):
+        if self.coder_help:
+            return [("B", "Close")]
+        y = ("Y", "OK") if s["anim"] in ("attention", "error") else ("Y", "Ring")
+        return [("◀▶", "Chat"), ("A", "Prompt"), y, ("X", "Sound", self.setting("coder_sound") != "Off"),
+                ("START", "Connect")]
+
+    def prompt_open(self):
+        """A on the Bot at work: a prompt for your coding agent (the one you left, if you backed out), once
+        it's listening for them."""
+        if not self.prompts.listening():
+            self.toast("Your coding agent isn't listening for prompts. START shows how", 4)
+            return
+        kb = self.open_keyboard("A prompt for your coding agent", self.prompt_draft,
+                                lambda text: self.prompt_done(text, kb), empty=True, limit=PROMPT_MAX, local=True,
+                                cancel=self.prompt_keep)
+
+    def prompt_keep(self, text):
+        self.prompt_draft = text
+
+    def prompt_done(self, text, kb):
+        """Your prompt, typed: off to your agent. Only from the Pi's own buttons and keyboard: the web page's
+        remote can work the screen, but it can't hand your agent something to do."""
+        self.prompt_draft = text
+        if not text:
+            return
+        if kb.get("remote"):
+            self.toast("Prompts are typed on the Pi itself, not with the web page's remote", 4)
+        elif not self.prompts.listening():
+            self.toast("Your coding agent isn't listening for prompts. It's kept for you", 4)
+        else:
+            self.prompts.put(text)
+            self.prompt_draft = ""
+            self.toast("Sending your prompt", 3)
+
+    def prompt_taken(self, prompt):
+        """Your agent got a prompt you sent. (The control server's thread.)"""
+        if self.active and not self.proc_owns_screen():
+            self.toast("Your coding agent has your prompt", 3)
+        heard = self.coder.heard
+        if heard and time.time() - heard < 12 * 3600:   # (its hooks will say what it does next)
+            self.coder.ask("thinking", agent=False)
+
+    def prompt_expired(self):
+        """Prompts your agent didn't take in time: yours to send again."""
+        old = self.prompts.expire()
+        if old:
+            self.prompt_draft = " ".join([p["text"] for p in old] + [self.prompt_draft]).strip()
+            if self.active and not self.proc_owns_screen():
+                self.toast("Your coding agent didn't take your prompt. It's kept for you", 5)
+
+    def coder_addresses(self):
+        """For connecting an agent: the web page by name and by number, and whether it has a password."""
+        ips = [x for x in run_out(["hostname", "-I"]).split() if ":" not in x]
+        locked = bool(read_config([settings_glob("webui.txt")]).get("password"))
+        return (f"http://{socket.gethostname()}.local:{WEB_PORT}",
+                f"http://{ips[0]}:{WEB_PORT}" if ips else "", locked)
+
+    def press_coder(self, name, repeat):
+        """The Bot at work: A types a prompt for your coding agent, Y rings its bell (or says you've seen
+        what it wanted), X turns its sounds on or off, up and down the volume, START shows how to connect
+        an agent."""
+        co = self.coder
+        if self.coder_help:
+            if name in ("l", "r"):
+                return "pass"
+            if name in ("a", "b", "start") and not repeat:
+                self.coder_help = False
+                self.dirty = True
+            return None
+        if name in ("up", "down"):
+            self.set_volume(VOLUME_STEP if name == "up" else -VOLUME_STEP)
+            self.toast(f"Volume {self.volume}", 2)
+            return None
+        if repeat:
+            return None
+        if name == "a":
+            self.prompt_open()
+        elif name == "y":
+            co.ask("rest" if co.current() in ("attention", "error") else "done", agent=False)
+        elif name == "x":
+            on = self.setting("coder_sound") == "Off"
+            self.set_setting("coder_sound", "On" if on else "Off")
+            self.toast("Its sounds are on" if on else "Its sounds are off", 2)
+        elif name == "start":
+            self.coder_help, self.coder_where = True, None
+        else:
+            return "pass"
+        self.dirty = True
+        return None
+
+    def coder_card(self, img):
+        """START on the Bot at work: how to connect an agent to it, and to send it prompts from here."""
+        from PIL import ImageDraw
+        F, W = self.fonts, self.fb.w
+        d = ImageDraw.Draw(img)
+        if self.coder_where is None:
+            self.coder_where = self.coder_addresses()
+        by_name, by_number, locked = self.coder_where
+        host = by_name.split("//")[1].rsplit(":", 1)[0]
+        setup = [f"curl -O {by_name}/coder_hooks.py", f"python3 coder_hooks.py {host}"]
+        start = [f"claude --dangerously-load-development-channels server:{CODER_CHANNEL}"]
+        notes = []
+        if by_number:
+            notes.append(f"(or use {by_number.split('//')[1].rsplit(':', 1)[0]} for {host})")
+        if locked:
+            notes.append("Your web page has a password: add --password and it.")
+        x0, x1 = 24, W - 24
+        h = 30 + 32 + 30 + 34 * len(setup) + 24 * len(notes) + 10 + 30 + 34 * len(start) + 6 + 24 + 4
+        y0 = max(self.HEADER + 6, (self.HEADER + CO_TOP) / 2 - h / 2)
+        d.rounded_rectangle((x0, y0, x1, y0 + h), radius=16, fill=ROW)
+        x, y = x0 + 24, y0 + 28
+        d.text((x, y), "Connect Claude Code", font=F["head"], fill=TEXT, anchor="lm")
+        y += 32
+        cmds = setup + start
+        font = F["mono_s"] if max(d.textlength(c, font=F["mono_s"]) for c in cmds) <= x1 - x0 - 56 else F["co_mono_xs"]
+
+        def block(lines, y):
+            d.rounded_rectangle((x0 + 14, y - 17, x1 - 14, y - 17 + 34 * len(lines)), radius=9, fill=BG)
+            for c in lines:
+                d.text((x + 4, y), self.fit(d, c, font, x1 - x0 - 56), font=font, fill=TEXT, anchor="lm")
+                y += 34
+            return y
+        d.text((x, y), "On the computer it runs on:", font=F["small"], fill=BODY, anchor="lm")
+        y = block(setup, y + 30) - 4
+        for note in notes:
+            d.text((x + 4, y), note, font=F["small"], fill=MUTED, anchor="lm")
+            y += 24
+        y += 10
+        d.text((x, y), "For prompts from here (A), start Claude Code with:", font=F["small"], fill=BODY, anchor="lm")
+        y = block(start, y + 30) + 2
+        d.text((x, y), "Other agents and scripts: POST to /coder?pose=typing", font=F["small"], fill=MUTED, anchor="lm")
+
+    def render_coder(self):
+        F = self.fonts
+        fb = self.fb
+        now = time.monotonic()
+        s = self.coder.snapshot(now)
+        title, sub = self.coder_status(s)
+        hints = self.coder_hints(s)
+        quiet = self.setting("coder_sound") == "Off"
+        key = (self.status_sig, self.msg, ACCENT, title, sub, tuple(hints), quiet, self.coder_help, self.tab_off)
+        if key != self.coder_base[0]:                 # what doesn't move: drawn when it changes
+            img, d = self.canvas()
+            self.header(img, d)
+            coder_desk(img)
+            self.bot_label(d)
+            y = (CO_TOP + 8 + fb.h - self.FOOTER) / 2
+            d.text((24, y), title, font=F["head"], fill=TEXT, anchor="lm")
+            if sub:
+                d.text((24 + d.textlength(title, font=F["head"]) + 12, y + 1), sub, font=F["small"], fill=MUTED, anchor="lm")
+            if quiet:
+                d.text((fb.w - 24, y + 1), "Sound off", font=F["small"], fill=MUTED, anchor="rm")
+            self.footer(d, hints)
+            self.coder_base = (key, img, coder_under(img))
+        img = self.coder_base[1].copy()
+        if self.coder_help:                            # (the card, over an empty desk)
+            self.coder_card(img)
+        else:
+            p = self.coder.pose(now, s)
+            coder_draw(img, p, ACCENT, now, under=self.coder_base[2])
+            coder_extras(img, p, now, ACCENT, {"code": F["co_code"], "mark": F["big"],
+                                               "z": (F["co_z1"], F["co_z2"], F["co_z3"])})
+        last_key, last_count, last_t, whole_t = self.coder_shown
+        if (key != last_key or getattr(fb, "frames", None) != last_count or now - last_t > 0.5
+                or now - whole_t > 3 or not hasattr(fb, "show_part")):
+            fb.show(img)                               # the whole picture: something else changed too
+            whole_t = now
+        else:
+            fb.show_part(img, CO_DIRTY)                # just the coder
+        self.coder_shown = (key, getattr(fb, "frames", None), now, whole_t)
+
+    # the web page passes your agent's word on (webui.py: /coder, /coder/say, /coder/hook)
+    def coder_state(self):
+        """GET /coder: what it's doing. (The control server's thread.)"""
+        return {"ok": True, "pose": self.coder.current()}
+
+    def web_coder(self, cmd):
+        """POST /coder: your agent says what it's doing. (The control server's thread: answered at once.)"""
+        name = cmd.get("pose")
+        if name not in CODER_POSES:
+            return {"ok": False, "error": "no such pose"}
+        return {"ok": True, "pose": self.coder.ask(name)}
+
+    def coder_say(self, data, pose):
+        """POST /coder/say: a clip to say, in a pose. (status, reply), once it has been said."""
+        if pose not in CODER_SAY_AS:
+            return 400, {"ok": False, "error": "a clip is said talking, typing, reading, thinking or rest"}
+        try:
+            pcm, rate, ch = coder_wav(data)
+        except ValueError as ex:
+            return 415, {"ok": False, "error": str(ex)}
+        return 200, {"ok": True, "ms": self.coder.say(pcm, rate, ch, pose)}
+
+    # -- the Simulator tab: little worlds to watch ------------------------------------------------------
+    def on_sim_page(self):
+        return self.active and self.view == "list" and self.tab_type() == "sim"
+
+    @staticmethod
+    def sim_rows(kind):
+        """START's card: the sim's options, then Full screen."""
+        return tuple(kind.options) + (SIM_FULL,)
+
+    def sim_value(self, kind, key):
+        """One of a sim's options as you left it (kept with your settings), or its usual one."""
+        for k, _, ways, default in self.sim_rows(kind):
+            if k == key:
+                v = self.setting("sim_full" if k == "full" else f"sim_{kind.key}_{k}")
+                return v if v in ways and not isinstance(v, bool) else default
+        return None
+
+    def sim_full(self):
+        """Full screen: just the sim, on the whole screen (for every sim)."""
+        return self.setting("sim_full") == "On"
+
+    def sim_box(self):
+        """The box on the screen, and how far in from its wall the sim keeps: beside its numbers, or
+        the whole screen."""
+        if self.sim_full():
+            return ((0, 0, self.fb.w, self.fb.h) if self.fb else (0, 0, 640, 480)), 0
+        return SIM_BOX, SIM_IN
+
+    def sim_game(self):
+        """The sim on this page: made the first time it's opened, with your options, and kept while
+        you're elsewhere; its box the size it is now."""
+        kind = SIMS[LIBRARY[self.tab]["sim"]]
+        (x0, y0, x1, y1), inset = self.sim_box()
+        w, h = x1 - x0 - 2 * inset, y1 - y0 - 2 * inset
+        s = self.sims.get(kind.key)
+        if s is None:
+            s = self.sims[kind.key] = kind(w, h, values={k: self.sim_value(kind, k) for k, _, _, _ in kind.options})
+            if kind is Snake:
+                s.best = self.snake_best()
+            calls = self.setting("sim_rps_calls")
+            if (kind is RockPaperScissors and isinstance(calls, list) and len(calls) == 2
+                    and all(isinstance(n, int) and not isinstance(n, bool) and n >= 0 for n in calls)):
+                s.calls = [min(calls), calls[1]]
+        elif (s.w, s.h) != (w, h):
+            s.refit(w, h)
+        return s
+
+    def sim_set_full(self, on):
+        """SELECT: full screen (just the sim), or back. Kept for next time, for every sim."""
+        self.set_setting("sim_full", "On" if on else "Off")
+        if self.tab_type() == "sim":
+            self.sim_game()                            # (the box grows or shrinks)
+        if on:
+            self.toast("Full screen. SELECT again to leave it", 3)
+
+    def sim_close(self):
+        """START's card closes: the sim starts again if an option it needs that for has changed."""
+        if self.sim_opts is None:
+            return
+        self.sim_opts = None
+        s = self.sims.get(LIBRARY[self.tab].get("sim")) if self.tab_type() == "sim" else None
+        if s is not None and s.needs_restart():
+            s.restart()
+        self.dirty = True
+
+    def press_sim(self, name, repeat):
+        """A sim: A pauses (Rock Paper Scissors: starts, pauses, plays again), X pokes it, Y starts it
+        again, SELECT is full screen, START has its options, B goes back to the list. In Rock Paper
+        Scissors, left and right pick a winner (until the first capture)."""
+        s = self.sim_game()
+        if self.sim_opts is not None:
+            return self.press_sim_opts(s, name, repeat)
+        if name in ("b", "l", "r"):
+            return "pass"
+        if s.key == "mandel" and name in Mandelbrot.MOVES and self.press_mandel(s, name, repeat):
+            self.dirty = True
+            return None
+        if s.key == "snake" and name in ("up", "down", "left", "right", "a", "x", "y", "start"):
+            if not repeat:
+                self.press_snake(s, name)
+            self.dirty = True
+            return None
+        if repeat:
+            return None
+        full, rps = self.sim_full(), s.key == "rps"
+        if name in ("left", "right") and rps:
+            if s.is_open():
+                s.choose(1 if name == "right" else -1)
+                if full:                               # (nothing else on the screen says so)
+                    self.toast("No pick" if s.pick is None else f"Your pick: {RPS_TEAMS[s.pick]}", 2)
+            else:
+                self.toast("Picks are locked until the next round", 2)
+        elif name == "a":
+            if rps and s.phase == "ready":
+                s.start()
+            elif rps and s.phase == "over":
+                s.new_round()
+            else:
+                s.paused = not s.paused
+                if full and s.paused:
+                    self.toast("Paused", 2)
+        elif name == "x" and s.poke_label and not (rps and s.phase == "ready"):
+            s.poke()
+        elif name == "y":
+            s.restart()
+            s.paused = False
+        elif name == "select":
+            self.sim_set_full(not full)
+        elif name == "start":
+            self.sim_opts = 0
+        else:
+            return None
+        self.dirty = True
+        return None
+
+    def press_mandel(self, s, name, repeat):
+        """The Mandelbrot Set: exploring, the d-pad moves round it and A zooms in, Y out, for as long as
+        they're held; on the tour, the d-pad starts exploring from where it is. True if it took the press."""
+        if s.phase != "explore":
+            if name not in ("up", "down", "left", "right") or repeat:
+                return False
+            self.set_setting("sim_mandel_mode", "Explore")
+            s.configure({"mode": "Explore"})
+            self.toast("Exploring. START has the tour", 3)
+        if repeat:                                     # (held down on the web page)
+            s.nudge(name)
+            return True
+        if name == "a" and s.ex and s.ex["L"] >= s.DEEPEST:
+            self.toast("As deep as it can go", 2)
+        elif name == "y" and s.ex and s.ex["L"] <= 0:
+            self.toast("That's the whole set", 2)
+        s.hold(name)
+        return True
+
+    def press_snake(self, s, name):
+        """Snake: the d-pad steers, A starts, pauses or plays again, Y starts a new game, START has its
+        options (and the game waits meanwhile)."""
+        full = self.sim_full()
+        if name in SNAKE_DIRS:
+            if s.ai:
+                self.toast("The AI's playing. X to take over", 2)
+            s.steer(name)
+        elif name == "x":
+            self.snake_ai_toggle(s)
+        elif name == "a":
+            s.press_a()
+            if full and s.paused:
+                self.toast("Paused", 2)
+        elif name == "y":
+            self.snake_keep(s)
+            s.restart()
+        else:
+            if s.phase == "on":
+                s.paused = True
+            self.sim_opts = 0
+
+    def snake_keep(self, s):
+        """Your best (and the AI's), kept for next time."""
+        if s.best > self.snake_best():
+            self.set_setting("snake_best", s.best)
+        if s.ai_best > self.snake_best("snake_ai_best"):
+            self.set_setting("snake_ai_best", s.ai_best)
+
+    def snake_best(self, key="snake_best"):
+        v = self.setting(key)
+        return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else 0
+
+    # Snake's AI: a decision model on your bot's computer plays (X)
+    def snake_server(self):
+        self.friend.load(self.friend_files())
+        return self.friend.server
+
+    def snake_models(self, force=False):
+        """Ask for the decision models on your bot's computer, unless the list is fresh."""
+        server = self.snake_server()
+        b = self.brain
+        if server and (force or b.models_for != server or time.monotonic() - b.models_at > SNAKE_AI_FRESH):
+            if b.ask(("models", server)):
+                self.brain_looking = True
+
+    def snake_ai_model(self):
+        """The decision model chosen in START's card (or the first one found)."""
+        return self.sim_value(Snake, "ai") if len(Snake.options) > len(SNAKE_OPTIONS) else ""
+
+    def snake_found(self, models):
+        """The decision models found: a row on START's card to pick one."""
+        Snake.options = SNAKE_OPTIONS + ((("ai", "AI", tuple(models), models[0]),) if models else ())
+
+    def snake_ai_toggle(self, s):
+        """X: the AI takes over (once it's found a decision model on your bot's computer), or you do."""
+        if s.ai:
+            s.ai, s.ai_waking, s.plan = False, False, {}
+            if s.phase == "on":
+                s.paused = True                        # (yours now: A, or the d-pad, and on it goes)
+            self.toast("Your turn. A or the d-pad to carry on" if s.phase == "on" else "Your turn", 3)
+            return
+        server = self.snake_server()
+        if not server:
+            self.toast("The AI plays on your bot's computer. Set up the Bot first", 4)
+            return
+        models = self.brain.models if self.brain.models_for == server else []
+        if not models:
+            self.snake_models(force=True)
+            s.ai_want = True                           # (it takes over once they're found)
+            self.toast("Looking for decision models on your bot's computer…", 3)
+            return
+        self.snake_ai_start(s)
+
+    def snake_ai_start(self, s):
+        s.ai_want = False
+        self.brain_server = self.snake_server()
+        s.ai, s.ai_model, s.ai_ms = True, self.snake_ai_model(), None
+        s.ai_used = True
+        if s.phase == "over":
+            s.restart()
+        self.snake_ai_wake(s)
+
+    def snake_ai_wake(self, s):
+        """The game waits for the AI's first move (its model wakes up on the other computer), and it
+        decides from where the snake is: any turns still to come are dropped."""
+        s.ai_waking, s.ai_ms, s.turns, s.plan = True, None, [], {}
+        if s.phase == "on":
+            s.paused = True
+        self.brain_round += 1
+        self.brain_asked = None
+
+    def snake_ai_take(self, s):
+        """Each frame, before the game moves on: what came back from the AI, put to use."""
+        for kind, tag, answer, ms, error in self.brain.take():
+            if kind == "models":
+                self.brain_looking = False
+                if not error:
+                    self.snake_found(answer)
+                if s.ai_want:
+                    s.ai_want = False
+                    if error:
+                        self.toast(error, 5)
+                    elif not answer:
+                        self.toast("No decision models on your bot's computer. Try: ollama pull nimble", 5)
+                    else:
+                        self.snake_ai_start(s)
+                continue
+            if not s.ai or tag is None or tag[0] != s.games or tag[2] != self.brain_round:
+                continue                               # (for a game that's over, from before it woke, or it's off)
+            if error:
+                s.ai_lost += 1
+                if s.ai_waking or s.ai_lost >= SNAKE_AI_TRIES:
+                    s.ai, s.ai_waking, s.ai_lost, s.plan = False, False, 0, {}
+                    if s.phase == "on":
+                        s.paused = True
+                    self.toast(f"The AI stopped: {error}", 5)
+                elif self.brain_asked == tag:          # (that move's asked for again, while there's time)
+                    self.brain_asked = (tag[0], tag[1] - 1, tag[2])
+                continue
+            s.ai_lost = 0
+            if not s.ai_waking:                        # (how long it takes, awake)
+                s.ai_ms = ms if s.ai_ms is None else s.ai_ms * 0.8 + ms * 0.2
+            if s.ai_waking:                            # awake: off it goes
+                s.ai_waking = False
+                s.paused = False
+                if s.phase == "ready":
+                    s.phase = "on"
+                    s.ai_used = True
+            if tag[1] >= s.steps:
+                s.plan[tag[1]] = answer                # (made when the snake gets there)
+            # (else it came too late for where it was asked about: the snake went straight on)
+
+    def snake_ai_ask(self, s):
+        """...and after: its next question, as soon as it's free. It's asked about where the snake will
+        be by the time its answer comes (how long its moves take is timed), so its move is made right
+        there, and the game never waits for it. One that comes later than that isn't used: the snake
+        goes straight on (that's the model's own fault). When it's quick, it's a move ahead at most."""
+        if s.ai_want and not self.brain_looking and not self.brain.busy():
+            self.snake_models(force=True)              # (X, while it was still busy with the last move)
+        if not s.ai or self.brain.busy() or s.phase != "on" and not s.ai_waking:
+            return
+        model = self.snake_ai_model()
+        if model and model != s.ai_model:              # (another one picked: it wakes up first)
+            s.ai_model = model
+            self.snake_ai_wake(s)
+        if not s.ai_model or s.paused and not s.ai_waking:
+            return
+        if s.ai_waking:
+            lead, gap = 0, 1                           # (the game waits for this one)
+        else:
+            per = 1.0 / s.rate()                       # (seconds a move)
+            ms = SNAKE_AI_GUESS if s.ai_ms is None else s.ai_ms / 1000
+            took = ms * SNAKE_AI_SPARE + self.brain_frame
+            lead = min(SNAKE_AI_AHEAD, int((took + s.acc) / per))   # (moves made before its answer's here)
+            gap = max(1, math.ceil((ms + self.brain_frame / 2) / per))   # (moves made for each it decides)
+            self.snake_keeping_up(s)
+        last = self.brain_asked
+        mine = last is not None and last[0] == s.games and last[2] == self.brain_round
+        if mine and last[1] >= s.steps + max(lead, 1):
+            return                                     # (it's far enough ahead)
+        first = max(s.steps + lead, last[1] + 1) if mine else s.steps + lead
+        c, got = s.later(first - s.steps)
+        at = s.steps + got
+        if mine and at <= last[1]:
+            return                                     # (it runs into something before then, as decided)
+        state, choices = c.situation(gap)
+        tag = (s.games, at, self.brain_round)
+        if self.brain.ask(("move", self.brain_server, s.ai_model, state, choices, tag,
+                           SNAKE_AI_WAKE if s.ai_waking else SNAKE_AI_WAIT)):
+            self.brain_asked = tag
+
+    def snake_keeping_up(self, s):
+        """It can't keep up with the game (after a while): said once, for each model."""
+        share = s.keeps_up()
+        if share is None or share >= SNAKE_AI_BEHIND or s.ai_model in self.brain_warned:
+            return
+        self.brain_warned.add(s.ai_model)
+        name = s.ai_model[:-7] if s.ai_model.endswith(":latest") else s.ai_model
+        took = f" ({s.ai_ms:,.0f} ms a move)" if s.ai_ms else ""
+        if s.values["speed"] == SNAKE_SPEEDS[0][0]:
+            self.toast(f"{name} can't keep up{took}", 5)
+        else:
+            self.toast(f"{name} can't keep up at this speed{took}. Try {SNAKE_SPEEDS[0][0]} in START", 5)
+
+    def snake_over(self, s):
+        """The end of a game: your best kept; full screen, a word about it (the card's not shown there)."""
+        self.snake_keep(s)
+        if self.sim_full():
+            title, words = s.note()
+            self.toast(f"{title} {words}" if title.endswith("!") else f"{title}: {words}", 4)
+
+    def on_mandel_page(self):
+        """The Mandelbrot Set is on screen (its options closed)."""
+        return self.on_sim_page() and self.sim_opts is None and LIBRARY[self.tab].get("sim") == "mandel"
+
+    def takes_repeats(self, name):
+        """A press held down on the web page goes on and on here (beyond the usual arrows in lists)."""
+        s = self.sims.get("mandel")
+        return (self.on_mandel_page() and s is not None and s.phase == "explore" and name in Mandelbrot.MOVES)
+
+    def press_sim_opts(self, s, name, repeat):
+        """START's card: up and down pick a row, left and right change it, A or B closes it."""
+        rows = self.sim_rows(type(s))
+        if name in ("l", "r"):
+            return "pass"                                  # (switching apps closes it)
+        if name in ("up", "down"):
+            self.sim_opts = (self.sim_opts + (1 if name == "down" else -1)) % len(rows)
+        elif name in ("left", "right") and not repeat:
+            key, _, ways, _ = rows[self.sim_opts]
+            ways = list(ways)
+            new = ways[(ways.index(self.sim_value(type(s), key)) + (1 if name == "right" else -1)) % len(ways)]
+            if key == "full":
+                self.set_setting("sim_full", new)
+                self.sim_game()                            # (the box grows or shrinks)
+            else:
+                self.set_setting(f"sim_{s.key}_{key}", new)
+                s.configure({key: new})
+        elif name in ("a", "b", "start") and not repeat:
+            self.sim_close()
+        else:
+            return None
+        self.dirty = True
+        return None
+
+    def sim_hints(self, s):
+        if self.sim_opts is not None:
+            return [("▲▼", "Choose"), ("◀▶", "Change"), ("B", "Done")]
+        own = s.hints()
+        if own is not None:
+            return own
+        if s.key == "rps":
+            first = (("A", "Start") if s.phase == "ready" else ("A", "Play again") if s.phase == "over"
+                     else ("A", "Play") if s.paused else ("A", "Pause"))
+            hints = [first] + ([("X", "Shake")] if s.phase != "ready" else []) + [("Y", "New round")]
+            if s.is_open():
+                hints.append(("◀▶", "Pick"))
+            return hints + [("START", "Options")]
+        hints = [("A", "Play" if s.paused else "Pause")]
+        if s.poke_label:
+            hints.append(("X", s.poke_label))
+        return hints + [("Y", "New start"), ("START", "Options")]
+
+    def sim_tile(self, text, font, fill, bg):
+        """A picture of some words on a plain background, kept: a sim's words and numbers come back again
+        and again, and drawing text is slow on a Pi Zero."""
+        tiles = self.sim_tiles
+        key = (text, font, fill, bg)
+        tile = tiles.get(key)
+        if tile is None:
+            from PIL import Image, ImageDraw
+            f = self.fonts[font]
+            probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+            w, h = int(math.ceil(probe.textlength(text, font=f))) + 2, int(getattr(f, "size", 12) * 1.6)
+            tile = Image.new("RGB", (max(w, 3), h), bg)
+            ImageDraw.Draw(tile).text((1, h / 2), text, font=f, fill=fill, anchor="lm")
+            if len(tiles) > 600:
+                tiles.clear()
+            tiles[key] = tile
+        return tile
+
+    def sim_text(self, img, xy, text, font, fill, bg, anchor="l"):
+        """Words at xy (their middle, at the height), from the left, the right or the middle: kept
+        pictures of them. Returns how wide they are."""
+        tile = self.sim_tile(text, font, fill, bg)
+        x, y = xy
+        w = tile.width - 2
+        x = x - w if anchor == "r" else x - w / 2 if anchor == "m" else x
+        img.paste(tile, (int(round(x)) - 1, int(round(y)) - tile.height // 2))
+        return w
+
+    def sim_digits(self, img, xy, s):
+        """A number, right-aligned at xy: each figure's picture is kept (the font has even widths)."""
+        x, y = xy
+        for ch in reversed(s):
+            x -= self.sim_text(img, (x, y), ch, "mono_s", TEXT, BG, anchor="r")
+
+    @staticmethod
+    def sim_chart(d, history, colours, top, box):
+        """A run so far: each count, over time."""
+        if len(history) < 2:
+            return
+        x0, y0, x1, y1 = box
+        top = max(1, top)
+        t_max = max(10.0, history[-1][0])
+        for k, colour in enumerate(colours):
+            pts = [(x0 + 4 + t / t_max * (x1 - x0 - 8), y1 - 5 - min(c[k], top) / top * (y1 - y0 - 10))
+                   for t, c in history]
+            d.line(pts, fill=colour, width=2)
+            x, y = pts[-1]
+            d.ellipse((x - 2.5, y - 2.5, x + 2.5, y + 2.5), fill=colour)
+
+    def rps_scores(self, s, sig):
+        """Beside Rock Paper Scissors' box: each team's pieces, the time and captures, a chart of the
+        round, your pick. What changes only now and then (the names, your pick) is kept, drawn again
+        when sig changes."""
+        from PIL import Image, ImageDraw
+        W, H = SIM_PANEL[2] - SIM_PANEL[0], SIM_PANEL[3] - SIM_PANEL[1]
+        chart = (0, 186, W - 1, 252)
+        if self.sim_still[0] != sig:
+            img = Image.new("RGB", (W, H), BG)
+            d = ImageDraw.Draw(img)
+            for k, name in enumerate(RPS_TEAMS):
+                y, c, mine = k * 42, RPS_COLOUR[k], s.pick == k
+                d.rounded_rectangle((0, y + 4, 10, y + 14), radius=3, fill=c)
+                self.sim_text(img, (18, y + 9), name, "small_b" if mine else "small", c if mine else BODY, BG)
+            for k, label in enumerate(("Time", "Captures")):
+                self.sim_text(img, (0, 140 + k * 24), label, "label", MUTED, BG)
+            y = 272
+            self.sim_text(img, (0, y), "Your pick", "label", MUTED, BG)
+            if s.is_open():
+                state, fill = "Open", MUTED
+            else:
+                state, fill = ("Locked in", TEXT) if s.pick is not None else ("Closed", MUTED)
+            self.sim_text(img, (W, y), state, "status", fill, BG, anchor="r")
+            if s.pick is not None:
+                self.sim_text(img, (0, y + 24), RPS_TEAMS[s.pick], "small_b", RPS_COLOUR[s.pick], BG)
+            else:
+                self.sim_text(img, (0, y + 24), "◀ ▶ to pick" if s.is_open() else "None this round",
+                              "small", BODY, BG)
+            hits, made = s.calls
+            d.text((0, y + 48), f"Called {hits} of {made}" if made else "No calls yet",
+                   font=self.fonts["status"], fill=MUTED, anchor="lm")
+            self.sim_still = (sig, img)
+        img = self.sim_still[1].copy()
+        d = ImageDraw.Draw(img)
+        counts, total = s.counts(), max(1, len(s.t))
+        for k in range(3):
+            y = k * 42
+            self.sim_digits(img, (W, y + 9), str(counts[k]))
+            d.rounded_rectangle((0, y + 22, W - 1, y + 28), radius=3, fill=ROW)
+            if counts[k]:
+                d.rounded_rectangle((0, y + 22, max(6, round((W - 1) * counts[k] / total)), y + 28), radius=3,
+                                    fill=RPS_COLOUR[k])
+        self.sim_digits(img, (W, 140), sim_clock(s.clock))
+        self.sim_digits(img, (W, 164), str(s.captures))
+        d.rounded_rectangle(chart, radius=6, fill=SIM_FLOOR, outline=LINE)
+        self.sim_chart(d, s.history, RPS_COLOUR, total, chart)
+        return img
+
+    def sim_numbers(self, s, sig):
+        """Beside a sim's box: its name, what it is, its numbers and (for some) a chart. The words that
+        don't change are kept, drawn again when sig changes."""
+        from PIL import Image, ImageDraw
+        W, H = SIM_PANEL[2] - SIM_PANEL[0], SIM_PANEL[3] - SIM_PANEL[1]
+        stats = s.stats()
+        top = 10
+        if self.sim_still[0] != sig:
+            img = Image.new("RGB", (W, H), BG)
+            d = ImageDraw.Draw(img)
+            self.sim_text(img, (0, top + 2), LIBRARY[self.tab].get("title") or LIBRARY[self.tab]["name"], "head",
+                          TEXT, BG)
+            y = top + 28
+            for line in self.wrap(d, s.blurb, self.fonts["status"], W, lines=6):
+                self.sim_text(img, (0, y), line, "status", MUTED, BG)
+                y += 17
+            for k, (label, _) in enumerate(stats):
+                self.sim_text(img, (0, 154 + k * 24), label, "label", MUTED, BG)
+            self.sim_still = (sig, img)
+        img = self.sim_still[1].copy()
+        for k, (_, value) in enumerate(stats):
+            y = 154 + k * 24
+            if value.isdigit():
+                self.sim_digits(img, (W, y), value)
+            else:
+                self.sim_text(img, (W, y), value, "small", TEXT, BG, anchor="r")
+        chart = s.chart()
+        if chart:
+            d = ImageDraw.Draw(img)
+            box = (0, 154 + len(stats) * 24, W - 1, 154 + len(stats) * 24 + 66)
+            d.rounded_rectangle(box, radius=6, fill=SIM_FLOOR, outline=LINE)
+            self.sim_chart(d, *chart, box)
+            return img
+        pw, ph = W - 10, round((W - 10) * (SIM_BOX[3] - SIM_BOX[1]) / (SIM_BOX[2] - SIM_BOX[0]))
+        got = s.inset(pw, ph)
+        if got:                                        # (the Mandelbrot Set: where the dive is)
+            pic, words = got
+            x, y = 5, 154 + len(stats) * 24 - 4
+            if self.sim_mask is None or self.sim_mask.size != (pw, ph):     # (its round corners)
+                self.sim_mask = Image.new("L", (pw, ph), 0)
+                ImageDraw.Draw(self.sim_mask).rounded_rectangle((0, 0, pw - 1, ph - 1), radius=6, fill=255)
+            img.paste(pic, (x, y), self.sim_mask)
+            ImageDraw.Draw(img).rounded_rectangle((x - 1, y - 1, x + pw, y + ph), radius=7, outline=LINE)
+            self.sim_text(img, (W / 2, y + ph + 15), words, "status", MUTED, BG, anchor="m")
+        return img
+
+    def sim_overlay(self, s):
+        """The card over the box, if there's one, as (picture, where): START's options; Paused; a sim's
+        note (Life when it settles); in Rock Paper Scissors the moment to pick a winner, and who won.
+        Full screen: just START's options."""
+        if self.sim_opts is not None:
+            key = ("opts", s.key, self.sim_opts, tuple(self.sim_value(type(s), k) for k, _, _, _ in self.sim_rows(type(s))),
+                   self.sim_box(), ACCENT)
+        elif self.sim_full():
+            return None
+        elif s.key == "rps" and s.phase == "ready":
+            key = ("ready", s.pick, math.ceil(s.wait))
+        elif s.key == "rps" and s.phase == "over":
+            key = ("over", s.winner, s.pick, int(s.clock), s.captures, math.ceil(s.wait))
+        elif s.paused:
+            key = ("paused",)
+        elif s.note():
+            key = ("note",) + tuple(s.note()) + (s.note_top(),)
+        else:
+            return None
+        if key != self.sim_card[0]:
+            self.sim_card = (key, self.sim_opts_card(s) if key[0] == "opts" else self.sim_note(s, key))
+        return self.sim_card[1]
+
+    def sim_note(self, s, key):
+        """A card of a few lines: in the middle of the box (the moment to pick, Paused), or at its foot
+        (who won, a sim's note). Its words are kept pictures: they come back again and again."""
+        from PIL import Image, ImageDraw
+        bx0, by0, bx1, by1 = SIM_BOX
+        rows = []                                      # ([(text, font, colour)...], height)
+        middle = key[0] in ("ready", "paused")
+        if key[0] == "ready":
+            if s.pick is None:
+                rows += [([("Pick a winner", "head", TEXT)], 30),
+                         ([(f"◀ ▶ to choose. Starts in {key[2]}", "small", BODY)], 24)]
+            else:
+                rows += [([("Your pick: ", "head", TEXT), (RPS_TEAMS[s.pick], "head", RPS_COLOUR[s.pick])], 30),
+                         ([(f"Starts in {key[2]}", "small", BODY)], 24)]
+        elif key[0] == "paused":
+            rows.append(([("Paused", "head", TEXT)], 30))
+        elif key[0] == "note":
+            rows += [([(key[1], "head", TEXT)], 30), ([(key[2], "small", BODY)], 24)]
+        else:
+            w = s.winner
+            meta = f"After {sim_clock(s.clock)} and {s.captures} captures."
+            if s.pick is not None:
+                meta = ("You called it. " if s.pick == w else f"Your pick, {RPS_TEAMS[s.pick]}, didn't make it. ") + meta
+            probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+            rows += [([("Last team standing", "label", MUTED)], 23),
+                     ([(f"{RPS_TEAMS[w]} wins", "big", RPS_COLOUR[w])], 39)]
+            rows += [([(line, "small", BODY)], 24) for line in self.wrap(probe, meta, self.fonts["small"], bx1 - bx0 - 80)]
+            rows.append(([(f"Next round in {key[5]} s", "status", MUTED)], 24))
+        tiles = [[self.sim_tile(t, f, colour, ROW) for t, f, colour in segs] for segs, _ in rows]
+        widths = [sum(t.width - 2 for t in ts) for ts in tiles]
+        px, py = (26, 12) if middle else (22, 10)
+        W = int(max(widths) + 2 * px)
+        H = int(sum(h for _, h in rows) + 2 * py)
+        img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        ImageDraw.Draw(img).rounded_rectangle((0, 0, W - 1, H - 1), radius=12, fill=ROW + (255,),
+                                              outline=LINE + (255,))
+        y = py
+        for (segs, h), ts, rw in zip(rows, tiles, widths):
+            x = (W - rw) / 2 if middle else px
+            for tile in ts:
+                img.paste(tile, (int(round(x)) - 1, int(round(y + h / 2)) - tile.height // 2))
+                x += tile.width - 2
+            y += h
+        x0 = (bx0 + bx1 - W) // 2
+        y0 = (by0 + by1 - H) // 2 if middle else by0 + 14 if key[0] == "note" and key[3] else by1 - 14 - H
+        return img, (x0, y0)
+
+    def sim_opts_card(self, s):
+        """START: the sim's options, and full screen."""
+        from PIL import Image, ImageDraw
+        F = self.fonts
+        rows = self.sim_rows(type(s))
+        W = 404
+        probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+        lede = self.wrap(probe, s.blurb, F["small"], W - 44, lines=3)
+        top = 56 + 20 * len(lede) + 6
+        H = top + 40 * len(rows) + 10
+        img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        d.rounded_rectangle((0, 0, W - 1, H - 1), radius=12, fill=ROW + (255,), outline=LINE + (255,))
+        d.text((22, 30), LIBRARY[self.tab].get("title") or LIBRARY[self.tab]["name"], font=F["head"], fill=TEXT,
+               anchor="lm")
+        y = 56
+        for line in lede:
+            d.text((22, y), line, font=F["small"], fill=MUTED, anchor="lm")
+            y += 20
+        y = top
+        for i, (key, label, _, _) in enumerate(rows):
+            on, mid = i == self.sim_opts, y + 18
+            if on:
+                d.rounded_rectangle((10, y, W - 11, y + 36), radius=8, fill=co_mix(ROW, TEXT, 0.07))
+                d.rectangle((10, y + 9, 13, y + 27), fill=ACCENT)
+            d.text((26, mid), label, font=F["small"], fill=TEXT if on else BODY, anchor="lm")
+            value, font, x1 = str(self.sim_value(type(s), key)), F["small_b"] if on else F["small"], W - 24
+            if value.endswith(":latest"):              # (a model's usual name: Ollama's own word for it)
+                value = value[:-7]
+            if on:
+                d.text((x1, mid), "▶", font=F["small"], fill=ACCENT, anchor="rm")
+                x1 -= 22
+            d.text((x1, mid), value, font=font, fill=ACCENT if on else MUTED, anchor="rm")
+            if on:
+                d.text((x1 - d.textlength(value, font=font) - 10, mid), "◀", font=F["small"], fill=ACCENT,
+                       anchor="rm")
+            y += 40
+        (bx0, by0, bx1, by1), _ = self.sim_box()
+        if self.sim_full():
+            by1 -= self.FOOTER                         # (the buttons show along the bottom meanwhile)
+        return img, ((bx0 + bx1 - W) // 2, max(by0, (by0 + by1 - H) // 2))
+
+    def sim_corners(self, base):
+        """The box's round corners and its edge, as they are on the picture without the sim: put back on
+        each frame over a sim that fills the box right up to its corners."""
+        from PIL import Image, ImageDraw
+        x0, y0, x1, y1 = SIM_BOX
+        mask = Image.new("L", (x1 - x0 + 1, y1 - y0 + 1), 255)
+        ImageDraw.Draw(mask).rounded_rectangle((1, 1, x1 - x0 - 1, y1 - y0 - 1), radius=9, fill=0)
+        out = []
+        for cx, cy in ((x0, y0), (x1 - 11, y0), (x0, y1 - 11), (x1 - 11, y1 - 11)):
+            box = (cx, cy, cx + 12, cy + 12)
+            out.append((base.crop(box), mask.crop((cx - x0, cy - y0, cx - x0 + 12, cy - y0 + 12)), (cx, cy)))
+        return out
+
+    def render_sim(self):
+        """The box with the sim in it, and its numbers beside it. What doesn't move is drawn when it
+        changes; each frame draws the sim on it and sends just the box (and the numbers, when they've
+        changed) to the screen. Full screen: just the sim, the whole screen each frame."""
+        from PIL import Image
+        fb = self.fb
+        now = time.monotonic()
+        s = self.sim_game()
+        if self.sim_opts is None:                      # (it waits while its options are open)
+            dt = 0.0 if self.sim_t is None else min(now - self.sim_t, 0.1)
+            if s.key == "snake" and s.phase == "on" and not s.ai and (self.sim_t is None or now - self.sim_t > 0.5):
+                s.paused = True                        # (back to a game: it waits for you)
+            if s.key == "snake":
+                if dt > 0:
+                    self.brain_frame = self.brain_frame * 0.9 + dt * 0.1
+                self.snake_ai_take(s)
+            news = s.update(dt)
+            if news == "won" and s.key == "rps" and s.pick is not None:
+                self.set_setting("sim_rps_calls", list(s.calls))
+            elif news == "over" and s.key == "snake":
+                self.snake_over(s)
+            if s.key == "snake":
+                self.snake_ai_ask(s)
+        self.sim_t = now
+        full, card_open = self.sim_full(), self.sim_opts is not None
+        hints = (tuple(self.sim_hints(s)), ACCENT)
+        if (card_open or not full) and hints not in self.sim_feet:   # the buttons: each set kept
+            img, d = self.canvas()
+            msg, self.msg = self.msg, None            # (a notice is put on each frame instead)
+            try:
+                self.footer(d, list(hints[0]))
+            finally:
+                self.msg = msg
+            self.sim_feet[hints] = img.crop((0, fb.h - self.FOOTER, fb.w, fb.h))
+        fresh = False
+        if full:
+            key = ("full", fb.w, fb.h)
+            if key != self.sim_base[0]:
+                self.sim_base = (key, Image.new("RGB", (fb.w, fb.h), SIM_FLOOR), None)
+        else:
+            if (self.status_sig, ACCENT, self.tab_off) != self.sim_head[0]:     # the clock, the tabs
+                img, d = self.canvas()
+                self.header(img, d)
+                self.sim_head = ((self.status_sig, ACCENT, self.tab_off), img.crop((0, 0, fb.w, self.HEADER + 1)))
+            key = (self.sim_head[0], hints)
+            if key != self.sim_base[0]:
+                img, d = self.canvas()
+                img.paste(self.sim_head[1], (0, 0))
+                img.paste(self.sim_feet[hints], (0, fb.h - self.FOOTER))
+                d.rounded_rectangle(SIM_BOX, radius=10, fill=SIM_FLOOR, outline=LINE)
+                self.sim_base = (key, img, self.sim_corners(img))
+            if s.key == "rps":
+                sig = ("rps", s.phase, s.pick, s.is_open(), tuple(s.calls), s.round, ACCENT)   # drawn at once
+                pkey = (sig, tuple(s.counts()), int(s.clock), s.captures, len(s.history))     # ...or every 0.25 s
+            else:
+                sig = (s.key, self.tab, tuple(label for label, _ in s.stats()), ACCENT)
+                pkey = (sig, tuple(s.stats()), len(s.history), s.look())
+            old = self.sim_panel[0]
+            fresh = old is None or old[0] != sig or (pkey != old and now - self.sim_panel[2] >= 0.25)
+            if fresh:
+                self.sim_panel = (pkey, self.rps_scores(s, sig) if s.key == "rps" else self.sim_numbers(s, sig), now)
+        img = self.sim_base[1].copy()
+        (bx, by, _, _), inset = self.sim_box()
+        if not full:
+            img.paste(self.sim_panel[1], SIM_PANEL[:2])
+        s.draw(img, bx + inset, by + inset)
+        if not full:
+            for tile, mask, at in self.sim_base[2]:
+                img.paste(tile, at, mask)
+        card = self.sim_overlay(s)
+        if card:
+            img.paste(card[0], card[1], card[0])
+        if full and card_open:                         # (its buttons, while the card is open)
+            img.paste(self.sim_feet[hints], (0, fb.h - self.FOOTER))
+        self.sim_msg(img, low=full and not card_open)  # (a notice stays over the sim)
+        last_key, last_count, last_t, whole_t = self.sim_shown
+        key = (key, self.msg, card_open and hints)
+        if (full or key != last_key or getattr(fb, "frames", None) != last_count or now - last_t > 0.5
+                or now - whole_t > 3 or not hasattr(fb, "show_part")):
+            fb.show(img)                               # the whole picture: full screen, or something
+            whole_t = now                              # else changed too
+        else:
+            fb.show_part(img, SIM_DIRTY if fresh else SIM_BOX)
+        self.sim_shown = (key, getattr(fb, "frames", None), now, whole_t)
+
+    def sim_msg(self, img, low=False):
+        """A notice (toast) over the sim: as msg_pill draws it, from a kept picture of the words. Low: at
+        the foot of the screen (full screen has no buttons along the bottom)."""
+        if not self.msg:
+            return
+        from PIL import ImageDraw
+        W, H = self.fb.w, self.fb.h
+        tile = self.sim_tile(self.msg, "small", TEXT, ROW)
+        if tile.width > W - 70:                        # (a long one: shortened, as usual)
+            self.msg_pill(ImageDraw.Draw(img))
+            return
+        mw = tile.width - 2 + 32
+        y0 = H - 48 if low else H - self.FOOTER - 46
+        ImageDraw.Draw(img).rounded_rectangle(((W - mw) / 2, y0, (W + mw) / 2, y0 + 34), radius=17, fill=ROW)
+        img.paste(tile, ((W - tile.width) // 2, y0 + 17 - tile.height // 2))
 
     def press_cameras(self, name, repeat):
         """The Camera tab: the live picture (B for your cameras, L R between them), or the list."""
@@ -8590,10 +13126,13 @@ class Media:
             self.toast("Saved to Pictures", 3)
 
     def release(self, name):
-        """Button let go: stops the camera turning or zooming."""
+        """Button let go: stops the camera turning or zooming, or the Mandelbrot Set moving."""
         if self.on_camera_page():
             self.camera.release(name)
             self.dirty = True
+        s = self.sims.get("mandel")
+        if s is not None:
+            s.release(name)
 
     def press(self, name, repeat=False):
         """Returns 'exit' when media mode should close."""
@@ -9191,6 +13730,9 @@ class Media:
             if app == "Home":
                 self.go_home()
                 return {"ok": True}
+            if app == "Coder":                         # (the Bot at work had its own app once)
+                self.bot_open("work")
+                return {"ok": True}
             if self.web_tab(app) is None:
                 return {"error": "No such app"}
             return {"ok": True}
@@ -9337,7 +13879,15 @@ class Media:
                          "pic": x.get("pic", ""), "photo": photo(x.get("photo"))}
                         for x in list(fr.log)],
                 "models": list(fr.models) if fr.server and fr.models_at == fr.server else [],
-                "modelsStatus": fr.models_status, "showing": self.on_friend_page(), "voice": self.web_voice()}
+                "modelsStatus": fr.models_status, "showing": self.on_friend_page(), "voice": self.web_voice(),
+                "work": self.web_work()}
+
+    def web_work(self):
+        """Your coding agent, as the Bot at work sees it."""
+        s = self.coder.snapshot(time.monotonic())
+        title, sub = self.coder_status(s)
+        return {"heard": bool(s["heard"]), "pose": s["anim"], "title": title, "sub": sub,
+                "showing": self.on_coder_page()}
 
     def web_voice(self):
         here = voices_here()
@@ -9388,10 +13938,10 @@ class Media:
         if do == "models":
             fr.fetch_models()
             return {"ok": True}
-        if do == "open":
+        if do in ("open", "work"):
             if not self.web_ready():
                 return {"error": "There's no screen to show it on"}
-            self.web_tab("Bot")
+            self.bot_open("work" if do == "work" else "chat")
             return {"ok": True}
         if do == "set":
             if "voice" in cmd:
@@ -9894,14 +14444,18 @@ class Media:
         return time.strftime("%-I %p", t)
 
     # -- the on-screen keyboard (and a real one, while it's up) ----------------
-    def open_keyboard(self, title, text, done, strip=True, empty=False, row=1, limit=60):
+    def open_keyboard(self, title, text, done, strip=True, empty=False, row=1, limit=60, local=False, cancel=None):
+        """A box to type in: done(text) when you're done. local: it notes whether the web page's remote typed
+        in it (kb["remote"]). cancel(text): what you typed, when you back out."""
         back = self.kb["back_to"] if self.kb else self.view       # one box straight after another
         self.kb = {"title": title, "text": text, "done": done, "r": row, "c": 0, "shift": False, "sym": False,
-                   "back_to": back, "strip": strip, "empty": empty, "limit": limit}
+                   "back_to": back, "strip": strip, "empty": empty, "limit": limit, "local": local,
+                   "cancel": cancel, "remote": False}
         self.view = "keys"
         self.keyreader.on_key = self.keyboard_key
         self.keyreader.start()
         self.dirty = True
+        return self.kb
 
     def close_keyboard(self, ok):
         kb = self.kb
@@ -9912,6 +14466,8 @@ class Media:
             text = kb["text"].strip() if kb.get("strip", True) else kb["text"]
             if ok and (text.strip() or kb.get("empty")):
                 kb["done"](text)                        # may open another box (a password, say)
+            elif not ok and kb.get("cancel"):
+                kb["cancel"](text)
         self.dirty = True
 
     def keyboard_key(self, kind, ch=""):
@@ -9931,6 +14487,8 @@ class Media:
         if kb is None:
             self.view = "list"
             return None
+        if kb.get("local") and self.web_guard:
+            kb["remote"] = True                        # (the web page's remote had a hand in it)
         rows = len(KEY_ROWS) + 1
         if name in ("up", "down"):
             kb["r"] = (kb["r"] + (1 if name == "down" else -1)) % rows
@@ -10018,12 +14576,15 @@ class Media:
             self.camera.stop()
         elif ttype == "crypto":
             self.crypto.stop()
+            self.coins_close()
         elif ttype == "remote":
             self.hass.stop()
             self.remote_more = None
         self.confirm = (None, 0.0)
         self.picking = None
         self.friend_more = None
+        self.coder_help = False
+        self.sim_close()
         self.set_page = "root"
         if ttype == "radio" and self.radio_stack:
             self.radio_stack = []
@@ -10057,7 +14618,15 @@ class Media:
             if r != "pass":
                 return r
         if ttype == "friend":
-            r = self.press_friend(name, repeat)
+            r = self.press_bot(name, repeat)
+            if r != "pass":
+                return r
+        if ttype == "sim":
+            r = self.press_sim(name, repeat)
+            if r != "pass":
+                return r
+        if ttype == "crypto" and self.coin_list:
+            r = self.press_coins(name, repeat)
             if r != "pass":
                 return r
         if ttype == "photos" and self.picking == "bot" and name in ("a", "b") and not repeat:
@@ -10399,6 +14968,9 @@ class Media:
             "code": f(FONT_MONO, 44), "price": f(FONT_BOLD, 46), "mid": f(FONT_BOLD, 24),
             "clock": f(FONT_BOLD, 52), "small_b": f(FONT_BOLD, 15), "label": f(FONT, 14), "temp": f(FONT_BOLD, 72),
             "keycap": f(FONT, 20), "face": f(FONT, 40), "chat": f(FONT, 18),
+            "co_code": f(FONT_MONO_BOLD if os.path.exists(FONT_MONO_BOLD) else FONT_MONO, 17),
+            "co_mono_xs": f(FONT_MONO, 13), "co_z1": f(FONT_BOLD, 16), "co_z2": f(FONT_BOLD, 21),
+            "co_z3": f(FONT_BOLD, 27),
         }
 
     def list_top(self):
@@ -10474,12 +15046,18 @@ class Media:
             d.text((W - 20, y), credit, font=F["small"], fill=BODY, anchor="rm")
         elif right and x + d.textlength(right, font=F["small"]) < W - 20:
             d.text((W - 20, y), right, font=F["small"], fill=MUTED, anchor="rm")
-        if self.msg:                      # short notice above the footer
-            msg = self.fit(d, self.msg, F["small"], W - 72)
-            mw = d.textlength(msg, font=F["small"]) + 32
-            y0 = H - self.FOOTER - 46
-            d.rounded_rectangle(((W - mw) / 2, y0, (W + mw) / 2, y0 + 34), radius=17, fill=ROW)
-            d.text((W / 2, y0 + 17), msg, font=F["small"], fill=TEXT, anchor="mm")
+        self.msg_pill(d)
+
+    def msg_pill(self, d):
+        """A short notice (toast) above the footer."""
+        if not self.msg:
+            return
+        F, W, H = self.fonts, self.fb.w, self.fb.h
+        msg = self.fit(d, self.msg, F["small"], W - 72)
+        mw = d.textlength(msg, font=F["small"]) + 32
+        y0 = H - self.FOOTER - 46
+        d.rounded_rectangle(((W - mw) / 2, y0, (W + mw) / 2, y0 + 34), radius=17, fill=ROW)
+        d.text((W / 2, y0 + 17), msg, font=F["small"], fill=TEXT, anchor="mm")
 
     # status bar and headers -----------------------------------------------------
     def status_signature(self):
@@ -10738,9 +15316,11 @@ class Media:
         if ttype == "camera":
             return self.render_cameras() if self.cam_list else self.render_camera()
         if ttype == "friend":
-            return self.render_friend()
+            return self.render_coder() if self.bot_mode() == "work" else self.render_friend()
+        if ttype == "sim":
+            return self.render_sim()
         if ttype == "crypto":
-            return self.render_crypto()
+            return self.render_coins() if self.coin_list else self.render_crypto()
         if ttype == "remote":
             return self.render_remote()
         if ttype == "settings":
@@ -10986,7 +15566,7 @@ class Media:
         window = dict(CRYPTO_WINDOWS).get(cr.days, "1D")
         self.draw_coin(d, card[1] if card else None, top, bottom, window)
         # (A lights up while Auto is on; CoinGecko asks for a credit next to its numbers)
-        hints = [("◀▶", "Coin"), ("▲▼", window), ("A", "Auto", self.crypto_auto), ("X", "Refresh"), ("B", "Home")]
+        hints = [("◀▶", "Coin"), ("▲▼", window), ("A", "Auto", self.crypto_auto), ("X", "Refresh"), ("Y", "Add")]
         if len(cards) > 1:                                     # which card this is
             gap = 14
             x = W / 2 - (len(cards) - 1) * gap / 2
@@ -10996,6 +15576,93 @@ class Media:
                 d.ellipse((x - r, bottom - 16 - r, x + r, bottom - 16 + r), fill=PI_FG if on else (70, 70, 70))
                 x += gap
         self.footer(d, hints, credit="Source: CoinGecko")  # (the dots above say which card)
+        self.fb.show(img)
+
+    def render_coins(self):
+        """The Crypto tab's coins (Y): the search bar, what it found, then yours with their prices."""
+        F = self.fonts
+        cr = self.crypto
+        img, d = self.canvas()
+        W, H = self.fb.w, self.fb.h
+        self.header(img, d)
+        rows = self.coin_rows()
+        n = len(rows)
+        sel = self.coin_sel = max(0, min(self.coin_sel, n - 1))
+        if rows[sel][0] == "label":
+            sel = self.coin_sel = min(sel + 1, n - 1)
+        d.text((20, self.LIST_TOP + 10), "Crypto  ›  Coins", font=F["small"], fill=MUTED, anchor="lm")
+        if self.coin_status:
+            busy = self.coin_status == "Looking…"
+            d.text((W - 20, self.LIST_TOP + 10), self.fit(d, self.coin_status, F["small"], 400), font=F["small"],
+                   fill=MUTED if busy else WARN, anchor="rm")
+        top_y = self.LIST_TOP + 28
+        shown = max(1, (H - self.FOOTER - top_y) // self.ROW_H)
+        top = self.tops.get("coins", 0)
+        top = sel if sel < top else (sel - shown + 1 if sel >= top + shown else top)
+        top = max(0, min(top, n - shown))
+        self.tops["coins"] = top
+        x0, x1 = 12, W - 22
+        mine = set(cr.ids())
+        for r, i in enumerate(range(top, min(top + shown, n))):
+            kind, entry = rows[i]
+            y = top_y + r * self.ROW_H
+            mid = y + self.ROW_H / 2
+            selected = i == sel
+            if kind == "label":
+                d.text((x0 + 18, mid + 8), entry, font=F["small_b"], fill=MUTED, anchor="lm")
+                continue
+            if kind == "search":                       # a search bar: what you looked up, or what it's for
+                bx0, by0, bx1, by1 = x0 + 4, y + 5, x1, y + self.ROW_H - 5
+                d.rounded_rectangle((bx0, by0, bx1, by1), radius=(by1 - by0) // 2, fill=ROW if selected else BG,
+                                    outline=ACCENT if selected else LINE, width=2)
+                ink = ACCENT if selected else MUTED
+                cx, cy = bx0 + 26, mid - 2
+                d.ellipse((cx - 7, cy - 7, cx + 7, cy + 7), outline=ink, width=2)
+                d.line((cx + 5, cy + 5, cx + 10, cy + 10), fill=ink, width=3)
+                words = self.coin_query or "Look up a coin to add: its name or symbol"
+                d.text((bx0 + 48, mid), self.fit(d, words, F["row"], bx1 - bx0 - 66), font=F["row"],
+                       fill=(TEXT if selected else BODY) if self.coin_query else MUTED, anchor="lm")
+                continue
+            if selected:
+                d.rounded_rectangle((x0, y + 3, x1, y + self.ROW_H - 3), radius=10, fill=ROW)
+                d.rounded_rectangle((x0, y + 13, x0 + 4, y + self.ROW_H - 13), radius=2, fill=ACCENT)
+            cx, rad = x0 + 36, 15                       # a round token with its symbol's first letter
+            d.ellipse((cx - rad, mid - rad, cx + rad, mid + rad), fill=BG if selected else ROW, outline=LINE)
+            d.text((cx, mid), (entry["symbol"] or entry["id"])[:1].upper(), font=F["small_b"], fill=ACCENT,
+                   anchor="mm")
+            rx = x1 - 14
+            if kind == "coin":                         # yours: its price, and how it's done today
+                q = (cr.quotes.get(entry["id"]) or {}).get("d") or {}
+                pct = _num(q.get("change_24h"), None)
+                if pct is not None:
+                    d.text((rx, mid), f"{pct:+.1f}%", font=F["small"], fill=DONE if pct >= 0 else WARN, anchor="rm")
+                    rx -= 64
+                if q.get("price") is not None:
+                    d.text((rx, mid), price_text(q.get("price")), font=F["row"], fill=TEXT if selected else BODY,
+                           anchor="rm")
+                    rx -= d.textlength(price_text(q.get("price")), font=F["row"]) + 16
+            else:                                      # found: its rank, or that it's yours already
+                right, colour = (("Yours", ACCENT) if entry["id"] in mine else
+                                 (f"#{entry['rank']}", MUTED) if entry.get("rank") else ("", MUTED))
+                if right:
+                    d.text((rx, mid), right, font=F["small"], fill=colour, anchor="rm")
+                    rx -= d.textlength(right, font=F["small"]) + 16
+            tx = cx + rad + 14
+            font = F["row_b"] if selected else F["row"]
+            name = self.fit(d, entry["name"], font, max(40, rx - tx - 70))
+            d.text((tx, mid), name, font=font, fill=TEXT if selected else BODY, anchor="lm")
+            if entry["symbol"]:
+                d.text((tx + d.textlength(name, font=font) + 10, mid + 1), self.fit(d, entry["symbol"], F["small"], 64),
+                       font=F["small"], fill=MUTED, anchor="lm")
+        kind, entry = rows[sel]
+        if kind == "search":
+            hints = [("A", "Look up"), ("B", "Back")]
+        elif kind == "found":
+            hints = [("A", "Show" if entry["id"] in mine else "Add"), ("B", "Back")]
+        else:
+            hints = [("A", "Show"), ("X", "Remove" if self.confirm[0] != "coindel:" + entry["id"] else "Remove it"),
+                     ("B", "Back")]
+        self.footer(d, hints, credit="Source: CoinGecko")
         self.fb.show(img)
 
     def draw_coin(self, d, cid, top, bottom, window):
@@ -11436,7 +16103,7 @@ class Media:
                    fill=TEXT if selected else BODY, anchor="lm")
         if n == 1:                                    # nothing yet but the row to add one
             y = top_y + self.ROW_H + 18
-            for line in ("A Pi running PiE-ink, or gpi-media's camera server",
+            for line in ("A Pi running gpi-media's camera server",
                          "(sudo bash setup.sh --camera on that Pi),", "or any MJPEG or JPEG camera link."):
                 d.text((W / 2, y), line, font=F["small"], fill=MUTED, anchor="mm")
                 y += 22
@@ -12600,6 +17267,8 @@ def serve_control(media, control, port=CONTROL_PORT, key=None):
                         self.reply(404, {"error": "That camera isn't answering"})
                 if u.path == "/friend":
                     return self.reply(200, media.web_friend())
+                if u.path == "/coder":
+                    return self.reply(200, media.coder_state())
                 if u.path == "/friendpic":
                     pic = Friend.picture_bytes(q.get("id", ""))
                     return self.reply(200, pic, "image/jpeg") if pic else self.reply(404, {"error": "No such picture"})
@@ -12611,9 +17280,41 @@ def serve_control(media, control, port=CONTROL_PORT, key=None):
                 return self.reply(500, {"error": "Something went wrong on the Pi"})
             self.reply(404, {"error": "Not found"})
 
+        def coder_say(self, q):
+            """A clip for the Bot to say at work: a WAV, answered once it's been said."""
+            try:
+                n = int(self.headers.get("Content-Length") or -1)
+            except ValueError:
+                n = -1
+            if not 0 <= n <= CODER_CLIP_MAX:
+                return self.reply(413, {"ok": False, "error": "clip too big (8 MB at most)"})
+            data = self.rfile.read(n)
+            try:
+                code, out = media.coder_say(data, q.get("pose") or "talking")
+            except Exception as ex:
+                print(f"coder clip: {ex!r}", flush=True)
+                code, out = 500, {"ok": False, "error": "Something went wrong on the Pi"}
+            self.reply(code, out)
+
         def do_POST(self):
             if not self.allowed():
                 return
+            u = urllib.parse.urlsplit(self.path)
+            if u.path == "/coder/say":
+                return self.coder_say(dict(urllib.parse.parse_qsl(u.query)))
+            if u.path == "/coder/prompts":               # your agent asks for prompts: waits a while for one
+                q = dict(urllib.parse.parse_qsl(u.query))
+                try:
+                    wait, got = float(q.get("wait") or 0), int(q.get("got") or 0)
+                except ValueError:
+                    return self.reply(400, {"ok": False, "error": "wait is seconds, got is a prompt's number"})
+                if not math.isfinite(wait):
+                    wait = 0.0
+                try:
+                    return self.reply(200, media.prompts.take(wait, got, q.get("run") or ""))
+                except Exception as ex:
+                    print(f"prompts: {ex!r}", flush=True)
+                    return self.reply(500, {"ok": False, "error": "Something went wrong on the Pi"})
             try:
                 n = int(self.headers.get("Content-Length") or 0)
             except ValueError:
@@ -12628,7 +17329,13 @@ def serve_control(media, control, port=CONTROL_PORT, key=None):
                 cmd = None
             if not isinstance(cmd, dict):
                 return self.reply(400, {"error": "Bad request"})
-            cmd["cmd"] = urllib.parse.urlsplit(self.path).path.strip("/")
+            cmd["cmd"] = u.path.strip("/")
+            if cmd["cmd"] == "coder":                  # your agent's word: answered at once, off the main loop
+                try:
+                    return self.reply(200, media.web_coder(cmd))
+                except Exception as ex:
+                    print(f"coder: {ex!r}", flush=True)
+                    return self.reply(500, {"ok": False, "error": "Something went wrong on the Pi"})
             self.reply(200, control.ask(cmd))
 
     try:
@@ -12782,6 +17489,9 @@ def run(ui, media, control=None, stop=None):
             if not media.active and name != MEDIA_TOGGLE:
                 return {"error": "The remote works in media mode. Press Home to open it."}
             if cmd.get("repeat"):                      # held down on the page
+                if media.active and media.takes_repeats(name):
+                    media.press(name, repeat=True)
+                    return {"ok": True}
                 if name not in MENU_REPEAT:
                     return {"ok": True}
                 if media.active:
@@ -12910,7 +17620,7 @@ def main():
                 print(f"input trouble ({ex}), starting again", flush=True)
                 time.sleep(1)
     finally:
-        media.shutdown()       # never leave the screen stuck in media mode
+        media.shutdown()
 
 
 if __name__ == "__main__":
