@@ -22,6 +22,12 @@ Optional, static/webui.txt:
     hosts = tv.example.lan     other names you open the page by (its .local name and its
                                address always work; other names are turned away, so a web
                                site can't reach the page by pointing a name of its own at it)
+
+The Bot hears from your coding agent here too, and acts it out at work: Claude Code's hooks
+(coder_hooks.py sets them up, and is handed out at /coder_hooks.py), POST /coder?pose=typing from
+anything else, and a WAV to POST /coder/say to have it said out loud. Prompts typed on the Pi go the
+other way: coder_hooks.py --channel, which Claude Code runs, asks for them at POST /coder/prompts.
+With a password, these send it as a token (Authorization: Bearer ...).
 """
 import hashlib
 import hmac
@@ -29,6 +35,7 @@ import http.client
 import ipaddress
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -75,6 +82,14 @@ CONTROL_KEY = "/run/gpi-keys/control-key"       # ...and the key it asks for (ma
 PI_GET = {"state", "screen", "catalog", "channels", "radio", "icon", "cameras", "camframe", "friend", "friendpic"}
 PI_POST = {"press", "open", "play", "show", "player", "learn", "mode", "reset_pads", "camera", "friend"}
 PI_ARGS = ("what", "genre", "q", "name", "size", "addr", "id")
+CODER = ("rest", "typing", "reading", "thinking", "talking", "done", "hello", "attention", "error",
+         "shrug", "wake", "sleep")                     # the Bot's poses at work
+CODER_SAY_AS = ("talking", "typing", "reading", "thinking", "rest")   # the poses it says a clip in
+CLIP_MAX = 8 << 20                                      # bytes of a clip to say
+CLIP_TURN = threading.Lock()                            # clips take turns (the next waits, unread)
+HOOK_MAX = 32 << 20                                     # bytes of a hook's report read (a big edit's is big)
+HOOK_READS = {"Read", "Grep", "Glob", "LS", "WebFetch", "WebSearch", "NotebookRead"}   # Claude Code's tools that read
+HOOK_HELPERS = {"Task", "Agent"}                        # ...and that hand work to a helper
 THUMBS = os.path.join(HOME, ".cache", "gpi-media", "thumbs")   # small copies of your pictures
 
 app = Flask(__name__, static_folder=None)     # static/ holds your settings: only its fonts go out
@@ -251,6 +266,11 @@ def host_ok():
 PAGE_ONLY = {"state", "catalog", "channels", "radio", "cameras", "friend"}   # (pictures load without it)
 
 
+def coder_path():
+    """Where your coding agent talks to the Bot at work."""
+    return request.path == "/coder" or request.path.startswith("/coder/")
+
+
 @app.before_request
 def check_password():
     try:
@@ -268,11 +288,17 @@ def check_password():
             and request.path[8:] in PAGE_ONLY and request.headers.get("X-Gpi-Page") != "1"):
         return Response("Only the page asks for that", 403)
     pw = settings().get("password")
-    if not pw:
+    if not pw or request.path == "/coder_hooks.py":    # (that script has nothing private in it)
         return None
+    if coder_path():                                   # your agent: the password, as a token
+        scheme, _, token = (request.headers.get("Authorization") or "").strip().partition(" ")
+        if scheme.lower() == "bearer" and hmac.compare_digest(token.strip().encode(), pw.encode()):
+            return None
     auth = request.authorization
     if auth and auth.password is not None and hmac.compare_digest(auth.password.encode(), pw.encode()):
         return None
+    if coder_path():
+        return jsonify(ok=False, error="The web page's password is needed"), 401
     return Response("Password needed", 401, {"WWW-Authenticate": 'Basic realm="gpi-media"'})
 
 
@@ -505,14 +531,15 @@ def control_key():
         return ""
 
 
-def ask_pi(method, path, body=None, timeout=10):
-    """(status, bytes, content type) from media mode, or None when it isn't answering."""
+def ask_pi(method, path, body=None, timeout=10, ctype="application/json"):
+    """(status, bytes, content type) from media mode, or None when it isn't answering. body: JSON,
+    or bytes sent as they are (of type ctype)."""
     conn = http.client.HTTPConnection(*CONTROL, timeout=timeout)
     try:
-        data = None if body is None else json.dumps(body).encode()
+        data = body if body is None or isinstance(body, bytes) else json.dumps(body).encode()
         headers = {"X-Gpi-Key": control_key()}
         if data:
-            headers["Content-Type"] = "application/json"
+            headers["Content-Type"] = ctype
         conn.request(method, path, body=data, headers=headers)
         r = conn.getresponse()
         return r.status, r.read(), r.getheader("Content-Type") or "application/json"
@@ -566,6 +593,139 @@ def pi_post(what):
             return jsonify(error="That isn't a picture"), 400
         data = dict(data, picture=full)
     return pi_reply(ask_pi("POST", "/" + what, data, timeout=60))
+
+
+# ---- the Bot at work: your coding agent, acted out --------------------------------------
+def coder_reply(got):
+    """Media mode's answer, passed on."""
+    if got is None or got[0] == 401:
+        return jsonify(ok=False, error="gpi-keys isn't answering"), 503
+    status, data, _ = got
+    return Response(data, status, content_type="application/json")
+
+
+@app.route("/coder", methods=["GET", "POST"])
+def coder():
+    """What the Bot is doing at work (GET), or what it does now (POST ?pose=typing)."""
+    if request.method == "GET":
+        return coder_reply(ask_pi("GET", "/coder", timeout=5))
+    pose = request.args.get("pose")
+    if pose not in CODER:
+        return jsonify(ok=False, error="pose is one of: " + ", ".join(CODER)), 400
+    return coder_reply(ask_pi("POST", "/coder", {"pose": pose}, timeout=5))
+
+
+@app.post("/coder/say")
+def coder_say():
+    """A WAV for the Bot to say at work (16-bit PCM), in a pose (?pose=thinking; talking if not
+    given): answered once it has been said."""
+    pose = request.args.get("pose") or "talking"
+    if pose not in CODER_SAY_AS:
+        return jsonify(ok=False, error="a clip is said " + ", ".join(CODER_SAY_AS)), 400
+    if (request.content_length or 0) > CLIP_MAX:
+        return jsonify(ok=False, error="clip too big (8 MB at most)"), 413
+    if not CLIP_TURN.acquire(timeout=600):
+        return jsonify(ok=False, error="still saying the clips before this one"), 503
+    try:
+        parts, got = [], 0
+        while got <= CLIP_MAX:
+            part = request.stream.read(min(CHUNK, CLIP_MAX + 1 - got))
+            if not part:
+                break
+            parts.append(part)
+            got += len(part)
+        if got > CLIP_MAX:
+            return jsonify(ok=False, error="clip too big (8 MB at most)"), 413
+        data = b"".join(parts)
+        # (a clip says how long it is; this is long enough for the slowest one there could be)
+        return coder_reply(ask_pi("POST", "/coder/say?pose=" + pose, data, timeout=len(data) / 16000 + 30,
+                                  ctype="audio/wav"))
+    finally:
+        CLIP_TURN.release()
+
+
+def hook_report(raw, size):
+    """What a Claude Code hook reported: all of it when it's small, or the few things needed, picked
+    out of the start of a big one (a large file being written)."""
+    if size <= 1 << 20:
+        try:
+            event = json.loads(raw)
+            return event if isinstance(event, dict) else {}
+        except ValueError:
+            return {}
+    event = {}
+    for key in ("hook_event_name", "tool_name"):
+        m = re.search(rb'"' + key.encode() + rb'"\s*:\s*"([A-Za-z0-9_.:-]{1,100})"', raw[:65536])
+        if m:
+            event[key] = m.group(1).decode()
+    return event
+
+
+def hook_pose(event):
+    """The pose for what Claude Code says it's doing (None: nothing to show)."""
+    what, tool = event.get("hook_event_name"), str(event.get("tool_name") or "")
+    if what == "SessionStart":
+        return "hello" if event.get("source") == "startup" else "wake"
+    if what == "SessionEnd":
+        return None if event.get("reason") in ("clear", "resume") else "sleep"   # (a new one starts at once)
+    if what in ("UserPromptSubmit", "PostToolBatch", "PreCompact"):
+        return "thinking"
+    if what == "PreToolUse":
+        return "reading" if tool in HOOK_READS else "thinking" if tool in HOOK_HELPERS else "typing"
+    if what in ("PermissionRequest", "Notification"):
+        return "attention"
+    if what == "PermissionDenied":
+        return "shrug"
+    if what in ("PostToolUseFailure", "StopFailure"):
+        return "error"
+    if what == "Stop":
+        return "done"
+    return None
+
+
+@app.post("/coder/hook")
+def coder_hook():
+    """Claude Code's hooks (coder_hooks.py sets them up): the report each one sends, turned into a
+    pose. Answered with nothing at all, so Claude Code has nothing to read."""
+    keep, size = [], 0
+    while size <= HOOK_MAX:
+        part = request.stream.read(CHUNK)
+        if not part:
+            break
+        size += len(part)
+        if size <= 1 << 20 or not keep:
+            keep.append(part)
+    pose = hook_pose(hook_report(b"".join(keep), size))
+    if pose:
+        got = ask_pi("POST", "/coder", {"pose": pose}, timeout=5)
+        if got is None or got[0] != 200:
+            return Response(status=503)
+    return Response(status=204)
+
+
+@app.post("/coder/prompts")
+def coder_prompts():
+    """Prompts typed on the Pi for your coding agent: coder_hooks.py --channel asks for them, and this
+    waits a while for one (?wait=20, in seconds). ?got= is the last one it got, from ?run= (the Pi's
+    run it came from), so one handed out that never got there goes out again."""
+    try:
+        wait, got = float(request.args.get("wait") or 0), int(request.args.get("got") or 0)
+    except ValueError:
+        return jsonify(ok=False, error="wait is seconds, got is a prompt's number"), 400
+    wait = min(max(wait, 0.0), 20.0) if math.isfinite(wait) else 0.0
+    run = re.sub(r"[^0-9a-f]", "", request.args.get("run") or "")[:16]
+    query = urllib.parse.urlencode({"wait": wait, "got": got, "run": run})
+    return coder_reply(ask_pi("POST", "/coder/prompts?" + query, b"", timeout=wait + 10))
+
+
+@app.get("/coder_hooks.py")
+def coder_hooks():
+    """The script that connects Claude Code to the Bot at work, for the computer it runs on (setup.sh
+    puts it next to this one)."""
+    path = os.path.join(HERE, "coder_hooks.py")
+    if not os.path.isfile(path):
+        return Response("coder_hooks.py isn't here: run sudo bash setup.sh again", 404, content_type="text/plain")
+    return send_file(path, mimetype="text/x-python", as_attachment=True, download_name="coder_hooks.py")
 
 
 # ---- small pictures for the list ------------------------------------------------------
