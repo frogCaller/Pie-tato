@@ -698,7 +698,7 @@ def serve(feed, ptz, shutter, port=PORT):
                 if path == "/api/ptz/home":
                     return self.reply(200, {"ok": True, "position": ptz.home()})
                 if path == "/api/ptz/follow":
-                    return self.reply(400, {"ok": False, "error": "Following you needs PiE-ink"})
+                    return self.reply(400, {"ok": False, "error": "This camera can't follow you"})
                 if path == "/api/photos":
                     name = shutter.take()
                     return self.reply(200, {"ok": True, "photo": {"name": name, "url": f"/api/photos/{name}"}})
