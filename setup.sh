@@ -3,18 +3,21 @@
 #   - in a RetroFlag GPi Case 2W (Pi Zero 2 W): the case screen as the console (with
 #     GPIO 18/19 left free for the speaker), the case speaker, and its power switch:
 #     switching off shuts the Pi down safely (GPIO 26 and 27, as RetroFlag's own script)
-#   - on any other Pi: the screen on HDMI as it is, and media mode at start-up
+#   - on any other Pi: the screen on HDMI as it is
 #   - game controller buttons as keys + media mode (the case buttons, or any USB or
-#     Bluetooth controller), which opens on a home screen of app icons: TV (Plex,
+#     Bluetooth controller), which opens at start-up on a home screen of app icons: TV (Plex,
 #     cartoons, free movies, news, sports, streams, a TV remote through Home Assistant),
 #     music, radio, photos (filters, delete), videos, weather, crypto prices and charts,
-#     a file browser for PDFs/documents/text, cameras on your other Pis (PiE-ink, or
+#     a file browser for PDFs/documents/text, cameras on your other Pis (see
 #     --camera below) with OBSBOT steering and pictures, a bot (Ollama on another
-#     computer, a Piper voice on the Pi), system info, and settings (WiFi, background,
-#     colours, location, sound, controller, bot...)  (gpi_keys.py, runs at boot)
+#     computer, a Piper voice on the Pi; at work it acts out your coding agent and sends
+#     it your prompts), a Simulator (rock paper scissors, the game of life, orbits, forest
+#     fire, the Mandelbrot set to tour or explore), Snake, system info, and settings (WiFi,
+#     background, colours, location, sound, controller, bot...)  (gpi_keys.py, runs at boot)
 #   - a web page for your phone or computer (webui.py, port 5432): see the screen, work
 #     it with a remote, put cartoons, films, news or radio on it, and drag in files
 #     that land in Music, Videos, Pictures or Documents
+#   - the console signs you in by itself at start-up, so it's ready after a reboot
 #   - optional: pair a Bluetooth keyboard or game controller
 #
 # Your settings files (radio.txt, bot.txt, crypto.txt...) go in this folder's static folder, so
@@ -23,6 +26,7 @@
 # Usage (from the repo folder):  sudo bash setup.sh
 #   --gpi       it's in a GPi Case 2W (don't ask)
 #   --no-gpi    it isn't (don't ask)
+#   --login     keep asking for your password at start-up (instead of signing you in by itself)
 #   --camera    only share this Pi's USB camera on the network, for gpi-media's Camera tab on
 #               another Pi (camera.py, port 5433); nothing else is installed
 # Safe to run again: it replaces its own settings instead of adding duplicates.
@@ -36,12 +40,14 @@ fi
 
 GPI=""
 CAMERA=no
+LOGIN=no
 for arg in "$@"; do
   case "$arg" in
     --gpi) GPI=yes ;;
     --no-gpi) GPI=no ;;
+    --login) LOGIN=yes ;;
     --camera) CAMERA=yes ;;
-    *) echo "Unknown option: $arg (use --gpi, --no-gpi or --camera)"; exit 1 ;;
+    *) echo "Unknown option: $arg (use --gpi, --no-gpi, --login or --camera)"; exit 1 ;;
   esac
 done
 
@@ -124,7 +130,7 @@ CAMSVC
   exit 0
 fi
 
-for f in gpi_keys.py webui.py templates/index.html; do
+for f in gpi_keys.py webui.py coder_hooks.py templates/index.html; do
   if [ ! -f "$HERE/$f" ]; then
     echo "$f isn't next to setup.sh. Run this from the gpi-media folder."
     exit 1
@@ -279,11 +285,6 @@ fi
 # --------------------------------------------------------------------------
 step "Installing the controller and media script"
 install -m 755 "$HERE/gpi_keys.py" /usr/local/bin/gpi_keys.py
-if [ "$GPI" = no ] && [ ! -f /var/lib/gpi-keys/state.json ]; then
-  # no case to hold: a Pi on a TV opens media mode at start-up (Settings > At start-up)
-  install -d /var/lib/gpi-keys
-  echo '{"settings": {"start": "Home screen"}}' > /var/lib/gpi-keys/state.json
-fi
 
 grep -qx uinput /etc/modules || echo uinput >> /etc/modules
 modprobe uinput || true
@@ -306,9 +307,36 @@ systemctl daemon-reload
 systemctl enable gpi-keys          # (started at the end: media mode would cover these questions)
 
 # --------------------------------------------------------------------------
+# the console signs you in by itself at start-up (what raspi-config calls Console Autologin), so
+# after a reboot it's ready to use; --login puts the password prompt back
+AUTOLOGIN=/etc/systemd/system/getty@tty1.service.d/autologin.conf
+KEEP_LOGIN=/var/lib/gpi-keys/keep-login     # (--login is remembered for the next time it's run)
+if [ "$LOGIN" = yes ]; then
+  install -d /var/lib/gpi-keys
+  touch "$KEEP_LOGIN"
+  if [ -f "$AUTOLOGIN" ]; then
+    step "The console asks for your password at start-up again"
+    rm -f "$AUTOLOGIN"
+    systemctl daemon-reload
+  fi
+elif [ -f "$KEEP_LOGIN" ]; then
+  :                                         # (you asked for the password prompt before)
+elif [ "$USER_NAME" != root ] && id "$USER_NAME" >/dev/null 2>&1; then
+  step "Signing $USER_NAME in by itself at start-up (sudo bash setup.sh --login undoes it)"
+  install -d /etc/systemd/system/getty@tty1.service.d
+  cat > "$AUTOLOGIN" <<AUTO
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin $USER_NAME --noclear %I \$TERM
+AUTO
+  systemctl daemon-reload
+fi
+
+# --------------------------------------------------------------------------
 step "Installing the web page (port 5432)"
 install -d /usr/local/share/gpi-media/templates
 install -m 644 "$HERE/webui.py" /usr/local/share/gpi-media/
+install -m 644 "$HERE/coder_hooks.py" /usr/local/share/gpi-media/    # (the page hands it to Claude Code's computer)
 install -m 644 "$HERE/templates/index.html" /usr/local/share/gpi-media/templates/
 install -d /usr/local/share/gpi-media/static/fonts    # its typeface (without it: the system's)
 for f in "$HERE"/static/fonts/*; do
@@ -398,13 +426,13 @@ if grep -qE '^\s*(url|ip|camera)\s*=' "$STATIC/camera.txt" 2>/dev/null \
    && ! grep -q 'Tail Air' "$STATIC/camera.txt"; then
   echo "Keeping your existing $STATIC/camera.txt"
 else
-  echo "The Camera tab shows the cameras on your other Pis: one running PiE-ink, or one set up"
-  echo "with  sudo bash setup.sh --camera . You can also add them later on the Camera tab."
+  echo "The Camera tab shows the cameras on your other Pis (set one up with  sudo bash setup.sh --camera )"
+  echo "or any camera link. You can also add them later on the Camera tab."
   read -r -p "A camera's address, e.g. 192.168.1.50 (blank to skip): " cam_url
   if [ -n "$cam_url" ]; then
     cat > "$STATIC/camera.txt" <<CAM
 # Cameras for the Camera tab, one per line:   camera = address   (a name after it if you like)
-# A Pi running PiE-ink or gpi-media's camera server (sudo bash setup.sh --camera),
+# A Pi running gpi-media's camera server (sudo bash setup.sh --camera),
 # or any MJPEG or JPEG camera link.
 camera = $cam_url
 CAM
@@ -417,10 +445,11 @@ step "Crypto tab"
 if [ -f "$STATIC/crypto.txt" ]; then
   echo "Keeping your existing $STATIC/crypto.txt"
 else
-  echo "The Crypto tab shows coin prices and charts from CoinGecko."
+  echo "The Crypto tab shows coin prices and charts from CoinGecko (Y on it looks up more to add)."
   read -r -p "Coins (CoinGecko ids, Enter for bitcoin, ethereum, dogecoin): " coins
   cat > "$STATIC/crypto.txt" <<CRYPTO
 # Crypto tab. Coins are CoinGecko ids (the name in the coin's coingecko.com address).
+# Y on the Crypto tab looks coins up and adds them, or removes them.
 coins = ${coins:-bitcoin, ethereum, dogecoin}
 CRYPTO
   chown "$USER_NAME:$USER_NAME" "$STATIC/crypto.txt"
@@ -497,7 +526,11 @@ echo
 if [ "$GPI" = yes ]; then
   echo "All set. Reboot to apply the screen and audio settings."
 else
-  echo "All set. Reboot to start media mode."
+  echo "All set. Reboot to start."
+fi
+echo "It starts on the home screen (Settings > At start-up can make it the terminal)."
+if [ -f "$AUTOLOGIN" ]; then
+  echo "It signs you in by itself at start-up: no password needed at the console."
 fi
 echo "On your phone or computer, open  http://$(hostname).local:5432"
 echo "to see the screen, work it with a remote, and add files."
