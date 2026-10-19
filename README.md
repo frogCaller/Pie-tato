@@ -4,6 +4,11 @@ Turns a Raspberry Pi into a media player you work with a game controller or your
 Made for the RetroFlag GPi Case 2W with a Pi Zero 2 W, and works on any Pi with a TV or
 monitor on HDMI.
 
+<p>
+  <img src="docs/tv.gif" height="260">
+  <img src="docs/matrix.gif" height="260">
+</p>
+
 It starts on a home screen of apps:
 
 - **TV**: Plex (Continue watching, Watchlist, Live TV with news and sports), about 250 old
@@ -106,7 +111,7 @@ bell when it's done.
 To connect Claude Code, run this on the computer it runs on:
 
 ```
-curl -O http://<your Pi's name>.local:5432/coder_hooks.py
+curl -O http://<your Pi's IP address>:5432/coder_hooks.py
 python3 coder_hooks.py <your Pi's address>
 ```
 
