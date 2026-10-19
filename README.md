@@ -1,8 +1,6 @@
 # gpi-media
 
-Turns a Raspberry Pi into a media player you work with a game controller or your phone.
-Made for the RetroFlag GPi Case 2W with a Pi Zero 2 W, and works on any Pi with a TV or
-monitor on HDMI.
+Turns your Raspberry Pi GPI Case 2W into a pocket-sized smart media center. Versatile home entertainment remote where you can watch live TV, stream videos, listen to music and radio, view photos, check the weather and system stats, and control your smart home through Home Assistant.
 
 <p>
   <img src="docs/tv.gif" height="260">
