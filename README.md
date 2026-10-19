@@ -7,6 +7,7 @@ monitor on HDMI.
 <p>
   <img src="docs/tv.gif" height="260">
   <img src="docs/tv_remote.gif" height="260">
+  <img src="docs/obsbot-controller.gif" height="260">
   <img src="docs/matrix.gif" height="260">
 </p>
 
