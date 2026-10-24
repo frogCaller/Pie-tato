@@ -52,7 +52,7 @@ The GPi Case's own buttons, or any USB or Bluetooth game controller (Xbox, PlayS
 
 ## The web page
 
-Open `http://<your Pi's name>.local:5432` on your phone or computer. Anyone on your WiFi
+Open `http://<your Pi's IP address>:5432` on your phone or computer. Anyone on your WiFi
 can open it, so if you share your WiFi, set a password in `webui.txt` (see Settings below).
 
 **Screen** shows what's on the Pi's screen in media mode, has a remote, and puts cartoons,
@@ -70,7 +70,7 @@ On Raspberry Pi OS Lite (Bookworm):
 ```
 git clone https://github.com/frogCaller/pitato.git
 cd pitato
-sudo bash setup.sh
+sudo ./setup.sh
 ```
 
 It asks if the Pi is in a GPi Case 2W. If it is, it sets up the case's screen, speaker and
@@ -153,8 +153,8 @@ bell when it's done.
 To connect Claude Code, run this on the computer it runs on:
 
 ```
-curl -O http://<your Pi's name>.local:5432/coder_hooks.py
-python3 coder_hooks.py <your Pi's name>.local
+curl -O http://<your Pi's IP address>:5432/coder_hooks.py
+python3 coder_hooks.py <your Pi's IP address>
 ```
 
 It adds hooks to Claude Code's settings that tell the Pi what Claude Code is doing. They run in
