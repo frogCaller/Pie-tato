@@ -70,7 +70,6 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
                 X adds a filter (saved as a copy), SELECT deletes
   Videos      - files in ~/Videos, resume where you left off; a video too big for the Pi to play
                 smoothly is made smaller in the background, in place of the original
-                (Settings > Big videos: Leave them, to keep them as they are)
   Games       - Snake: the d-pad steers it to the apples, each one makes it longer, and it's over when
                 it runs into itself (or a wall: they can wrap round instead); A starts, pauses and plays
                 again, Y is a new game, START has its speed, board and walls, SELECT is full screen.
@@ -123,7 +122,8 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
   Files       - browse everything; opens photos, PDFs, documents, text, video, music; Other computers
                 opens another computer's files by its address (Windows and Mac shared folders, or
                 Linux over SSH), read-only
-  System      - CPU temperature, WiFi, storage and more; reboot and shut down
+  System      - CPU temperature, WiFi, storage and more; reboot and shut down; Update software at
+                the top while there's a newer version (git pull, setup.sh --update, then a restart)
   Settings    - WiFi (scan, connect, forget), Bluetooth (look, pair, connect, forget: a keyboard shows
                 its code to type), the home screen's style (Bright, Glass, Minimal or Cards),
                 background and colours, clock, location, units, video size, sound (Auto: Bluetooth

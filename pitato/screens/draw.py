@@ -280,6 +280,8 @@ class DrawScreen:
         if kind == "action":
             if self.confirm[0] == it["src"]:
                 return "press A again", ACCENT, None
+            if it["src"] == "update":                  # (New version, or Finish updating)
+                return it.get("sub", ""), ACCENT, None
             return "", MUTED, None
         if kind in ("radio", "radiodir", "radiosearch", "plexsearch", "jfsearch", "chdir", "chsearch", "chplex",
                     "chretry", "chwait"):
@@ -716,6 +718,28 @@ class DrawScreen:
         self.footer(d, hints)
         self.fb.show(img)
 
+
+    def render_update(self):
+        """While it updates (System > Update software): what it's doing, and to leave the Pi on: it restarts by
+        itself when it's done."""
+        F = self.fonts
+        img, d = self.canvas()
+        W, H = self.fb.w, self.fb.h
+        self.status_bar(d)                             # (the time and WiFi: no tabs, there's nowhere to go)
+        state, words = self.update_view
+        title = "Restarting" if state == "restarting" else "Updating Pitato"
+        d.text((W / 2, H / 2 - 50), self.fit(d, title, F["big"], W - 60), font=F["big"], fill=TEXT, anchor="mm")
+        d.text((W / 2, H / 2 - 6), self.fit(d, words or "One moment", F["row"], W - 60), font=F["row"],
+               fill=ACCENT, anchor="mm")
+        y = H / 2 + 34
+        note = "Leave the Pi on" if state == "restarting" else "Leave the Pi on. It restarts by itself when it's done"
+        for line in self.wrap(d, note, F["small"], W - 80):
+            d.text((W / 2, y), line, font=F["small"], fill=MUTED, anchor="mm")
+            y += 26
+        if self.updater.started:
+            d.text((W / 2, y + 12), clock(time.monotonic() - self.updater.started), font=F["small"], fill=BODY,
+                   anchor="mm")
+        self.fb.show(img)
 
     def render_curtain(self, title, status, hints=None):
         """Before a video (or a game): black, with the words in the middle where the picture will cover

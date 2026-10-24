@@ -30,9 +30,11 @@ itself at start-up (`sudo bash setup.sh --login` keeps the password prompt), ask
 optional parts, and reboots. The first time takes a while (an hour or more on a Pi 4, as it builds
 the game emulators), so leave the Pi on until it says All set.
 
-Keep the `pitato` folder where it is: your settings live in its `static` folder. To update
-later, run `git pull` and `sudo bash setup.sh` again. Your settings stay as they are. If you set it
-up when it was called gpi-media, do the same, and it moves everything across to the new name.
+Keep the `pitato` folder where it is: your settings live in its `static` folder. When there's a
+new version, System shows Update software at the top: press it, and the Pi gets it, puts it in and
+restarts. Your settings stay as they are. If you set it up before it had Update software, or when it
+was called gpi-media, run `git pull` and `sudo bash setup.sh` once (from gpi-media, that moves
+everything across to the new name).
 
 It starts on a home screen of apps:
 
@@ -200,8 +202,7 @@ Plex signs in with a code at plex.tv/link. Jellyfin signs in with a Quick Connec
 your phone or computer, open your profile, then Quick Connect, and type the code.
 
 If a video is too big for the Pi to play smoothly (a 1080p film on a Pi Zero, or one in HEVC), the Pi
-makes it smaller by itself in the background. To keep your videos as they are, set Settings > Big
-videos to Leave them.
+makes it smaller by itself in the background, in place of the original.
 
 ## License
 

@@ -9,7 +9,7 @@ import threading
 import time
 
 from .theme import set_accent, TEXT
-from .config import home_dir, HOME_STYLE_WAS, SCREEN_MODES, SETTINGS_DEFAULT, STATE_FILE, web_private
+from .config import home_dir, HOME_STYLE_WAS, SCREEN_MODES, SETTINGS_DEFAULT, SETTINGS_GONE, STATE_FILE, web_private
 from .util import classify, clock, FILE_KINDS, find_files, IMAGE_EXTS, item, looks_like_text, title_of
 from .system import system_info, system_stopping
 from .bluetooth import Bluetooth
@@ -32,6 +32,7 @@ from .jellyfin import Jellyfin
 from .sims import SIM_FPS, SIM_FPS_BIG
 from .snake import SnakeBrain
 from .shrink import Shrinker
+from .update import Updater
 from .computers import Computers
 from .inputs import gpi_case_set_up, HALT_WAIT, KeyReader, show_shutdown_lines
 from .screens.sims import SIMS
@@ -251,10 +252,16 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.remote_hit = ("", 0.0)  # the button just pressed there, and when
         self.cam_said = ("", 0.0)    # the camera's last message and when it changed
         self.fin_next = 0.0
-        self.shrinker = Shrinker(enabled=lambda: self.setting("shrink") != "Leave them")
+        self.shrinker = Shrinker()   # (a video too big for this Pi, made smaller: always, when it needs it)
         self.shrinker.on_done = self.video_shrunk   # (it starts when the service does: app.main)
         self.videos_changed = False  # a video was swapped for its smaller copy: the Videos tab, again
         self.shrink_drawn = 0.0      # when the Videos tab last showed how far that's got
+        self.updater = Updater()     # System > Update software: a newer version, and putting it in
+        self.updater.on_change = self.update_found   # (it starts looking when the service does: app.main)
+        self.update_view = ("going", "")             # the update's screen: how it's getting on
+        self.update_polled = 0.0
+        if self.updater.under_way():                 # (media mode restarted while it updates: its screen again)
+            self.view = "update"
         self.plex = Plex()
         self.plex_stack = []        # Plex folders you've opened, top is on screen
         self.plex_session = None
@@ -306,8 +313,6 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.icons.clear()
         if key in ("wallpaper", "picture"):
             self.wall = (None, None)
-        if key == "shrink":
-            self.shrinker.poke()
         self.save_state()
         self.dirty = True
 
@@ -327,6 +332,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.volume = int(s.get("volume", self.volume))
         except (OSError, ValueError):
             pass
+        for key in SETTINGS_GONE:                      # (a setting there isn't any more: forgotten)
+            self.state["settings"].pop(key, None)
 
     def save_state(self):
         try:
@@ -521,7 +528,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             if tab.get("sim") == "snake":
                 self.snake_models()                    # (the decision models on your bot's computer, for its AI)
         elif tab["type"] == "system":
-            self.items[i] = system_info()
+            self.items[i] = self.system_rows()
+            self.updater.poke()                        # (a newer version? looked for again, if it's been a while)
             if not (self.sysloop and self.sysloop.is_alive()):
                 self.sysloop = threading.Thread(target=self.system_loop, daemon=True)
                 self.sysloop.start()
@@ -557,7 +565,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         while self.active and self.tab == si:
             time.sleep(2)
             if self.active and self.tab == si and self.view == "list" and not self.proc_owns_screen():
-                self.items[si] = system_info()
+                self.items[si] = self.system_rows()
                 self.dirty = True
 
     def list_dir(self, path):
@@ -651,7 +659,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.active = True
         self.hush_stop()                               # (media mode needs no silence to keep its speaker quiet)
         self.camera.listen()                           # PiE-inks say they're there: asked first for what they have
-        if self.view not in ("photo", "pdf", "text"):
+        if self.view not in ("photo", "pdf", "text", "update"):
             self.view = "home"
             apps = self.home_apps()
             self.home_sel = next((k for k, a in enumerate(apps) if a[1] == self.strip_tab()), 0)
@@ -834,14 +842,65 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         else:
             self.toast("Can't open this kind of file")
 
+    def system_rows(self):
+        """System: Update software at the top, while there's a newer version; then this Pi's numbers, and its
+        buttons."""
+        rows = []
+        if self.updater.available():
+            rows.append(item("act:update", "Update software", "action", "update", sub=self.updater.words()))
+        return rows + system_info()
+
+    def update_found(self):
+        """(The updater's thread) it's looked for a newer version: System shows what it found."""
+        si = self.tab_index("system")
+        if si is not None and self.tab == si and self.view == "list":
+            self.items[si] = self.system_rows()
+            self.dirty = True
+
+    def show_update(self):
+        """The update under way: its screen, till the Pi restarts (or the update doesn't work)."""
+        if self.proc:
+            self.stop()                                # (nothing plays over it)
+        self.view = "update"
+        self.update_view = self.updater.progress()
+        self.update_polled = time.monotonic()
+        self.dirty = True
+
+    def update_tick(self, now):
+        """While it updates: how it's getting on, once a second; if it doesn't work, back to System to say why."""
+        if now - self.update_polled < 1.0:
+            return
+        self.update_polled = now
+        state, words = self.updater.progress()
+        if state == "failed":
+            print(f"update: {words}", flush=True)
+            self.updater.done()
+            self.view = "list"
+            si = self.tab_index("system")
+            if si is not None and self.tab != si:
+                self.tab = si
+            self.load_tab(self.tab)
+            self.toast(words, 8)
+        self.update_view = (state, words)
+        self.dirty = True                              # (its clock, too)
+
     def system_action(self, it):
         act = it["src"]
         waiting, until = self.confirm
         if waiting != act or time.monotonic() > until:
             self.confirm = (act, time.monotonic() + 4)
+            if act == "update":
+                self.toast("Press A again to update. The Pi restarts when it's done", 4)
             self.dirty = True
             return
         self.confirm = (None, 0.0)
+        if act == "update":
+            err = self.updater.begin()
+            if err:
+                self.toast(err, 6)
+            else:
+                self.show_update()
+            return
         if act == "plex_signout":
             self.plex.sign_out()
             self.plex_stack = []
@@ -877,7 +936,10 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         now = time.monotonic()
         if self.net_done or self.net_changed:
             self.net_tick()
-        self.shrinker.hold(bool(self.proc and self.kind in SCREEN_KINDS) or self.game is not None)
+        self.shrinker.hold(bool(self.proc and self.kind in SCREEN_KINDS) or self.game is not None
+                           or self.view == "update")
+        if self.view == "update":
+            self.update_tick(now)
         if self.videos_changed:
             self.videos_changed = False
             vi = next((k for k, t in enumerate(LIBRARY) if t.get("kind") == "video"), None)
@@ -1099,6 +1161,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
 
     def press(self, name, repeat=False):
         """Returns 'exit' when media mode should close."""
+        if self.view == "update":                      # (updating: nothing to press till the Pi restarts)
+            return None
         if self.view == "keepres":                     # a new resolution: keep it, or go back
             return self.press_keep_res(name, repeat)
         if self.view == "learn":                       # (controllers come in through learn_event)
@@ -1395,7 +1459,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         draw = {"home": self.render_home, "keys": self.render_keys, "help": self.render_help,
                 "learn": self.render_learn, "gamemenu": self.render_game_menu,
                 "photo": self.render_photo, "keepres": self.render_keep_res,
-                "pdf": self.render_pdf,
+                "pdf": self.render_pdf, "update": self.render_update,
                 "text": self.render_text, "wait": lambda: self.render_wait(
                     self.v.get("title", ""), self.v.get("status", ""))}.get(self.view)
         if draw:

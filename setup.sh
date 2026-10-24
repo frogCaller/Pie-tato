@@ -34,6 +34,8 @@
 #   --login     keep asking for your password at start-up (instead of signing you in by itself)
 #   --camera    only share this Pi's USB camera on the network, for Pitato's Camera tab on
 #               another Pi (camera.py, port 5433); nothing else is installed
+#   --update    no questions: it's set up as it was before (System > Update software runs it
+#               after git pull, then restarts the Pi itself)
 # Safe to run again: it replaces its own settings instead of adding duplicates.
 
 set -e
@@ -46,13 +48,15 @@ fi
 GPI=""
 CAMERA=no
 LOGIN=no
+UPDATE=no
 for arg in "$@"; do
   case "$arg" in
     --gpi) GPI=yes ;;
     --no-gpi) GPI=no ;;
     --login) LOGIN=yes ;;
     --camera) CAMERA=yes ;;
-    *) echo "Unknown option: $arg (use --gpi, --no-gpi, --login or --camera)"; exit 1 ;;
+    --update) UPDATE=yes ;;
+    *) echo "Unknown option: $arg (use --gpi, --no-gpi, --login, --camera or --update)"; exit 1 ;;
   esac
 done
 
@@ -250,6 +254,9 @@ SLOW=no         # Pi Zero, 1, 2 and 3: video on a big TV is smoother at 720p
 case "$MODEL" in
   *Zero*|"Raspberry Pi 3"*|"Raspberry Pi 2"*|"Raspberry Pi Model"*|"Raspberry Pi Compute Module 3"*) SLOW=yes ;;
 esac
+if [ -z "$GPI" ] && [ "$UPDATE" = yes ]; then       # (as it was set up: the case's settings there, or not)
+  if grep -q '^# >>> gpi-case setup >>>' "$CONFIG" 2>/dev/null; then GPI=yes; else GPI=no; fi
+fi
 if [ -z "$GPI" ]; then
   if [[ "$MODEL" == *Zero* ]] || grep -q '^# >>> gpi-case setup >>>' "$CONFIG" 2>/dev/null; then
     read -r -p "Is this Pi in a RetroFlag GPi Case 2W? [Y/n] " ans
@@ -571,7 +578,7 @@ else
   PICKED="$(grep -oE 'video=HDMI-A-1:[0-9]+x[0-9]+' "$CMDLINE" 2>/dev/null | head -n 1 | sed 's/.*://')"
   if [ "$SLOW" = yes ] && [ -n "$PICKED" ] && [ "$PICKED" != 1280x720 ]; then
     echo "The TV picture stays at $PICKED (Settings > Resolution changes it)."
-  elif [ "$SLOW" = yes ] && [ -f "$CMDLINE" ]; then
+  elif [ "$SLOW" = yes ] && [ -f "$CMDLINE" ] && [ "$UPDATE" != yes ]; then   # (an update: left as it is)
     echo
     echo "This Pi plays video more smoothly on a TV set to 720p than at 1080p."
     read -r -p "Set the TV picture to 720p? [Y/n] " ans
@@ -749,6 +756,8 @@ step "Camera tab (optional)"
 if grep -qE '^\s*(url|ip|camera)\s*=' "$STATIC/camera.txt" 2>/dev/null \
    && ! grep -q 'Tail Air' "$STATIC/camera.txt"; then
   echo "Keeping your existing $STATIC/camera.txt"
+elif [ "$UPDATE" = yes ]; then
+  echo "No cameras yet: add them on the Camera tab."
 else
   echo "The Camera tab shows the cameras on your other Pis (set one up with  sudo bash setup.sh --camera )"
   echo "or any camera link. You can also add them later on the Camera tab."
@@ -794,6 +803,8 @@ fi
 step "TV Remote through Home Assistant (optional)"
 if grep -qE '^\s*token\s*=\s*\S' "$STATIC/homeassistant.txt" 2>/dev/null; then
   echo "Keeping your existing $STATIC/homeassistant.txt"
+elif [ "$UPDATE" = yes ]; then
+  echo "No Home Assistant yet: run  sudo bash setup.sh  to add it."
 else
   echo "TV > TV Remote and TV > Lights work through Home Assistant."
   echo "Make a token in Home Assistant: your profile > Security > Long-lived access tokens."
@@ -902,6 +913,19 @@ fi
 echo "On your phone or computer, open  http://$(hostname).local:5432"
 echo "to see the screen, work it with a remote, and add files."
 echo "Your settings files are in $STATIC"
+# what's put in now (git's id for it), for System > Update software: an update that got no further than git pull
+# is offered again, to finish
+install -d /var/lib/pitato
+if [ -d "$HERE/.git" ] && command -v git > /dev/null \
+   && git -c safe.directory='*' -C "$HERE" rev-parse HEAD > /var/lib/pitato/installed-commit.new 2> /dev/null; then
+  mv -f /var/lib/pitato/installed-commit.new /var/lib/pitato/installed-commit
+else
+  rm -f /var/lib/pitato/installed-commit.new /var/lib/pitato/installed-commit
+fi
+if [ "$UPDATE" = yes ]; then
+  retire_old
+  exit 0           # (Update software restarts the Pi now)
+fi
 read -r -p "Reboot now? [Y/n] " ans
 retire_old
 if [[ ! "$ans" =~ ^[Nn] ]]; then

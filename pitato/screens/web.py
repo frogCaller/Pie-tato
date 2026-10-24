@@ -222,6 +222,8 @@ class WebScreen:
     def web_command(self, cmd):
         """What the web page asked for, done between button presses."""
         c = cmd.get("cmd")
+        if self.view == "update":                      # (nothing goes on the screen over the update)
+            return {"error": "The Pi is updating. It restarts when it's done"}
         if c == "open":
             app = str(cmd.get("app") or "")
             if app == "Terminal":

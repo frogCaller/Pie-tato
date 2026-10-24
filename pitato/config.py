@@ -63,7 +63,6 @@ SETTINGS = [   # key, label, choices (None: opens a page of its own)
     ("units", "Temperature", ["°F", "°C"]),
     ("screen", "Video size", SCREEN_MODES),
     ("resolution", "Resolution", None),   # a TV or monitor's: the sizes it takes (not there on the GPi Case)
-    ("shrink", "Big videos", ["Make smaller", "Leave them"]),
     ("sound", "Sound", None),
     ("pad", "Controller", None),
     ("pad_swap", "Swap A and B", ["Off", "On"]),   # on the controller in hand (kept with its buttons, not here)
@@ -74,9 +73,10 @@ SETTINGS = [   # key, label, choices (None: opens a page of its own)
 SETTINGS_DEFAULT = {"wallpaper": "Midnight", "picture": "", "accent": "Blue", "clock": "12-hour",
                     "widget": "Weather", "units": "°F", "start": "Home screen", "location": None,
                     "screen": "Fit", "sound": "Auto", "coder_sound": "On", "sim_full": "Off", "bot_mode": "chat",
-                    "game_picture": "Fit", "shrink": "Make smaller", "start_song": "Off", "home_style": "Glass",
+                    "game_picture": "Fit", "start_song": "Off", "home_style": "Glass",
                     "ds_screens": "Left/Right", "ds_touch": "Right stick, R2"}
 HOME_STYLE_WAS = {"Original": "Bright", "Style 2": "Glass", "Style 3": "Minimal", "Style 4": "Cards"}   # (earlier names)
+SETTINGS_GONE = ("shrink",)   # settings there were once (Big videos: they're made smaller whenever they need it)
 
 
 STATE_FILE = "/var/lib/pitato/state.json"   # resume points, lengths, lists

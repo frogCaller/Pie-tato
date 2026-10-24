@@ -27,6 +27,7 @@
   jellyfin.py       Jellyfin
   computers.py      your other computers' files (shared folders, SSH), opened read-only
   shrink.py         big videos made smaller for this Pi, in the background
+  update.py         System > Update software: a newer version (git), put in by setup.sh --update
   sims.py           the Simulator's worlds
   mandelbrot.py     the Mandelbrot set
   snake.py          Snake, and its AI's thread

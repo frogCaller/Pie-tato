@@ -314,6 +314,7 @@ def main():
     move_old_places()                              # (what it kept by its old name: where it keeps it now)
     media = Media()
     media.shrinker.start()                         # (big videos made smaller, in the background)
+    media.updater.start()                          # (a newer version looked for now and then: System > Update software)
     control = Control()
     serve_control(media, control, key=control_key())
 
