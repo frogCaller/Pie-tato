@@ -1,11 +1,10 @@
 """Bluetooth: your controllers, keyboards, headphones and the rest, found, paired and connected.
 
 BlueZ does it. What's there, and each thing asked of it (pair, connect, forget, on and off), go through busctl:
-BlueZ's D-Bus, answered as JSON. Looking round, and pairing's questions (a keyboard's code to type in, a yes or
+BlueZ's D-Bus, read as busctl prints it. Looking round, and pairing's questions (a keyboard's code to type in, a yes or
 no), go through a bluetoothctl kept open meanwhile, as BlueZ's agent. Settings > Bluetooth and the web page work
 it, and it looks at Bluetooth only while one of them is open."""
 import codecs
-import json
 import os
 import pty
 import re
@@ -28,6 +27,11 @@ BT_NEAR = 24            # devices nearby shown, at most (the nearest)
 BT_SUMMARY = 20         # Settings' first page: what's connected, looked at again after this long
 BT_READY = 3.0          # seconds bluetoothctl has to start, before it's asked to look anyway
 BT_SOUND_UP = 6.0       # seconds headphones have, once connected, for their sound to come up (BlueALSA's)
+BT_STALE = 15           # seconds BlueZ may not answer (a look now and then that fails: the list stays) before it's said
+BT_GONE = ("not provided by", "ServiceUnknown", "NameHasNoOwner", "not activatable", "Failed to activate service",
+           "dbus-org.bluez.service")       # (busctl's words for no BlueZ to ask)
+BUS_WORD = re.compile(r'"((?:[^"\\]|\\.)*)"|(\S+)')
+BUS_ESC = {"a": 7, "b": 8, "f": 12, "n": 10, "r": 13, "t": 9, "v": 11, "\\": 92, '"': 34, "'": 39}
 BUS = "org.bluez"
 DEV = "org.bluez.Device1"
 ADAPTER = "org.bluez.Adapter1"
@@ -110,8 +114,93 @@ def bus(args, timeout=10):
     return True, r.stdout, ""
 
 
+def bus_unescape(s):
+    """A string as busctl prints it (C's escapes, and each byte that isn't plain ASCII in octal), as text."""
+    out, i = bytearray(), 0
+    while i < len(s):
+        c = s[i]
+        if c == "\\" and i + 1 < len(s):
+            digits = s[i + 1:i + 4]
+            if len(digits) == 3 and all(ch in "01234567" for ch in digits):
+                out.append(int(digits, 8) & 0xFF)
+                i += 4
+                continue
+            if s[i + 1] in BUS_ESC:
+                out.append(BUS_ESC[s[i + 1]])
+                i += 2
+                continue
+        out += c.encode()
+        i += 1
+    return out.decode("utf-8", "replace")
+
+
+def bus_type_end(sig, i=0):
+    """Where the D-Bus type that starts at sig[i] ends."""
+    c = sig[i]
+    if c == "a":
+        return bus_type_end(sig, i + 1)
+    if c in "({":
+        close, i = ")" if c == "(" else "}", i + 1
+        while sig[i] != close:
+            i = bus_type_end(sig, i)
+        return i + 1
+    return i + 1
+
+
+def bus_types(sig):
+    """A signature's types, one by one ("sa{sv}": "s", "a{sv}")."""
+    out, i = [], 0
+    while i < len(sig):
+        j = bus_type_end(sig, i)
+        out.append(sig[i:j])
+        i = j
+    return out
+
+
+def bus_reply(text):
+    """A call's reply as busctl prints it without --json (its signature, then each value, the way busctl takes them
+    itself): (signature, [values]), a variant as {"type": ..., "data": ...} as --json has it. (--json can't do
+    BlueZ's devices once it looks round: numbers key their makers' data, JSON's keys are words, and busctl gives up.)"""
+    words = BUS_WORD.finditer(text)
+
+    def word():
+        m = next(words, None)
+        if m is None:
+            raise ValueError("busctl's reply ended early")
+        return bus_unescape(m.group(1)) if m.group(1) is not None else m.group(2)
+
+    def value(t):
+        c = t[0]
+        if c == "a":
+            n, inner = int(word()), t[1:]
+            if inner[0] == "{":
+                k, v = bus_types(inner[1:-1])
+                d = {}
+                for _ in range(n):
+                    key = value(k)
+                    d[key] = value(v)
+                return d
+            return [value(inner) for _ in range(n)]
+        if c == "v":
+            sig = word()
+            return {"type": sig, "data": value(sig)}
+        if c == "(":
+            return [value(m) for m in bus_types(t[1:-1])]
+        w = word()
+        if c == "b":
+            return w == "true"
+        if c == "d":
+            return float(w)
+        if c in "ynqiuxth":
+            return int(w)
+        return w                                       # (s, o, g)
+
+    sig = word()
+    return sig, [value(t) for t in bus_types(sig)]
+
+
 def prop(props, key, default=None):
-    """One of a D-Bus object's properties, from busctl's JSON ({"type": "b", "data": true})."""
+    """One of a D-Bus object's properties, from busctl ({"type": "b", "data": true})."""
     v = props.get(key) if isinstance(props, dict) else None
     return v.get("data", default) if isinstance(v, dict) else default
 
@@ -288,6 +377,7 @@ class Bluetooth:
         self.screen = False     # Settings > Bluetooth is open
         self.web_until = 0.0    # ...the web page's Bluetooth, till then
         self.looked = 0.0       # when it last looked at BlueZ
+        self.answered_at = 0.0  # ...and when BlueZ last answered
         self.thread = None
         self.agent = Agent(self.got_code, self.agent_said)
         self.on_change = lambda: None
@@ -322,22 +412,28 @@ class Bluetooth:
     def refresh(self):
         """Looks at BlueZ: its adapter, on or off, and its devices."""
         with self.fresh:
-            ok, out, err = bus(["--json=short", "call", BUS, "/", "org.freedesktop.DBus.ObjectManager",
-                                "GetManagedObjects"], 8)
+            ok, out, err = bus(["call", BUS, "/", "org.freedesktop.DBus.ObjectManager", "GetManagedObjects"], 8)
             objs = None
             if ok:
                 try:
-                    data = json.loads(out).get("data")
-                    objs = data[0] if isinstance(data, list) and data and isinstance(data[0], dict) else None
-                except (ValueError, AttributeError):
-                    objs = None
+                    sig, values = bus_reply(out)
+                    objs = values[0] if sig == "a{oa{sa{sv}}}" and isinstance(values[0], dict) else None
+                    err = "" if objs is not None else f"a reply of {sig}"
+                except (ValueError, IndexError, KeyError, TypeError) as ex:
+                    err = f"its reply unread ({ex})"
             now = time.monotonic()
             with self.lock:
                 self.looked = now
                 if objs is None:
-                    self.there, self.on, self.devices = False, False, []
-                    self.why = "Bluetooth isn't running on this Pi"
+                    gone = not ok and any(w in err for w in BT_GONE)
+                    if gone or self.there is not True or now - self.answered_at > BT_STALE:
+                        why = "Bluetooth isn't running on this Pi" if gone else "Bluetooth isn't answering"
+                        if self.why != why:
+                            print(f"bluetooth: {why} ({err[:120]})", flush=True)
+                        self.there, self.on, self.devices = False, False, []
+                        self.why = why
                     return
+                self.answered_at = now
                 adapters = sorted(p for p, o in objs.items() if isinstance(o, dict) and ADAPTER in o)
                 if not adapters:
                     self.there, self.on, self.devices = False, False, []
