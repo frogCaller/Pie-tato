@@ -207,6 +207,18 @@ your phone or computer, open your profile, then Quick Connect, and type the code
 If a video is too big for the Pi to play smoothly (a 1080p film on a Pi Zero, or one in HEVC), the Pi
 makes it smaller by itself in the background, in place of the original.
 
+## AI-Assisted Development
+
+Pitato was built with the help of AI, but bringing the idea to life took a bit of hands-on work, testing, and troubleshooting.
+I'm building this project because I enjoy experimenting with hardware, making useful things out of devices I already
+own, and seeing how far I can push them.
+
+I understand that people have different opinions about AI-assisted development, and I respect that. I'm not claiming
+every line of code was written by hand. What matters to me is building something real, sharing what I've made,
+and hopefully giving other people something they can build on.
+
+Pitato is an ongoing project, and there's still plenty I'd like to improve.
+
 ## License
 
 MIT, see [LICENSE](LICENSE). The fonts in `static/fonts` (Atkinson Hyperlegible Next and Inter) have their

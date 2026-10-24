@@ -16,13 +16,12 @@ class RemoteScreen:
 
     def remote_options(self):
         st = self.hass.tvstate
-        off = st.get("state") in ("off", "standby", "unavailable", "", None)
         opts = [(f"Switch to {name}", ("tv", entity)) for entity, name in self.hass.tv_names()
                 if entity != self.hass.tv]                 # (your other TVs first)
         opts += [("Number pad", ("pad",)),
-                ("Turn on" if off else "Turn off", ("power",)),
-                ("Unmute" if st.get("muted") else "Mute", ("mute",)),
-                ("Play / pause", ("play",))]
+                 ("Turn on", ("power", "on")), ("Turn off", ("power", "off")),    # (both: it does what you pick)
+                 ("Unmute", ("mute", False)) if st.get("muted") else ("Mute", ("mute", True)),
+                 ("Play / pause", ("play",))]
         for src in st.get("sources") or []:
             opts.append((src, ("source", src)))
         return opts
@@ -63,8 +62,8 @@ class RemoteScreen:
         if name == "select" and not repeat:
             self.remote_more = {"sel": 0}
         elif name in self.REMOTE_KEYS:
-            if repeat and now - self.remote_hit[1] < HA_HELD:
-                return None                            # held: gently, the TV keeps up
+            if repeat and (now - self.remote_hit[1] < HA_HELD or self.hass.busy()):
+                return None                            # held: gently, never ahead of the TV
             self.hass.send(*self.REMOTE_KEYS[name])
             self.remote_hit = (name, now)
         self.dirty = True

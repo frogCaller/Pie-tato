@@ -11,6 +11,9 @@ from .config import read_config
 
 HA_POLL = 3              # seconds between asking Home Assistant how the TV is
 HA_HELD = 0.3            # seconds between repeats while an arrow is held on the TV Remote
+HA_WATCH = 30            # seconds to see a TV turn on or off (asking every second) before saying it didn't
+HA_WAKE_AGAIN = 8        # ...asking it to turn on again this often meanwhile (a Samsung's or an LG's Wake-on-LAN,
+WAKE_AGAIN = ("samsung", "lg")    # which is how Home Assistant wakes them, can go astray)
 HA_LIGHTS_POLL = 5       # ...and how the lights are (all of Home Assistant's states, each time)
 LIGHT_STEP = 10          # percent brighter or dimmer for each press
 
@@ -48,6 +51,14 @@ TV_STYLE_WORDS = [({"samsung", "tizen", "frame"}, "samsung"), ({"roku"}, "roku")
                   ({"android", "google", "shield", "chromecast", "bravia", "sony", "philips",
                     "hisense", "tcl", "fire", "firetv"}, "android")]
 TV_WORDS = {"tv", "television", "samsung", "lg", "bravia", "roku", "webos"}
+TV_OFF = ("off", "standby", "unavailable")      # a TV that's off, as Home Assistant says (or that it can't reach)
+
+
+def tv_power(state):
+    """'on' or 'off', as Home Assistant says the TV is; None while it doesn't know."""
+    if state in TV_OFF:
+        return "off"
+    return None if state in (None, "", "unknown") else "on"
 
 
 def words(st):
@@ -92,6 +103,8 @@ class HomeAssistant:
         self.found = False
         self.loaded = None
         self.tvstate = {}
+        self.watch = None            # (on or off, until when, when to ask again): turning it on or off, to see it
+        self.working = False         # a button's being sent
         self.error = None
         self.jobs = []
         self.lock = threading.Lock()
@@ -99,7 +112,7 @@ class HomeAssistant:
         self.running = False
         self.poll_now = False
         self.on_change = lambda: None
-        self.on_note = lambda text: None
+        self.on_note = lambda text, secs=3: None
         self.on_pick = lambda entity: None         # another TV picked (to remember it)
 
     def load(self, patterns, pick=""):
@@ -115,7 +128,7 @@ class HomeAssistant:
             self.tv = self.listed[0] if self.listed else ""
             self.remote = self.remotes[0] if self.remotes else ""
             self.style = self.styles[0] if self.styles else ""
-            self.found, self.tvstate, self.error, self.tvs = False, {}, None, []
+            self.found, self.tvstate, self.error, self.tvs, self.watch = False, {}, None, [], None
 
     @property
     def configured(self):
@@ -220,7 +233,7 @@ class HomeAssistant:
             self.jobs.clear()                          # (buttons meant for the other TV)
         self.pick = entity
         self.use(t)
-        self.tvstate, self.error = {"name": t["name"]}, None
+        self.tvstate, self.error, self.watch = {"name": t["name"]}, None, None
         self.poll_now = True
         self.wake.set()
         self.on_pick(entity)
@@ -241,6 +254,7 @@ class HomeAssistant:
                             "source": a.get("source"), "sources": list(a.get("source_list") or []),
                             "title": a.get("media_title"), "app": a.get("app_name")}
             self.error = None
+            self.check_watch()
         except urllib.error.HTTPError as e:
             if e.code == 404 and self.found and not self.listed:
                 # the TV it found has gone (renamed in Home Assistant): look again
@@ -251,7 +265,28 @@ class HomeAssistant:
                               else self.why(e))
         except Exception as e:
             self.error = self.why(e)
+        if self.watch and time.monotonic() > self.watch[1]:
+            self.check_watch()                         # (it's said nothing since: that it didn't happen)
         self.on_change()
+
+    def check_watch(self):
+        """Turning the TV on or off: say so once Home Assistant sees it happen, or that it didn't."""
+        if not self.watch:
+            return
+        want, until, again = self.watch
+        now = time.monotonic()
+        if tv_power(self.tvstate.get("state")) == want:
+            self.watch = None
+            self.on_note(f"Your TV is {want}")
+        elif now > until:
+            self.watch = None
+            self.on_note(f"Your TV didn't turn {want}", 5)
+        elif want == "on" and self.style in WAKE_AGAIN and now >= again:
+            self.watch = (want, until, now + HA_WAKE_AGAIN)
+            try:                                       # (still off: wake it again)
+                self.service("media_player", "turn_on", entity_id=self.tv)
+            except Exception:
+                pass
 
     # the buttons
     def send(self, *job):
@@ -259,6 +294,10 @@ class HomeAssistant:
             if len(self.jobs) < 8:                    # held buttons don't pile up
                 self.jobs.append(job)
         self.wake.set()
+
+    def busy(self):
+        """A button still on its way to the TV (a held one waits for it: a slow TV doesn't fall behind)."""
+        return self.working or bool(self.jobs)
 
     def run_job(self, job):
         what = job[0]
@@ -279,19 +318,26 @@ class HomeAssistant:
             self.on_note(f"Channel {number}")
         elif what == "volume":
             self.service("media_player", "volume_up" if job[1] > 0 else "volume_down", **tv)
-        elif what == "mute":
-            self.service("media_player", "volume_mute", is_volume_muted=not self.tvstate.get("muted"), **tv)
+        elif what == "mute":                        # (muted or not, as you picked)
+            muted = job[1] if len(job) > 1 else not self.tvstate.get("muted")
+            self.service("media_player", "volume_mute", is_volume_muted=bool(muted), **tv)
         elif what == "play":
             self.service("media_player", "media_play_pause", **tv)
-        elif what == "power":
-            off = self.tvstate.get("state") in ("off", "standby", "unavailable", "")
+        elif what == "power":                       # on or off, as you picked: never the other way
+            self.refresh()                             # (how it is now, not a few seconds ago)
+            now = tv_power(self.tvstate.get("state")) if not self.error else None
+            want = job[1] if len(job) > 1 else ("off" if now == "on" else "on")
+            if now == want:                            # (a TV that's on can take "on" as its power button)
+                self.on_note(f"Your TV is already {want}")
+                return
             try:
-                self.service("media_player", "turn_on" if off else "turn_off", **tv)
+                self.service("media_player", "turn_" + want, **tv)
             except urllib.error.HTTPError as e:
-                if off and e.code == 400:              # e.g. a Samsung without Wake-on-LAN set up
-                    raise ValueError("Home Assistant can't turn this TV on")
+                if e.code in (400, 500):               # e.g. a Samsung or an LG with no way set up to wake it
+                    raise ValueError(f"Home Assistant can't turn this TV {want}")
                 raise
-            self.on_note("Turning the TV on" if off else "Turning the TV off")
+            self.watch = (want, time.monotonic() + HA_WATCH, time.monotonic() + HA_WAKE_AGAIN)
+            self.on_note(f"Turning your TV {want}…", 10)
         elif what == "source":
             self.service("media_player", "select_source", source=job[1], **tv)
 
@@ -320,9 +366,8 @@ class HomeAssistant:
             self.jobs.clear()
         self.wake.set()
 
-    @staticmethod
-    def poll_every():
-        return HA_POLL
+    def poll_every(self):
+        return 1.0 if self.watch else HA_POLL      # (every second while it turns on or off)
 
     def loop(self):
         next_poll = 0.0
@@ -330,12 +375,15 @@ class HomeAssistant:
             with self.lock:
                 job = self.jobs.pop(0) if self.jobs else None
             if job:
+                self.working = True
                 try:
                     if not self.found:
                         self.discover()
                     self.run_job(job)
                 except Exception as e:
                     self.on_note(self.why(e) if not isinstance(e, ValueError) else str(e))
+                finally:
+                    self.working = False
                 next_poll = min(next_poll, time.monotonic() + 0.5)
                 continue
             if self.poll_now or time.monotonic() >= next_poll:

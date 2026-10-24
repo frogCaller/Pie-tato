@@ -495,7 +495,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         elif tab["type"] == "remote":
             self.hass.load(tab["files"], pick=self.setting("ha_tv") or "")
             self.hass.on_change = self.remote_changed
-            self.hass.on_note = lambda text: self.toast(text, 3)
+            self.hass.on_note = lambda text, secs=3: self.toast(text, secs)
             self.hass.on_pick = lambda entity: self.set_setting("ha_tv", entity)   # (the TV picked, kept)
             if self.active and self.tab == i and self.view == "list":
                 self.hass.start()
