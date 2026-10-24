@@ -685,7 +685,7 @@ class DrawScreen:
             cols = [
                 ("In the lists", [("L R", "Switch tab"), ("▲▼", "Move (hold)"), ("A", "Open"),
                                   ("B", "Back / home"), ("HOME", "Terminal"), ("", ""),
-                                  ("", "hollywood: B stops it")]),
+                                  ("", "The others: B stops"), ("", "cacafire: A pauses")]),
                 ("While cmatrix is on", [("◀▶", "Colour"), ("▲▼", "Speed"), ("A", "Pause"), ("X", "Bold"),
                                          ("Y", "Mixed speeds"), ("SELECT", "Rainbow"), ("B", "Stop")]),
             ]

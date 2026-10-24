@@ -208,7 +208,7 @@ class WebScreen:
             self.close_keyboard(False)
         if self.view in ("photo", "pdf", "text", "wait"):
             self.close_viewer()
-        self.prog_stop()                               # (the Simulator's cmatrix or hollywood: it stops)
+        self.prog_stop()                               # (the Simulator's cmatrix and the rest: it stops)
         if self.proc_owns_screen() or self.game is not None:
             self.stop()                                # (a video, or a game: kept for next time)
         return True

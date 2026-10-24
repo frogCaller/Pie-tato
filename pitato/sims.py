@@ -1,5 +1,4 @@
-"""The Simulator's little worlds: Rock Paper Scissors, Game of Life, Orbits and Forest Fire, and
-what they share."""
+"""The Simulator's little worlds: Rock Paper Scissors, Game of Life and Forest Fire, and what they share."""
 import math
 import random
 from collections import deque
@@ -11,8 +10,8 @@ from .theme import co_mix
 # Each sim runs in a box beside its numbers, or on the whole screen (SELECT, or START's Full screen). A
 # pauses, X gives it a poke, Y starts it again, START has its options, B goes back to the list.
 # Rock Paper Scissors: pieces bounce around, and one hit by its counter switches sides until one team is
-# left (pick a winner before the first capture). Game of Life, Orbits and Forest Fire: see their blurbs
-# below, and mandelbrot.py for the Mandelbrot Set.
+# left (pick a winner before the first capture). Game of Life and Forest Fire: see their blurbs below, and
+# mandelbrot.py for the Mandelbrot Set.
 SIM_FLOOR = (21, 27, 33)                      # the box
 SIM_BOX = (12, 78, 452, 424)                  # ...on the GPi Case's screen (a wider one: the box is wider)
 SIM_IN = 2                                    # pieces keep this far in from its wall
@@ -649,182 +648,6 @@ class Life(Sim):
             return None
         why, gen = self.ended
         return why, f"After {gen} generations. A new one in {max(1, math.ceil(self.wait))} s"
-
-
-# ---- Orbits ----------------------------------------------------------------------------------------------
-ORBIT_SPEEDS = {"Slow": 0.6, "Normal": 1.0, "Fast": 1.7}      # how fast time goes
-ORBIT_TRAILS = {"Off": 0, "Short": 30, "Long": 110}            # points behind each planet
-ORBIT_SUN = 12                                                 # px
-
-
-def orbit_sun(r=ORBIT_SUN):
-    """The sun, glowing."""
-    from PIL import Image, ImageDraw
-    K, R = 4, r * 3
-    big = Image.new("RGBA", (2 * R * K, 2 * R * K), (0, 0, 0, 0))
-    d = ImageDraw.Draw(big)
-    for k in range(18, 0, -1):
-        rad = r + (R - r) * k / 18
-        d.ellipse((R * K - rad * K, R * K - rad * K, R * K + rad * K, R * K + rad * K),
-                  fill=(255, 196, 90, int(70 * (1 - k / 18) ** 2)))
-    d.ellipse((R * K - r * K, R * K - r * K, R * K + r * K, R * K + r * K), fill=(255, 214, 120, 255))
-    d.ellipse((R * K - r * 0.6 * K, R * K - r * 0.7 * K, R * K + r * 0.3 * K, R * K + r * 0.2 * K),
-              fill=(255, 240, 190, 255))
-    return big.reduce(K)
-
-
-class Orbits(Sim):
-    """A sun and planets: each pulls on the sun and on every other planet (leapfrog steps). Planets that
-    touch become one; one that falls into the sun or flies far away is gone. New planets come in when
-    there are few left."""
-    key = "orbit"
-    blurb = "Every planet pulls on the sun and on every other planet. Planets that meet become one."
-    poke_label = "Add planet"
-    options = (("planets", "Planets", (6, 12, 20, 30), 12),
-               ("trails", "Trails", tuple(ORBIT_TRAILS), "Short"),
-               ("speed", "Speed", tuple(ORBIT_SPEEDS), "Normal"))
-    restart_for = ("planets",)
-    GM = 560000.0           # the sun's pull, px³/s²
-    SOFT = 3.0              # px: so a close pass doesn't fling one off for ever
-
-    def __init__(self, w, h, rng=None, values=None):
-        super().__init__(w, h, rng, values)
-        self.sun = None
-        self.restart()
-
-    def restart(self):
-        import numpy as np
-        super().restart()
-        self.cx, self.cy = self.w / 2, self.h / 2
-        self.p, self.v, self.m = np.zeros((0, 2)), np.zeros((0, 2)), np.zeros(0)
-        self.colour, self.trails = [], []
-        self.merged = self.lost = 0
-        self.trail_t = self.refill = 0.0
-        for _ in range(self.values["planets"]):
-            self.add()
-
-    def add(self):
-        """A planet on a roughly round orbit somewhere it fits."""
-        import numpy as np
-        rnd = self.rng
-        lim = max(46.0, min(self.w, self.h) / 2 - 10)
-        for _ in range(20):
-            r = rnd.uniform(36, lim)
-            a = rnd.uniform(0, 2 * math.pi)
-            pos = np.array((self.cx + math.cos(a) * r, self.cy + math.sin(a) * r))
-            if not len(self.p) or ((self.p - pos) ** 2).sum(1).min() > 24 ** 2:
-                break
-        speed = math.sqrt(self.GM / r) * rnd.uniform(0.86, 1.06)
-        self.p = np.vstack([self.p, pos])
-        self.v = np.vstack([self.v, (-math.sin(a) * speed, math.cos(a) * speed)])
-        self.m = np.append(self.m, self.GM * rnd.uniform(0.0006, 0.004))
-        self.colour.append(sim_hue(rnd.random(), 0.42))
-        self.trails.append(deque(maxlen=ORBIT_TRAILS["Long"]))
-
-    def radius(self, m):
-        return 2.4 + 2.2 * (m / (self.GM * 0.002)) ** (1 / 3)
-
-    def refit(self, w, h):
-        dx, dy = w / 2 - self.cx, h / 2 - self.cy
-        self.w, self.h, self.cx, self.cy = w, h, w / 2, h / 2
-        if len(self.p):
-            self.p += (dx, dy)
-        for tr in self.trails:
-            pts = [(x + dx, y + dy) for x, y in tr]
-            tr.clear()
-            tr.extend(pts)
-
-    def accel(self, p):
-        import numpy as np
-        d = (self.cx, self.cy) - p
-        r2 = (d * d).sum(1) + self.SOFT ** 2
-        a = d * (self.GM / (r2 * np.sqrt(r2)))[:, None]
-        if len(p) > 1:
-            dd = p[None, :, :] - p[:, None, :]
-            rr = (dd * dd).sum(-1) + self.SOFT ** 2
-            np.fill_diagonal(rr, np.inf)
-            a += (dd * (self.m[None, :] / (rr * np.sqrt(rr)))[:, :, None]).sum(1)
-        return a
-
-    def update(self, dt):
-        if self.paused or dt <= 0:
-            return None
-        dt *= ORBIT_SPEEDS[self.values["speed"]]
-        self.clock += dt
-        h = dt / 4
-        for _ in range(4):
-            if not len(self.p):
-                break
-            self.v += self.accel(self.p) * (h / 2)
-            self.p += self.v * h
-            self.v += self.accel(self.p) * (h / 2)
-            self.collide()
-        self.trail_t += dt
-        if self.trail_t >= 0.05:
-            self.trail_t = 0.0
-            for tr, (x, y) in zip(self.trails, self.p.tolist()):
-                tr.append((x, y))
-        self.refill = self.refill + dt if len(self.p) < max(2, self.values["planets"] // 2) else 0.0
-        if self.refill > 4:                              # few left: a new one comes in
-            self.refill = 0.0
-            self.add()
-        return None
-
-    def collide(self):
-        import numpy as np
-        if not len(self.p):
-            return
-        d = self.p - (self.cx, self.cy)
-        r = np.sqrt((d * d).sum(1))
-        rad = self.radius(self.m)
-        gone = (r <= ORBIT_SUN + rad * 0.5) | (r > 2.5 * max(self.w, self.h))   # into the sun, or far off
-        self.lost += int(gone.sum())
-        keep = ~gone
-        if len(self.p) > 1:
-            dd = self.p[None, :, :] - self.p[:, None, :]
-            dist = np.sqrt((dd * dd).sum(-1))
-            touch = dist < (rad[:, None] + rad[None, :]) * 0.8
-            np.fill_diagonal(touch, False)
-            for i, j in zip(*np.nonzero(np.triu(touch))):
-                if keep[i] and keep[j]:
-                    mi, mj = self.m[i], self.m[j]
-                    self.v[i] = (self.v[i] * mi + self.v[j] * mj) / (mi + mj)
-                    self.p[i] = (self.p[i] * mi + self.p[j] * mj) / (mi + mj)
-                    self.m[i] = mi + mj
-                    keep[j] = False
-                    self.merged += 1
-        if not keep.all():
-            idx = np.nonzero(keep)[0].tolist()
-            self.p, self.v, self.m = self.p[keep], self.v[keep], self.m[keep]
-            self.colour = [self.colour[i] for i in idx]
-            self.trails = [self.trails[i] for i in idx]
-
-    def poke(self):
-        self.add()
-
-    def draw(self, img, x0, y0):
-        from PIL import ImageDraw
-        d = ImageDraw.Draw(img)
-        if self.sun is None:
-            self.sun = orbit_sun()
-        n = ORBIT_TRAILS[self.values["trails"]]
-        for tr, c, (x, y) in zip(self.trails, self.colour, self.p.tolist()):
-            pts = list(tr)[-n:] if n else []
-            if len(pts) > 1:                             # a tail: dimmer the older it is
-                pts = [(x0 + px, y0 + py) for px, py in pts] + [(x0 + x, y0 + y)]
-                k = len(pts)
-                for part, f in ((pts[:k // 3 + 1], 0.25), (pts[k // 3:2 * k // 3 + 1], 0.45),
-                                (pts[2 * k // 3:], 0.75)):
-                    if len(part) > 1:
-                        d.line(part, fill=co_mix(SIM_FLOOR, c, f), width=1)
-        s = self.sun
-        img.paste(s, (x0 + int(self.cx) - s.width // 2, y0 + int(self.cy) - s.height // 2), s)
-        for c, (x, y), m in zip(self.colour, self.p.tolist(), self.m.tolist()):
-            r = self.radius(m)
-            d.ellipse((x0 + x - r, y0 + y - r, x0 + x + r, y0 + y + r), fill=c)
-
-    def stats(self):
-        return [("Planets", str(len(self.p))), ("Merged", str(self.merged)), ("Lost", str(self.lost))]
 
 
 # ---- Forest Fire -----------------------------------------------------------------------------------------

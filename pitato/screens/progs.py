@@ -1,4 +1,5 @@
-"""The Simulator's cmatrix and hollywood: Linux's own, on the whole screen, with the controller's buttons as keys."""
+"""The Simulator's cmatrix, hollywood, nyancat and cacafire: Linux's own, on the whole screen, with the controller's
+buttons as keys."""
 import fcntl
 import os
 import shutil
@@ -19,6 +20,9 @@ CM_KEYS = {"a": "p", "y": "a", "select": "r"}   # A pauses, Y mixed speeds (each
 PROG_GO = "\x11"         # Ctrl+Q: the console's output going again, if a keyboard's Ctrl+S or Scroll Lock held it
 PROG_TTY = None          # (the console they run on: media mode's own. The tests give them a pretend one)
 HW_DIR = "/run/pitato-hollywood"   # hollywood's own tmux and byobu, apart from anyone else's (gone at start-up)
+PROG_ARGS = {"nyancat": ["-s"]}    # (nyancat: no window title, which a console has nowhere to put)
+PROG_OWN = {"cacafire": "/usr/local/lib/pitato/cacafire"}   # setup.sh's own build (without "Powered by libcaca")
+PROG_QUIT = {"cacafire": "\x03"}   # its own way out, typed (cmatrix's: q; cacafire's: Ctrl+C)
 KD_TEXT, KD_GRAPHICS = 0, 1
 KDSETMODE, VT_GETSTATE, VT_ACTIVATE = 0x4B3A, 0x5603, 0x5606
 
@@ -57,18 +61,20 @@ def hw_kill():
 
 
 class ProgScreen:
-    """The Simulator's cmatrix and hollywood: Linux's own, run on media mode's console (in text mode while one's on,
-    so the console draws it, just as in the terminal). cmatrix takes the controller's buttons as its keys: ◀▶ its
-    colour, ▲▼ its speed, A pauses, X bold, Y mixed speeds, SELECT rainbow. B (or HOME) stops either, back to the
-    Simulator. A keyboard works too, as in the terminal. Media mode keeps the screen while one's on: a keyboard's
+    """The Simulator's cmatrix, hollywood, nyancat and cacafire: Linux's own, run on media mode's console (in text mode
+    while one's on, so the console draws it, just as in the terminal). cmatrix takes the controller's buttons as its
+    keys: ◀▶ its colour, ▲▼ its speed, A pauses, X bold, Y mixed speeds, SELECT rainbow; cacafire A, to pause. B (or
+    HOME) stops any of them, back to the Simulator. A keyboard works too, as in the terminal. Media mode keeps the screen while one's on: a keyboard's
     switch to another console (Alt+F1...) is switched straight back."""
 
     def prog_start(self, name):
         if self.prog is not None:
             return
-        path = shutil.which(name)
+        own = PROG_OWN.get(name)
+        path = own if own and os.access(own, os.X_OK) else shutil.which(name)
         if not path:
-            self.toast(f"{name} isn't installed: sudo apt install {name}", 4)
+            self.toast(f"{name} isn't installed: sudo bash setup.sh puts it in" if own
+                       else f"{name} isn't installed: sudo apt install {name}", 4)
             return
         env = dict(os.environ, TERM="linux")
         if name == "hollywood":
@@ -94,8 +100,8 @@ class ProgScreen:
             self.prog_mode(KD_TEXT)                    # the console draws it, as in the terminal
             # (in Pitato's session, so the console never becomes its own: when it ends, the console carries on;
             # and it goes if Pitato goes)
-            self.prog = subprocess.Popen([path], stdin=fd, stdout=fd, stderr=fd, close_fds=True, env=env,
-                                         preexec_fn=quiet_child)
+            self.prog = subprocess.Popen([path] + PROG_ARGS.get(name, []), stdin=fd, stdout=fd, stderr=fd,
+                                         close_fds=True, env=env, preexec_fn=quiet_child)
         except OSError as ex:
             self.prog = None
             self.prog_mode(KD_GRAPHICS)
@@ -108,8 +114,9 @@ class ProgScreen:
         print(f"{name}: started ({self.prog.pid})", flush=True)
 
     def prog_stop(self):
-        """It stops (cmatrix is told q, as from a keyboard, so it puts the console back as it was; hollywood's tmux
-        is closed, panes and all), and media mode has the screen again, whatever happens meanwhile."""
+        """It stops (cmatrix is told q, as from a keyboard, cacafire Ctrl+C and nyancat Ctrl+C's signal, so each puts
+        the console back as it was; hollywood's tmux is closed, panes and all), and media mode has the screen again,
+        whatever happens meanwhile."""
         p, name, self.prog, self.prog_name = self.prog, self.prog_name, None, None
         if p is None:
             return
@@ -124,8 +131,15 @@ class ProgScreen:
                         pass
                     if (p.poll() is not None and not hw_up()) or time.monotonic() > end:
                         break
+            elif name == "nyancat" and p.poll() is None:
+                self.prog_key(PROG_GO)                 # (its output going again, if a keyboard's Ctrl+S held it)
+                p.send_signal(signal.SIGINT)           # (its own way out: the cursor and colours as they were)
+                try:
+                    p.wait(timeout=1.5)
+                except subprocess.TimeoutExpired:
+                    pass
             elif p.poll() is None:
-                self.prog_key(PROG_GO + "q")
+                self.prog_key(PROG_GO + PROG_QUIT.get(name, "q"))
                 try:
                     p.wait(timeout=1.5)
                 except subprocess.TimeoutExpired:
@@ -175,12 +189,15 @@ class ProgScreen:
             self.prog_front()
 
     def press_prog(self, name, repeat):
-        """A button while one's on: B stops it; for cmatrix, the rest are its keys, typed into it."""
+        """A button while one's on: B stops it; for cmatrix, the rest are its keys, typed into it (cacafire's: A)."""
         if repeat:
             return None
         self.prog_unblank()                            # (a key wakes a blanked screen, as a keyboard's does)
         if name == "b":
             self.prog_stop()
+        elif self.prog_name == "cacafire":
+            if name == "a":
+                self.prog_key(" ")                     # (its space bar: it pauses, or goes on)
         elif self.prog_name != "cmatrix":
             return None
         elif name in ("left", "right"):

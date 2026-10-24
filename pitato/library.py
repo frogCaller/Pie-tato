@@ -24,8 +24,8 @@ LIBRARY = [
     {"name": "Finance", "type": "finance", "files": [settings_glob("finance.txt")], "empty": ""},
     {"name": "Bot", "type": "friend", "files": [settings_glob("bot.txt")], "empty": ""},
     {"name": "Simulator", "type": "group", "empty": "",
-     "children": ["Rock Paper Scissors", "Game of Life", "Orbits", "Forest Fire", "Mandelbrot Set", "cmatrix",
-                  "hollywood"]},
+     "children": ["Rock Paper Scissors", "Game of Life", "Forest Fire", "Mandelbrot Set", "cmatrix", "hollywood",
+                  "nyancat", "cacafire"]},
     {"name": "Files", "type": "browser", "empty": "This folder is empty"},
     {"name": "System", "type": "system", "empty": ""},
     {"name": "Settings", "type": "settings", "empty": ""},
@@ -62,17 +62,19 @@ LIBRARY = [
      "about": "Last team standing", "empty": ""},
     {"name": "Game of Life", "type": "sim", "sim": "life", "parent": "Simulator", "badge": "LIFE",
      "about": "Cells live, die and are born", "empty": ""},
-    {"name": "Orbits", "type": "sim", "sim": "orbit", "parent": "Simulator", "badge": "GRAV",
-     "about": "Planets round a sun", "empty": ""},
     {"name": "Forest Fire", "type": "sim", "sim": "fire", "parent": "Simulator", "badge": "FIRE",
      "about": "Trees grow, fires spread", "empty": ""},
     {"name": "Mandelbrot Set", "type": "sim", "sim": "mandel", "parent": "Simulator", "badge": "ZOOM",
      "about": "Dives into the famous fractal", "empty": ""},
-    # (Linux's own cmatrix and hollywood: A starts one, on the whole screen)
+    # (Linux's own cmatrix, hollywood, nyancat and cacafire: A starts one, on the whole screen)
     {"name": "cmatrix", "type": "prog", "prog": "cmatrix", "parent": "Simulator", "badge": "CODE",
      "about": "Linux's falling code. B stops it", "empty": ""},
     {"name": "hollywood", "type": "prog", "prog": "hollywood", "parent": "Simulator", "badge": "HACK",
      "about": "Movie hacker screens. B stops it", "empty": ""},
+    {"name": "nyancat", "type": "prog", "prog": "nyancat", "parent": "Simulator", "badge": "NYAN",
+     "about": "The rainbow cat. B stops it", "empty": ""},
+    {"name": "cacafire", "type": "prog", "prog": "cacafire", "parent": "Simulator", "badge": "HEAT",
+     "about": "Flames made of letters. B stops it", "empty": ""},
 ]
 
 MEDIA_VT = 7          # spare console the menu and player draw on

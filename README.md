@@ -50,10 +50,10 @@ It starts on a home screen of apps:
 - **Bot**: talks through Ollama on another computer, sees through your camera and takes pictures,
   out loud if you give it a voice. At work, it acts out what your coding agent is doing, rings a
   bell when it's done, and sends it prompts you type
-- **Simulator**: Rock Paper Scissors (pick a winner before the first capture), Game of Life, Orbits,
-  Forest Fire and the Mandelbrot set, which takes you on dives (or press the d-pad to explore it,
-  A to zoom in and Y to zoom out). Press SELECT to watch one full screen. It can also start cmatrix and
-  hollywood without a keyboard: in cmatrix, ◀▶ change its colour and ▲▼ its speed, and B stops either
+- **Simulator**: Rock Paper Scissors (pick a winner before the first capture), Game of Life, Forest Fire
+  and the Mandelbrot set, which takes you on dives (or press the d-pad to explore it, A to zoom in and
+  Y to zoom out). Press SELECT to watch one full screen. It can also start cmatrix, hollywood, nyancat
+  and cacafire without a keyboard: in cmatrix, ◀▶ change its colour and ▲▼ its speed, and B stops any of them
 - **Games**: Snake (press X and a decision model on your bot's computer plays it for you), and your own
   Game Boy, Game Boy Advance, NES, SNES, Genesis, Master System, Game Gear and PlayStation games, and
   N64, PSP and DS games on a Pi 4 or 5. Two can play on two controllers

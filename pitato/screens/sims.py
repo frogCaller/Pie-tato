@@ -5,13 +5,13 @@ import time
 from ..theme import ACCENT, BG, BODY, co_mix, LINE, MUTED, ROW, TEXT
 from ..library import LIBRARY
 from ..sims import (
-    ForestFire, Life, Orbits, RockPaperScissors, RPS_COLOUR, RPS_TEAMS, SIM_BOX, sim_clock,
+    ForestFire, Life, RockPaperScissors, RPS_COLOUR, RPS_TEAMS, SIM_BOX, sim_clock,
     SIM_FLOOR, SIM_FULL, SIM_IN, SIM_PANEL)
 from ..mandelbrot import Mandelbrot
 from ..snake import Snake
 
 
-SIMS = {s.key: s for s in (RockPaperScissors, Life, Orbits, ForestFire, Mandelbrot, Snake)}
+SIMS = {s.key: s for s in (RockPaperScissors, Life, ForestFire, Mandelbrot, Snake)}
 
 
 class SimScreen:

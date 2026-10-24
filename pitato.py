@@ -119,7 +119,6 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
     Rock Paper Scissors - pieces bounce around, and one hit by its counter switches sides until
                 one team is left; left and right pick a winner before the first capture
     Game of Life - Conway's rules (or HighLife, Day & Night, Seeds), cells coloured by age
-    Orbits      - planets round a sun pull on each other, and merge when they meet
     Forest Fire - trees grow, lightning strikes, fire spreads and the forest grows back
     Mandelbrot Set - dives into the set to one well-known place after another, down to a tiny copy
                 of the set or as deep as the numbers go; or the d-pad explores it: A zooms in,
@@ -130,6 +129,9 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
                 B (or HOME) stops it
     hollywood   - Linux's own hollywood, on the whole screen: panes of htop, cmatrix, logs, maps, hex
                 dumps and more, swapped round every few seconds; B (or HOME) stops it
+    nyancat     - Linux's own nyancat, on the whole screen: the rainbow cat; B (or HOME) stops it
+    cacafire    - libcaca's fire, made of letters, on the whole screen (setup.sh builds it, without
+                "Powered by libcaca"); A pauses it, B (or HOME) stops it
   Files       - browse everything; opens photos, PDFs, documents, text, video, music; Other computers
                 opens another computer's files by its address (Windows and Mac shared folders, or
                 Linux over SSH), read-only

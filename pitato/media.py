@@ -111,7 +111,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.fb = None
         self.ttyfd = None
         self.prev_vt = "1"
-        self.prog = self.prog_name = None   # the Simulator's cmatrix or hollywood, while it's on (its process)
+        self.prog = self.prog_name = None   # the Simulator's cmatrix, hollywood, nyancat or cacafire, while on
         self.cm_colour, self.cm_bold, self.cm_speed = 0, 0, 4
         self.prober = self.thumber = self.sysloop = None
         self.thumbs = {}            # path -> small PIL image (most recent ~300)
@@ -659,7 +659,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
 
     # -- mode ----------------------------------------------------------------
     def proc_owns_screen(self):
-        """A video, a game, cmatrix or hollywood is drawing on the screen: the menus keep off it."""
+        """A video, a game, or the Simulator's cmatrix and the rest, is drawing on the screen: the menus keep off
+        it."""
         return ((bool(self.proc) and self.kind in SCREEN_KINDS) or (self.game is not None and self.view == "game")
                 or self.prog is not None)
 
@@ -1190,7 +1191,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         """Returns 'exit' when media mode should close."""
         if self.view == "update":                      # (updating: nothing to press till the Pi restarts)
             return None
-        if self.prog is not None:                      # the buttons are cmatrix's keys (hollywood's: B)
+        if self.prog is not None:                      # the buttons are cmatrix's keys (the others': B)
             return self.press_prog(name, repeat)
         if self.view == "keepres":                     # a new resolution: keep it, or go back
             return self.press_keep_res(name, repeat)

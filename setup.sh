@@ -11,8 +11,8 @@
 #     a file browser for PDFs/documents/text, cameras on your other Pis (see
 #     --camera below) with OBSBOT steering and pictures, a bot (Ollama on another
 #     computer, a Piper voice on the Pi; at work it acts out your coding agent and sends
-#     it your prompts), a Simulator (rock paper scissors, the game of life, orbits, forest
-#     fire, the Mandelbrot set to tour or explore), Snake and your own Game Boy, Game Boy
+#     it your prompts), a Simulator (rock paper scissors, the game of life, forest fire, the
+#     Mandelbrot set to tour or explore, cmatrix, hollywood, nyancat, cacafire), Snake and your own Game Boy, Game Boy
 #     Advance, NES, SNES, Genesis, Master System, Game Gear, PlayStation and (on a Pi 4 or
 #     5) N64, PSP and DS games, two players on two controllers (mGBA, Nestopia, Snes9x,
 #     Genesis Plus GX, and PCSX ReARMed, Mupen64Plus-Next, PPSSPP and melonDS built here),
@@ -278,13 +278,36 @@ step "Installing packages"
 apt-get update
 apt-get install -y python3-evdev python3-pil python3-numpy fonts-dejavu-core \
   mplayer poppler-utils iw evtest device-tree-compiler python3-flask alsa-utils ffmpeg bluez
-# the Simulator's cmatrix and hollywood: Linux's own. hollywood with what its panes show, but not atop or plocate,
-# which would keep running in the background
+# the Simulator's cmatrix, nyancat and hollywood: Linux's own. hollywood with what its panes show, but not atop or
+# plocate, which would keep running in the background
 apt-get install -y cmatrix || echo "(Couldn't install cmatrix: the Simulator's cmatrix won't start.)"
+apt-get install -y nyancat || echo "(Couldn't install nyancat: the Simulator's nyancat won't start.)"
 apt-get install -y --no-install-recommends hollywood \
   || echo "(Couldn't install hollywood: the Simulator's hollywood won't start.)"
 apt-get install -y --no-install-recommends apg bmon bsdextrautils ccze htop jp2a moreutils speedometer tree \
   || echo "(Couldn't install some of what hollywood's panes show: it shows the rest.)"
+# and cacafire: libcaca's own, built here from its one source file, without its "Powered by libcaca"
+CACAFIRE=373c88b9890e67bde91e6acb8f1c442e847d1203        # (libcaca 0.99.beta20: Raspberry Pi OS's own libcaca)
+PROGS=/usr/local/lib/pitato
+build_cacafire() {
+  local tmp
+  apt-get install -y build-essential curl libcaca-dev || return 1
+  tmp="$(mktemp -d /var/tmp/cacafire-XXXXXX)" || return 1
+  BUILDING="$tmp"
+  curl -fsSL "https://raw.githubusercontent.com/cacalabs/libcaca/$CACAFIRE/src/aafire.c" -o "$tmp/aafire.c" \
+    && sed -i 's/ -=\[ Powered by libcaca \]=- //' "$tmp/aafire.c" && ! grep -q 'Powered by libcaca' "$tmp/aafire.c" \
+    && : > "$tmp/config.h" \
+    && gcc -O2 -DLIBCACA -I"$tmp" -o "$tmp/cacafire" "$tmp/aafire.c" -lcaca -lm > "$tmp/build.log" 2>&1 \
+    || { tail -n 20 "$tmp/build.log" 2> /dev/null; rm -rf "$tmp"; return 1; }
+  install -d "$PROGS" && install -m 755 "$tmp/cacafire" "$PROGS/cacafire" || { rm -rf "$tmp"; return 1; }
+  echo "$CACAFIRE" > "$PROGS/cacafire.version"
+  rm -rf "$tmp"
+}
+if [ "$(cat "$PROGS/cacafire.version" 2>/dev/null)" = "$CACAFIRE" ] && [ -x "$PROGS/cacafire" ]; then
+  echo "The Simulator's cacafire is built already."
+else
+  build_cacafire || echo "(Couldn't build cacafire: the Simulator's cacafire won't start.)"
+fi
 # Files > Other computers: Windows and Mac shared folders (cifs-utils, smbclient, and nmblookup in samba-common-bin
 # for a PC's own name), Linux computers over SSH (sshfs). (Without questions: samba-common asks one about WINS, and
 # the answer it'd take is No.)
