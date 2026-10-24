@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""camera.py - this Pi's USB camera, shared on your network for gpi-media's Camera tab.
+"""camera.py - this Pi's USB camera, shared on your network for Pitato's Camera tab.
 
 It answers the same calls as PiE-ink's camera (/api/camera.jpg, /api/ptz/..., /api/photos),
-so gpi-media treats this Pi like a PiE-ink one: the live picture, pictures into ~/Pictures,
+so Pitato treats this Pi like a PiE-ink one: the live picture, pictures into ~/Pictures,
 and steering and zoom for a camera that turns (an OBSBOT, a PTZ webcam). Following you, and
 waking an OBSBOT that has fallen asleep, need PiE-ink.
 
-Put it on the Pi with the camera (from the gpi-media folder):
+Put it on the Pi with the camera (from the pitato folder):
     sudo bash setup.sh --camera
-then add that Pi's address on gpi-media's Camera tab (it also shows up there by itself, under
+then add that Pi's address on Pitato's Camera tab (it also shows up there by itself, under
 "On your network"). Opening http://<this Pi>:5433 in a browser shows the picture too.
 
-Settings, all optional, in static/camera-server.txt (the static folder of the gpi-media folder:
-setup.sh tells the service where that is; run by hand, it's the one next to this script):
-    name =             what gpi-media calls it (this Pi's name if blank)
+Settings, all optional, in static/camera-server.txt (the static folder of the pitato folder:
+setup.sh tells the service where that is; run by hand, it's the one beside the folder this script is in):
+    name =             what Pitato calls it (this Pi's name if blank)
     size = 640x480     the live picture (the camera's biggest is used for pictures you take)
     fps = 15
     device =           /dev/video0 and so on (blank: the first USB camera)
@@ -37,8 +37,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PORT = 5433
 BEACON_PORT, BEACON_EVERY = 5151, 5.0   # where PiE-inks announce themselves too
-STATIC = os.path.abspath(os.environ.get("GPI_MEDIA_STATIC", "").strip()
-                         or os.path.join(os.path.dirname(os.path.abspath(__file__)), "static"))
+HERE = os.path.dirname(os.path.abspath(__file__))
+TOP = HERE if os.path.isdir(os.path.join(HERE, "static")) else os.path.dirname(HERE)   # (in the pitato folder:
+STATIC = os.path.abspath(os.environ.get("PITATO_STATIC", "").strip()                  # one folder up)
+                         or os.path.join(TOP, "static"))
 CONF_FILE = os.path.join(STATIC, "camera-server.txt")
 IDLE = 15.0               # nobody has asked for a picture this long: the camera is let go
 FIRST_FRAME = 8.0         # a camera just started can take this long for its first picture
@@ -553,11 +555,12 @@ class Shutter:
             return name
 
 
-# ---- telling gpi-media this camera is here ----------------------------------------------------
+# ---- telling Pitato this camera is here ----------------------------------------------------
 def beacon_loop(ptz, port=PORT):
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     while True:
+        # ("gpicam": the word a camera's beacon has always had, so older and newer ones still find each other)
         msg = {"gpicam": 1, "id": ID, "host": socket.gethostname(), "port": port,
                "name": settings().get("name") or socket.gethostname(), "turns": bool(ptz.ctrls)}
         try:
@@ -578,7 +581,7 @@ img {{ display: block; width: 100%; border-radius: 10px; background: #1a1f27; }}
 p {{ color: #8b95a3; margin: 10px 2px; }}
 </style></head><body><main>
 <img src="/api/camera/stream" alt="The live picture from {name}">
-<p>{name} &middot; add this Pi's address on gpi-media's Camera tab</p>
+<p>{name} &middot; add this Pi's address on Pitato's Camera tab</p>
 </main></body></html>"""
 
 
@@ -707,7 +710,7 @@ def serve(feed, ptz, shutter, port=PORT):
             self.reply(404, {"ok": False, "error": "Not found"})
 
     def about():
-        return {"server": "gpi-media camera", "name": settings().get("name") or socket.gethostname(),
+        return {"server": "Pitato camera", "name": settings().get("name") or socket.gethostname(),
                 "hostname": socket.gethostname()}
 
     server = ThreadingHTTPServer(("", port), Handler)

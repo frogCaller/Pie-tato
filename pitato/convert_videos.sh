@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Convert videos to play smoothly on the GPi Case 2W (640x480 screen).
 # Run on your computer (much faster than on the Pi):
-#   bash convert_videos.sh /path/to/videos
+#   bash pitato/convert_videos.sh /path/to/videos     (from the pitato folder)
 # Uses settings that are cheap for the Pi to decode (fastdecode, 24 fps, 640x480).
-# Output goes to a "gpi" folder inside it: drop those files on the web page
+# Output goes to a "pitato" folder inside it: drop those files on the web page
 # (http://<your Pi's name>.local:5432), or copy them to ~/Videos on the Pi.
 
 src="${1:-.}"
-out="$src/gpi"
+out="$src/pitato"
 mkdir -p "$out"
 
 for f in "$src"/*.{mp4,mkv,avi,mov,webm,m4v,MP4,MKV,MOV}; do

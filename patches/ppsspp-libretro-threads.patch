@@ -1,0 +1,163 @@
+PPSSPP 1.20.4's libretro core, as setup.sh builds it: its own thread for the game, made safe to pause, start over
+and stop. (The same fixes PPSSPP made after 1.20.4, in "libretro: fix OOB, UAF, data races and control flow in core
+glue", for 1.20.4's code.)
+
+- Pausing it (for a save state, or to load one) ran one frame and then waited. When the game was waiting on a
+  readback in the next frame, nothing ran it, and both waited for good. Now its queued work runs until it's paused.
+- Starting over shut the PSP down while the thread was still running a frame. Now it's paused for that.
+- Stopping it (quitting) only worked while it was running, not while paused, as making a save state leaves it.
+- A pause or a start asked for while it changed state could overwrite a quit (compare and swap now).
+- A frame asked for while it was paused started it again rather than waiting forever.
+
+diff --git a/Common/GPU/OpenGL/GLRenderManager.h b/Common/GPU/OpenGL/GLRenderManager.h
+index 6c971696..162de149 100644
+--- a/Common/GPU/OpenGL/GLRenderManager.h
++++ b/Common/GPU/OpenGL/GLRenderManager.h
+@@ -239,6 +239,11 @@ class GLRenderManager {
+ 	void ThreadStart(Draw::DrawContext *draw);
+ 	void ThreadEnd();
+ 	bool ThreadFrame(bool waitIfEmpty);  // Returns true if it did anything. False means the queue was empty.
++	// True if ThreadFrame() has queued work, so it won't block on an empty queue.
++	bool HasQueuedThreadWork() {
++		std::lock_guard<std::mutex> lock(pushMutex_);
++		return !renderThreadQueue_.empty();
++	}
+ 
+ 	void SetErrorCallback(ErrorCallbackFn callback, void *userdata) {
+ 		queueRunner_.SetErrorCallback(callback, userdata);
+diff --git a/libretro/LibretroGLContext.h b/libretro/LibretroGLContext.h
+index f02d8479..6ce858cc 100644
+--- a/libretro/LibretroGLContext.h
++++ b/libretro/LibretroGLContext.h
+@@ -26,6 +26,7 @@ class LibretroGLContext : public LibretroHWRenderContext {
+ 
+ 	void ThreadStart() override { renderManager_->ThreadStart(draw_); }
+ 	bool ThreadFrame(bool waitIfEmpty) override { return renderManager_->ThreadFrame(waitIfEmpty); }
++	bool ThreadFramePending() override { return renderManager_->HasQueuedThreadWork(); }
+ 	void ThreadEnd() override { renderManager_->ThreadEnd(); }
+ 
+ 	GPUCore GetGPUCore() override { return GPUCORE_GLES; }
+diff --git a/libretro/LibretroGraphicsContext.h b/libretro/LibretroGraphicsContext.h
+index 94a01fdc..4d0185fa 100644
+--- a/libretro/LibretroGraphicsContext.h
++++ b/libretro/LibretroGraphicsContext.h
+@@ -44,6 +44,8 @@ class LibretroGraphicsContext : public GraphicsContext {
+ 		draw_ = nullptr;
+ 	}
+ 	Draw::DrawContext *GetDrawContext() override { return draw_; }
++	// True if ThreadFrame() has queued work to run (emu thread backends only).
++	virtual bool ThreadFramePending() { return false; }
+ 
+ 	static LibretroGraphicsContext *CreateGraphicsContext();
+ 
+diff --git a/libretro/libretro.cpp b/libretro/libretro.cpp
+index 3b2f1031..c93032aa 100644
+--- a/libretro/libretro.cpp
++++ b/libretro/libretro.cpp
+@@ -1412,17 +1412,19 @@ namespace Libretro
+ 
+       for (;;)
+       {
+-         switch ((EmuThreadState)emuThreadState)
++         // CAS, so a quit asked for meanwhile isn't overwritten; the loop reads the state again.
++         EmuThreadState state = emuThreadState;
++         switch (state)
+          {
+             case EmuThreadState::START_REQUESTED:
+-               emuThreadState = EmuThreadState::RUNNING;
+-               [[fallthrough]];
++               emuThreadState.compare_exchange_strong(state, EmuThreadState::RUNNING);
++               break;
+             case EmuThreadState::RUNNING:
+                EmuFrame();
+                break;
+             case EmuThreadState::PAUSE_REQUESTED:
+-               emuThreadState = EmuThreadState::PAUSED;
+-               [[fallthrough]];
++               emuThreadState.compare_exchange_strong(state, EmuThreadState::PAUSED);
++               break;
+             case EmuThreadState::PAUSED:
+                sleep_ms(1, "libretro-paused");
+                break;
+@@ -1453,10 +1455,13 @@ namespace Libretro
+ 
+    void EmuThreadStop()
+    {
+-      if (emuThreadState != EmuThreadState::RUNNING)
++      // From any state it's alive in, not just RUNNING: unloading while it's paused (as
++      // retro_serialize_size() leaves it) mustn't leave it running over freed state.
++      if (!emuThread.joinable())
+          return;
+ 
+-      emuThreadState = EmuThreadState::QUIT_REQUESTED;
++      if (emuThreadState != EmuThreadState::STOPPED)
++         emuThreadState = EmuThreadState::QUIT_REQUESTED;
+ 
+       // Need to keep eating frames to allow the EmuThread to exit correctly.
+       ctx->ThreadFrameUntilCondition([]() -> bool {
+@@ -1470,16 +1475,20 @@ namespace Libretro
+ 
+    void EmuThreadPause()
+    {
+-      if (emuThreadState != EmuThreadState::RUNNING)
++      if (emuThreadState != EmuThreadState::RUNNING && emuThreadState != EmuThreadState::START_REQUESTED)
+          return;
+ 
+       emuThreadState = EmuThreadState::PAUSE_REQUESTED;
+ 
+-      // Is this safe?
+-      ctx->ThreadFrame(true); // Eat 1 frame
+-
+-      while (emuThreadState != EmuThreadState::PAUSED)
+-         sleep_ms(1, "libretro-pause-poll");
++      // Run its queued work until it parks at a frame's end. One frame isn't enough when it's
++      // waiting on a readback sync in the next, and ThreadFrame() blocks on an empty queue, so
++      // it's only run when there's work.
++      while (emuThreadState != EmuThreadState::PAUSED) {
++         if (ctx->ThreadFramePending())
++            ctx->ThreadFrame(true);
++         else
++            sleep_ms(1, "libretro-pause-poll");
++      }
+    }
+ 
+ } // namespace Libretro
+@@ -1595,13 +1604,21 @@ void retro_unload_game(void)
+ 
+ void retro_reset(void)
+ {
++   // The emu thread mustn't run while the PSP is shut down and booted again: parked first.
++   if (Libretro::useEmuThread)
++      Libretro::EmuThreadPause();
++
+    PSP_Shutdown(true);
+ 
+    if (BootState::Complete != PSP_Init(PSP_CoreParameter(), &g_bootErrorString))
+    {
+       ERROR_LOG(Log::Boot, "%s", g_bootErrorString.c_str());
+       environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, nullptr);
++      return;
+    }
++
++   if (Libretro::useEmuThread)
++      Libretro::EmuThreadStart();
+ }
+ 
+ static void retro_input(void)
+@@ -1760,14 +1777,8 @@ void retro_run(void)
+ 
+    if (useEmuThread)
+    {
+-      if (  emuThreadState == EmuThreadState::PAUSED ||
+-            emuThreadState == EmuThreadState::PAUSE_REQUESTED)
+-      {
+-         VsyncSwapIntervalDetect();
+-         ctx->SwapBuffers();
+-         return;
+-      }
+-
++      // (This starts it again from PAUSED too: a retro_serialize_size() with no retro_serialize()
++      // after it can't freeze the game.)
+       if (emuThreadState != EmuThreadState::RUNNING)
+          EmuThreadStart();
+ 

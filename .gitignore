@@ -1,11 +1,5 @@
 __pycache__/
-*.py[cod]
-.venv/
-venv/
-.env
-.env.*
-!.env.example
-.DS_Store
-webui.txt
-homeassistant.txt
-plex.txt
+*.pyc
+# your settings files, made on the Pi: they stay out of git
+static/*
+!static/fonts/

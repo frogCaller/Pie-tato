@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-coder_hooks.py - shows what Claude Code is doing on gpi-media's Bot, at work, and hands Claude Code
+coder_hooks.py - shows what Claude Code is doing on Pitato's Bot, at work, and hands Claude Code
 the prompts you type there.
 
 Run it on the computer Claude Code runs on, with your Pi's name or address:
@@ -9,9 +9,9 @@ It adds hooks to Claude Code's settings (~/.claude/settings.json, for all your p
 the Pi what Claude Code is doing. They run in the background, so they never hold Claude Code up,
 and do nothing when the Pi is off.
 
-It also adds a copy of itself to Claude Code as a channel called gpi-media, which hands Claude Code
+It also adds a copy of itself to Claude Code as a channel called pitato, which hands Claude Code
 the prompts you type on the Pi (A on the Bot at work). Claude Code takes them when you start it with
-    claude --dangerously-load-development-channels server:gpi-media
+    claude --dangerously-load-development-channels server:pitato
 Channels are a research preview: Claude Code asks you to confirm each time, and it needs to be
 signed in to a Claude account (or use an Anthropic API key).
 
@@ -45,12 +45,13 @@ EVENTS = {                             # what Claude Code tells the Pi about (an
     "PreCompact": None, "Stop": None, "StopFailure": None,
     "SessionEnd": "logout|prompt_input_exit|other",
 }
-CHANNEL = "gpi-media"                  # the channel's name in Claude Code
+CHANNEL = "pitato"                     # the channel's name in Claude Code
+OLD_CHANNELS = ("gpi-media",)          # ...and what it was called before (taken out when this one goes in)
 START = f"claude --dangerously-load-development-channels server:{CHANNEL}"
 PROTOCOLS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")   # the MCP versions the channel speaks
 WAIT = 20                              # seconds each request for prompts waits on the Pi for one
 INSTRUCTIONS = (
-    f'Messages in <channel source="{CHANNEL}"> are prompts the user typed on their gpi-media handheld '
+    f'Messages in <channel source="{CHANNEL}"> are prompts the user typed on their Pitato handheld '
     "(a Raspberry Pi with a small screen and game buttons). Act on each one as if they had typed it here. "
     "The handheld shows that you're working and when you're done, but not what you say, so answer here as usual.")
 EMPTY = {"tools/list": "tools", "prompts/list": "prompts", "resources/list": "resources",
@@ -91,7 +92,7 @@ def say_hello(url, password=""):
     except urllib.error.HTTPError as ex:
         if ex.code == 401:
             return False, "the Pi's web page has a password: run this again with --password and the password"
-        return False, f"the Pi answered with an error ({ex.code}). Is gpi-keys running?"
+        return False, f"the Pi answered with an error ({ex.code}). Is Pitato running?"
     except (OSError, ValueError) as ex:
         return False, f"couldn't reach {url} ({getattr(ex, 'reason', ex)})"
 
@@ -148,9 +149,9 @@ def save(path, data):
 
 
 # ---- the channel: the prompts you type on the Pi, handed to Claude Code ----------------------------
-def kept_copy():
-    """Where Claude Code runs this script from: a copy that stays put (~/.claude/gpi-media)."""
-    return os.path.join(os.path.expanduser("~"), ".claude", CHANNEL, "coder_hooks.py")
+def kept_copy(name=CHANNEL):
+    """Where Claude Code runs this script from: a copy that stays put (~/.claude/pitato)."""
+    return os.path.join(os.path.expanduser("~"), ".claude", name, "coder_hooks.py")
 
 
 def claude_mcp(args):
@@ -174,9 +175,10 @@ def add_channel(url, password, here):
     scope = "local" if here else "user"
     args = ["add", "--scope", scope, CHANNEL]
     if password:
-        args += ["-e", "GPI_MEDIA_PASSWORD=" + password]   # (kept out of its command line)
+        args += ["-e", "PITATO_PASSWORD=" + password]   # (kept out of its command line)
     args += ["--", sys.executable or "python3", copy, "--channel", url]
     claude_mcp(["remove", "--scope", scope, CHANNEL])  # (the one from before, if there is one)
+    remove_old(here)
     got = claude_mcp(args)
     if got is None:
         return False, "there's no claude command here. Add it yourself:\n    claude mcp " + " ".join(
@@ -190,12 +192,27 @@ def remove_channel(here):
     """Takes the channel out of Claude Code: True if it was there."""
     got = claude_mcp(["remove", "--scope", "local" if here else "user", CHANNEL])
     if not here:
-        try:
-            os.remove(kept_copy())
-            os.rmdir(os.path.dirname(kept_copy()))
-        except OSError:
-            pass
-    return bool(got and got[0])
+        forget_copy(CHANNEL)
+    return bool(remove_old(here) or (got and got[0]))
+
+
+def remove_old(here):
+    """The channel by its name from before, taken out (and its copy): True if it was there."""
+    was = False
+    for name in OLD_CHANNELS:
+        got = claude_mcp(["remove", "--scope", "local" if here else "user", name])
+        was = was or bool(got and got[0])
+        if not here:
+            forget_copy(name)
+    return was
+
+
+def forget_copy(name):
+    try:
+        os.remove(kept_copy(name))
+        os.rmdir(os.path.dirname(kept_copy(name)))
+    except OSError:
+        pass
 
 
 def command_lines(levels=2):
@@ -236,9 +253,9 @@ def command_lines(levels=2):
 
 def wanted():
     """Whether to take the Pi's prompts: only when Claude Code was started to take them from here (its
-    command line names server:gpi-media). Any other Claude Code session would let them drop.
-    GPI_MEDIA_PROMPTS=1 or 0 says so outright."""
-    said = os.environ.get("GPI_MEDIA_PROMPTS", "").strip()
+    command line names server:pitato). Any other Claude Code session would let them drop.
+    PITATO_PROMPTS=1 or 0 says so outright."""
+    said = os.environ.get("PITATO_PROMPTS", "").strip()
     if said in ("0", "1"):
         return said == "1"
     lines = command_lines()
@@ -278,7 +295,7 @@ def hand_on(url, password, send, ready):
         except urllib.error.HTTPError as ex:
             pause = 60.0 if ex.code in (401, 404) else 10.0
             say("the Pi's web page has a password: run coder_hooks.py again with --password" if ex.code == 401
-                else f"the Pi answered with an error ({ex.code}): does it have the newest gpi-media?")
+                else f"the Pi answered with an error ({ex.code}): does it have the newest Pitato?")
         except (OSError, ValueError) as ex:
             pause = min(30.0, pause * 2 or 2.0)
             say(f"can't reach the Pi ({getattr(ex, 'reason', ex)}): trying again")
@@ -341,7 +358,7 @@ def channel(url, password):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Shows what Claude Code is doing on gpi-media's Bot, at work, "
+    ap = argparse.ArgumentParser(description="Shows what Claude Code is doing on Pitato's Bot, at work, "
                                              "and hands Claude Code the prompts you type there.")
     ap.add_argument("pi", nargs="?", help="your Pi's name or address, like gpi.local or 192.168.1.23")
     ap.add_argument("--password", default="", help="your Pi's web page password, if it has one")
@@ -353,7 +370,7 @@ def main():
     if not a.remove and not a.pi:
         ap.error("which Pi? Give its name or address, like gpi.local")
     if a.channel:
-        return channel(base_url(a.pi), a.password or os.environ.get("GPI_MEDIA_PASSWORD", ""))
+        return channel(base_url(a.pi), a.password or os.environ.get("PITATO_PASSWORD", ""))
     path = settings_file(a.here)
     try:
         settings = load(path)
@@ -366,9 +383,9 @@ def main():
         else:
             settings.pop("hooks", None)
         save(path, settings)
-        print(f"Took gpi-media's hooks out of {path}.")
+        print(f"Took Pitato's hooks out of {path}.")
         if remove_channel(a.here):
-            print("Took the gpi-media channel out of Claude Code.")
+            print("Took the Pitato channel out of Claude Code.")
         return
     url = base_url(a.pi)
     ok, why = say_hello(url, a.password)
@@ -380,7 +397,7 @@ def main():
         hooks.setdefault(event, []).append(dict({"matcher": which}, **group) if which else group)
     settings["hooks"] = hooks
     save(path, settings)
-    print(f"Added gpi-media's hooks to {path}" + (" (with your password in them)." if a.password else "."))
+    print(f"Added Pitato's hooks to {path}" + (" (with your password in them)." if a.password else "."))
     print("Your Pi's bot waved hello: it's listening." if ok else
           f"Couldn't say hello just now: {why}. The hooks will work once it can be reached.")
     if os.name == "nt":
@@ -390,7 +407,7 @@ def main():
         return
     added, why = add_channel(url, a.password, a.here)
     if added:
-        print(f"Added the gpi-media channel to Claude Code. For prompts from the Pi, start Claude Code with:\n"
+        print(f"Added the Pitato channel to Claude Code. For prompts from the Pi, start Claude Code with:\n"
               f"    {START}\n(It asks you to confirm each time: channels are a research preview.)")
     else:
         print(f"Couldn't add the channel for prompts from the Pi: {why}")

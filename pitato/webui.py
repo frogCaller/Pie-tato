@@ -3,19 +3,21 @@
 webui.py - the Pi's screen and files, from any browser on your WiFi.
 
 Screen: what's on the Pi's screen right now, a remote for it, and cartoons, films, news, sports,
-radio and the apps to put on it (through gpi_keys.py, which listens on this Pi only).
+radio and the apps to put on it (through pitato.py, which listens on this Pi only).
 
-Files: drag files or whole folders onto the page and they land in ~/Music, ~/Videos, ~/Pictures
-or ~/Documents (picked by file type), ready for media mode, and media mode's settings files
+Files: drag files or whole folders onto the page and they land in ~/Music, ~/Videos, ~/Pictures,
+~/Documents or ~/Games (picked by file type), ready for media mode, and media mode's settings files
 (radio.txt, bot.txt...) in the static folder. The page also lists what's there, shows it on the
-screen, and downloads or deletes it.
+screen, and downloads or deletes it. Its Computers tab does the same for your other computers'
+files (pitato.py opens them, read-only: nothing on them can be changed or deleted from here).
 
-setup.sh installs it as the gpi-webui service, running as your user. Then open
+setup.sh installs it as the pitato-web service, running as your user. Then open
     http://<your Pi's name>.local:5432
 
 The page is templates/index.html, and its typeface is in static/fonts: the only part of the static
-folder handed out as it is. Your settings files go in the static folder of the gpi-media folder
-(setup.sh tells the service where that is; run by hand, it's the one next to this script).
+folder handed out as it is. Your settings files go in the static folder of the pitato folder
+(setup.sh tells the service where that is; run by hand, it's the one beside the folder this script
+is in).
 
 Optional, static/webui.txt:
     password = something       the page asks for it before showing anything
@@ -49,38 +51,45 @@ from flask import Flask, Response, abort, jsonify, request, send_file
 
 PORT = 5432
 HERE = os.path.dirname(os.path.abspath(__file__))
-HOME = os.path.expanduser("~")
-TOLD = os.environ.get("GPI_MEDIA_STATIC", "").strip()        # where setup.sh says the static folder is
-STATIC = os.path.abspath(TOLD or os.path.join(HERE, "static"))
-KNOWS = bool(TOLD) or os.path.isfile(os.path.join(HERE, "setup.sh"))   # told, or run from the folder
-PAGE = os.path.join(HERE, "templates", "index.html")
-FONTS_DIR = os.path.join(HERE, "static", "fonts")
-STATE_FILE = "/var/lib/gpi-keys/state.json"     # the handheld's settings (its accent colour)
+TOP = HERE if os.path.isdir(os.path.join(HERE, "templates")) else os.path.dirname(HERE)   # installed: the page
+HOME = os.path.expanduser("~")                            # beside this; in the pitato folder: one folder up
+TOLD = os.environ.get("PITATO_STATIC", "").strip()        # where setup.sh says the static folder is
+STATIC = os.path.abspath(TOLD or os.path.join(TOP, "static"))
+KNOWS = bool(TOLD) or os.path.isfile(os.path.join(TOP, "setup.sh"))   # told, or run from the folder
+PAGE = os.path.join(TOP, "templates", "index.html")
+FONTS_DIR = os.path.join(TOP, "static", "fonts")
+STATE_FILE = "/var/lib/pitato/state.json"     # the handheld's settings (its accent colour)
 SPARE = 64 << 20                                # room left on the card after an upload
 CHUNK = 1 << 20
 
 FOLDERS = {"music": "Music", "videos": "Videos", "pictures": "Pictures", "documents": "Documents",
-           "home": "", "settings": None}             # (settings: the static folder)
+           "games": "Games", "home": "", "computers": None, "settings": None}
+# (settings: the static folder; computers: your other computers' folders, as media mode opened them)
 LABELS = {"music": "Music", "videos": "Videos", "pictures": "Pictures", "documents": "Documents",
-          "home": "Home", "settings": "Settings"}
+          "games": "Games", "home": "Home", "computers": "Computers", "settings": "Settings"}
+NET_ROOT = "/run/pitato/computers"              # where media mode opens your other computers' folders (read-only)
 KINDS = {   # what goes where when the page picks for you
     "music": [".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".aac", ".wav", ".wma"],
     "videos": [".mp4", ".mkv", ".avi", ".mov", ".webm", ".m4v", ".mpg", ".mpeg"],
     "pictures": [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tif", ".tiff"],
     "documents": [".pdf", ".epub", ".txt", ".md", ".docx", ".doc", ".odt", ".rtf", ".xlsx", ".xls",
                   ".ods", ".csv", ".pptx", ".ppt", ".odp"],
+    "games": [".gb", ".gbc", ".gba", ".nes", ".sfc", ".smc", ".md", ".gen", ".smd", ".sms", ".gg", ".z64", ".n64",
+              ".v64", ".cue", ".bin", ".chd", ".pbp", ".m3u", ".iso", ".cso", ".nds"],
 }
-SETTINGS_FILES = ["radio.txt", "streams.txt", "streams.m3u", "crypto.txt", "camera.txt", "bot.txt",
-                  "homeassistant.txt", "plex.txt"]     # media mode's settings: these go in static/
-PRIVATE = {"webui.txt", "homeassistant.txt", "plex.txt"}    # a password and tokens: never shown
+SETTINGS_FILES = ["radio.txt", "streams.txt", "streams.m3u", "finance.txt", "crypto.txt", "camera.txt", "bot.txt",
+                  "homeassistant.txt", "plex.txt", "jellyfin.txt"]     # media mode's settings: these go in static/
+PRIVATE = {"webui.txt", "homeassistant.txt", "plex.txt", "jellyfin.txt"}    # passwords and tokens: never shown
 INLINE = set(KINDS["music"] + KINDS["videos"] + KINDS["pictures"] + [".pdf", ".txt", ".md"])
 ACCENTS = {"Blue": "#60aae4", "Teal": "#40c4b4", "Green": "#6ec878", "Purple": "#a082e6",
            "Pink": "#e878aa", "Red": "#ec6464", "Gold": "#e6be50", "White": "#e4e8ee"}
 BAD_CHARS = re.compile(r"[\x00-\x1f\x7f/\\]")
-CONTROL = ("127.0.0.1", 5480)                   # gpi_keys.py's media mode, on this Pi only
-CONTROL_KEY = "/run/gpi-keys/control-key"       # ...and the key it asks for (made at its start)
-PI_GET = {"state", "screen", "catalog", "channels", "radio", "icon", "cameras", "camframe", "friend", "friendpic"}
-PI_POST = {"press", "open", "play", "show", "player", "learn", "mode", "reset_pads", "camera", "friend"}
+CONTROL = ("127.0.0.1", 5480)                   # pitato.py's media mode, on this Pi only
+CONTROL_KEY = "/run/pitato/control-key"       # ...and the key it asks for (made at its start)
+PI_GET = {"state", "screen", "catalog", "channels", "radio", "icon", "cameras", "camframe", "friend", "friendpic",
+          "computers", "bluetooth"}
+PI_POST = {"press", "open", "play", "show", "player", "learn", "mode", "reset_pads", "pad_swap", "camera", "friend",
+           "computer", "bluetooth"}
 PI_ARGS = ("what", "genre", "q", "name", "size", "addr", "id")
 CODER = ("rest", "typing", "reading", "thinking", "talking", "done", "hello", "attention", "error",
          "shrug", "wake", "sleep")                     # the Bot's poses at work
@@ -90,7 +99,7 @@ CLIP_TURN = threading.Lock()                            # clips take turns (the 
 HOOK_MAX = 32 << 20                                     # bytes of a hook's report read (a big edit's is big)
 HOOK_READS = {"Read", "Grep", "Glob", "LS", "WebFetch", "WebSearch", "NotebookRead"}   # Claude Code's tools that read
 HOOK_HELPERS = {"Task", "Agent"}                        # ...and that hand work to a helper
-THUMBS = os.path.join(HOME, ".cache", "gpi-media", "thumbs")   # small copies of your pictures
+THUMBS = os.path.join(HOME, ".cache", "pitato", "thumbs")   # small copies of your pictures
 
 app = Flask(__name__, static_folder=None)     # static/ holds your settings: only its fonts go out
 
@@ -106,7 +115,7 @@ def settings():
     home folder, where it used to go, counts until setup.sh moves it). Unreadable when it can't
     tell whether there's a password."""
     if not KNOWS or not os.path.isdir(STATIC):
-        raise Unreadable("Run sudo bash setup.sh again from the gpi-media folder: the page can't "
+        raise Unreadable("Run sudo bash setup.sh again from the pitato folder: the page can't "
                          "find its static folder")
     cfg = {}
     for path in (os.path.join(STATIC, "webui.txt"), os.path.join(HOME, "webui.txt")):
@@ -169,6 +178,8 @@ def root_of(key):
         abort(404)
     if key == "settings":
         return os.path.realpath(STATIC)                # (setup.sh makes it; the page never does)
+    if key == "computers":
+        return os.path.realpath(NET_ROOT)              # (media mode makes it, as root)
     root = os.path.join(HOME, FOLDERS[key]) if FOLDERS[key] else HOME
     try:
         os.makedirs(root, exist_ok=True)
@@ -181,21 +192,23 @@ def inside(root, path):
     return path == root or path.startswith(root + os.sep)
 
 
-def in_gpi_media(path):
-    """True inside the gpi-media folder (the static folder's), unless that's your home folder
+def in_app_folder(path):
+    """True inside the pitato folder (the static folder's), unless that's your home folder
     itself: the page leaves it as it is. setup.sh runs from there, and settings go in through
     Settings."""
     folder = os.path.realpath(os.path.dirname(STATIC))
     return folder != os.path.realpath(HOME) and inside(folder, os.path.realpath(path))
 
 
-def holds_gpi_media(path):
-    """True for a folder with the gpi-media folder in it, somewhere: it can't be deleted."""
+def holds_app_folder(path):
+    """True for a folder with the pitato folder in it, somewhere: it can't be deleted."""
     return inside(os.path.realpath(path), os.path.realpath(STATIC))
 
 
 def shown_path(key):
-    """A folder as the page shows it: ~/Music, ~/gpi-media/static..."""
+    """A folder as the page shows it: ~/Music, ~/pitato/static..."""
+    if key == "computers":
+        return "Other computers"
     if key != "settings":
         return "~/" + FOLDERS[key] if FOLDERS[key] else "~"
     real, home = os.path.realpath(STATIC), os.path.realpath(HOME)
@@ -263,7 +276,8 @@ def host_ok():
     return host in names
 
 
-PAGE_ONLY = {"state", "catalog", "channels", "radio", "cameras", "friend"}   # (pictures load without it)
+PAGE_ONLY = {"state", "catalog", "channels", "radio", "cameras", "friend", "computers",
+             "bluetooth"}                         # (pictures load without it)
 
 
 def coder_path():
@@ -285,7 +299,7 @@ def check_password():
     if request.path != "/" and request.headers.get("Sec-Fetch-Site") == "cross-site":
         return Response("Not from another site", 403)
     if (request.method in ("GET", "HEAD") and request.path.startswith("/api/pi/")
-            and request.path[8:] in PAGE_ONLY and request.headers.get("X-Gpi-Page") != "1"):
+            and request.path[8:] in PAGE_ONLY and request.headers.get("X-Pitato-Page") != "1"):
         return Response("Only the page asks for that", 403)
     pw = settings().get("password")
     if not pw or request.path == "/coder_hooks.py":    # (that script has nothing private in it)
@@ -299,7 +313,7 @@ def check_password():
         return None
     if coder_path():
         return jsonify(ok=False, error="The web page's password is needed"), 401
-    return Response("Password needed", 401, {"WWW-Authenticate": 'Basic realm="gpi-media"'})
+    return Response("Password needed", 401, {"WWW-Authenticate": 'Basic realm="Pitato"'})
 
 
 @app.after_request
@@ -337,7 +351,7 @@ def info():
     for key in FOLDERS:
         root = root_of(key)
         folders.append({"key": key, "label": LABELS[key], "path": shown_path(key),
-                        "files": None if key in ("home", "settings") else count_files(root)})
+                        "files": None if key in ("home", "settings", "computers") else count_files(root)})
     return jsonify(name=socket.gethostname(), accent=accent(), folders=folders, kinds=KINDS,
                    settingsFiles=SETTINGS_FILES, disk={"free": du.free, "total": du.total, "spare": SPARE})
 
@@ -345,6 +359,11 @@ def info():
 @app.get("/api/list")
 def list_folder():
     key = request.args.get("folder", "music")
+    if key == "computers":
+        parts = clean_parts(request.args.get("path", ""))
+        listed = list_computers(parts)
+        if listed is not None:
+            return listed
     root, full, parts = locate(key, request.args.get("path", ""))
     if not os.path.isdir(full):
         abort(404)
@@ -363,7 +382,11 @@ def list_folder():
                 continue
             entry = {"name": e.name, "dir": is_dir, "size": 0 if is_dir else st.st_size,
                      "mtime": int(st.st_mtime)}
-            if is_dir:
+            if key == "computers":
+                entry["locked"] = True                   # (read-only: nothing on them changes from here)
+                if is_dir:
+                    entry["items"] = None                # (no counting: each would be a trip to the computer)
+            elif is_dir:
                 try:
                     with os.scandir(e.path) as sub:
                         entry["items"] = sum(1 for x in sub if not x.name.startswith("."))
@@ -371,11 +394,60 @@ def list_folder():
                     entry["items"] = 0
                 # folders in your home folder (your projects) and the media folders stay put
                 entry["locked"] = key == "home" or os.path.realpath(e.path) in keep
-            elif key != "settings" and in_gpi_media(e.path):
-                entry["locked"] = True                   # the gpi-media folder stays as it is
+            elif key != "settings" and in_app_folder(e.path):
+                entry["locked"] = True                   # the pitato folder stays as it is
             entries.append(entry)
     entries.sort(key=lambda x: (not x["dir"], natural(x["name"])))
     return jsonify(folder=key, path="/".join(parts), entries=entries)
+
+
+# ---- your other computers: media mode opens them (as root), the page reads them ------------------
+def from_pi(method, path, body=None, timeout=60):
+    """Media mode's answer as (JSON, None), or (None, an error response)."""
+    got = ask_pi(method, path, body, timeout=timeout)
+    if got is None or got[0] == 401:
+        return None, (jsonify(error="The Pi's screen isn't answering. Is Pitato running?"), 503)
+    try:
+        data = json.loads(got[1] or b"{}")
+    except ValueError:
+        data = {}
+    if got[0] != 200 or not isinstance(data, dict) or data.get("error"):
+        return None, (jsonify(error=(data or {}).get("error") or "The Pi said no", kind=(data or {}).get("kind")), 502)
+    return data, None
+
+
+def open_computer(parts):
+    """The folder a path on another computer is in, opened by media mode if it isn't (a restart closes them):
+    None, or an error response."""
+    if not parts:
+        return None
+    _, bad = from_pi("POST", "/computer", {"do": "open", "path": "/".join(parts)})
+    return bad
+
+
+def list_computers(parts):
+    """The Computers tab's own lists: the computers, and a computer's shared folders. None: a folder on one,
+    opened now, for the usual listing."""
+    if not parts:
+        data, bad = from_pi("GET", "/computers", timeout=15)
+        if bad:
+            return bad
+        entries = [{"name": c["key"], "label": c["addr"], "dir": True, "computer": True, "how": c["how"],
+                    "user": c.get("user", ""), "start": c.get("start") or c["key"], "items": None, "size": 0,
+                    "mtime": 0, "locked": True} for c in data.get("computers", [])]
+        return jsonify(folder="computers", path="", entries=entries)
+    if len(parts) == 1:
+        data, bad = from_pi("GET", "/computers?" + urllib.parse.urlencode({"addr": parts[0]}))
+        if bad:
+            return bad
+        if data.get("how") == "smb":
+            entries = [{"name": sh, "dir": True, "share": True, "items": None, "size": 0, "mtime": 0, "locked": True}
+                       for sh in data.get("shares", [])]
+            return jsonify(folder="computers", path=parts[0], entries=entries, label=data.get("addr"))
+    bad = open_computer(parts)
+    if bad:
+        return bad
+    return None
 
 
 @app.get("/api/recent")
@@ -405,9 +477,14 @@ def recent():
                                                  for t, p, z in found[:n]])
 
 
+READ_ONLY = "Your other computers' files can't be changed from here"
+
+
 @app.get("/api/exists")
 def exists():
     key = request.args.get("folder", "")
+    if key == "computers":
+        return jsonify(error=READ_ONLY), 403
     root, full, parts = locate(key, request.args.get("path", ""), must_exist=False)
     return jsonify(exists=bool(parts) and os.path.lexists(full))
 
@@ -416,6 +493,8 @@ def exists():
 def upload():
     """The file is the request body, written straight to the card (no copy in /tmp)."""
     key = request.args.get("folder", "")
+    if key == "computers":
+        return jsonify(error=READ_ONLY), 403
     root = root_of(key)
     parts = clean_parts(request.args.get("path", ""))
     if not parts:
@@ -429,8 +508,8 @@ def upload():
     folder = os.path.realpath(os.path.join(root, *parts[:-1])) if len(parts) > 1 else root
     if not inside(root, folder):
         return jsonify(error="Not allowed there"), 403
-    if key != "settings" and in_gpi_media(os.path.join(folder, parts[-1])):
-        return jsonify(error="The gpi-media folder stays as it is. Settings files go in Settings."), 403
+    if key != "settings" and in_app_folder(os.path.join(folder, parts[-1])):
+        return jsonify(error="The pitato folder stays as it is. Settings files go in Settings."), 403
     size = request.content_length
     if size is not None and size > shutil.disk_usage(root).free - SPARE:
         return jsonify(error="Not enough space on the Pi"), 507
@@ -485,9 +564,11 @@ def delete():
         abort(415)
     data = request.get_json(silent=True) or {}
     key = data.get("folder", "")
+    if key == "computers":
+        return jsonify(error=READ_ONLY), 403
     root, full, parts = locate(key, data.get("path", ""))
-    if not parts or full == root or full in protected() or holds_gpi_media(full) \
-            or (key != "settings" and in_gpi_media(full)):
+    if not parts or full == root or full in protected() or holds_app_folder(full) \
+            or (key != "settings" and in_app_folder(full)):
         return jsonify(error="That one stays"), 403
     if PASSWORD_NAME.match(os.path.basename(full).lower()):
         return jsonify(error="Change webui.txt on the Pi itself"), 403
@@ -508,6 +589,10 @@ def delete():
 @app.get("/api/file")
 def get_file():
     key = request.args.get("folder", "")
+    if key == "computers":
+        bad = open_computer(clean_parts(request.args.get("path", "")))
+        if bad:
+            return bad
     root, full, parts = locate(key, request.args.get("path", ""))
     if not parts or os.path.isdir(full):
         abort(404)
@@ -537,7 +622,7 @@ def ask_pi(method, path, body=None, timeout=10, ctype="application/json"):
     conn = http.client.HTTPConnection(*CONTROL, timeout=timeout)
     try:
         data = body if body is None or isinstance(body, bytes) else json.dumps(body).encode()
-        headers = {"X-Gpi-Key": control_key()}
+        headers = {"X-Pitato-Key": control_key()}
         if data:
             headers["Content-Type"] = ctype
         conn.request(method, path, body=data, headers=headers)
@@ -551,7 +636,7 @@ def ask_pi(method, path, body=None, timeout=10, ctype="application/json"):
 
 def pi_reply(got, cache="no-store"):
     if got is None or got[0] == 401:
-        return jsonify(error="The Pi's screen isn't answering. Is gpi-keys running?"), 503
+        return jsonify(error="The Pi's screen isn't answering. Is Pitato running?"), 503
     status, data, ctype = got
     resp = Response(data, status, content_type=ctype)
     resp.headers["Cache-Control"] = cache if status == 200 else "no-store"
@@ -564,7 +649,7 @@ def pi_get(what):
         abort(404)
     args = {k: request.args[k][:200] for k in PI_ARGS if k in request.args}
     path = "/" + what + ("?" + urllib.parse.urlencode(args) if args else "")
-    slow = what in ("channels", "radio", "camframe")    # these ask the internet, or a camera
+    slow = what in ("channels", "radio", "camframe", "computers")   # these ask the internet, a camera or a computer
     cache = "private, max-age=86400" if what in ("icon", "friendpic") else "no-store"   # (these never change)
     return pi_reply(ask_pi("GET", path, timeout=40 if slow else 10), cache=cache)
 
@@ -579,6 +664,10 @@ def pi_post(what):
     if not isinstance(data, dict):
         return jsonify(error="Bad request"), 400
     if what == "show":                              # a file from the Files list: where it really is
+        if data.get("folder") == "computers":
+            bad = open_computer(clean_parts(data.get("path", "")))
+            if bad:
+                return bad
         root, full, parts = locate(data.get("folder", ""), data.get("path", ""))
         if private(os.path.basename(full)):
             abort(403)
@@ -599,7 +688,7 @@ def pi_post(what):
 def coder_reply(got):
     """Media mode's answer, passed on."""
     if got is None or got[0] == 401:
-        return jsonify(ok=False, error="gpi-keys isn't answering"), 503
+        return jsonify(ok=False, error="Pitato isn't answering"), 503
     status, data, _ = got
     return Response(data, status, content_type="application/json")
 
@@ -768,6 +857,10 @@ def make_thumb(full, out):
 
 @app.get("/api/thumb")
 def thumb():
+    if request.args.get("folder") == "computers":
+        bad = open_computer(clean_parts(request.args.get("path", "")))
+        if bad:
+            abort(404)
     root, full, parts = locate(request.args.get("folder", ""), request.args.get("path", ""))
     if (not parts or os.path.isdir(full) or private(os.path.basename(full))
             or os.path.splitext(full)[1].lower() not in KINDS["pictures"]):
