@@ -12,6 +12,28 @@ any Raspberry Pi with a TV or monitor on HDMI too.
   <img src="docs/matrix.gif" height="260">
 </p>
 
+## Install
+
+On Raspberry Pi OS Lite (Bookworm):
+
+```
+git clone https://github.com/frogCaller/pitato.git
+cd pitato
+sudo bash setup.sh
+```
+
+It asks if the Pi is in a GPi Case 2W. If it is, it sets up the case's screen, speaker and
+power switch: turn the SAFE SHUTDOWN switch behind the cartridge to ON, and switching the case
+off shuts the Pi down safely. If not, it leaves HDMI as it is.
+Then it installs `pitato.py` and the web page as services, sets the Pi to sign you in by
+itself at start-up (`sudo bash setup.sh --login` keeps the password prompt), asks about the
+optional parts, and reboots. The first time takes a while (an hour or more on a Pi 4, as it builds
+the game emulators), so leave the Pi on until it says All set.
+
+Keep the `pitato` folder where it is: your settings live in its `static` folder. To update
+later, run `git pull` and `sudo bash setup.sh` again. Your settings stay as they are. If you set it
+up when it was called gpi-media, do the same, and it moves everything across to the new name.
+
 It starts on a home screen of apps:
 
 - **Home Assistant**: a remote for your TVs, and your lights
@@ -62,28 +84,6 @@ pair Bluetooth devices.
 **Files** takes files or whole folders dropped on it. Music, videos, pictures, documents and games
 each go to their own folder, and settings files like `radio.txt` go to Settings. Each file can
 be shown on the Pi's screen, downloaded or deleted. The Computers tab has your other computers' files.
-
-## Install
-
-On Raspberry Pi OS Lite (Bookworm):
-
-```
-git clone https://github.com/frogCaller/pitato.git
-cd pitato
-sudo bash setup.sh
-```
-
-It asks if the Pi is in a GPi Case 2W. If it is, it sets up the case's screen, speaker and
-power switch: turn the SAFE SHUTDOWN switch behind the cartridge to ON, and switching the case
-off shuts the Pi down safely. If not, it leaves HDMI as it is.
-Then it installs `pitato.py` and the web page as services, sets the Pi to sign you in by
-itself at start-up (`sudo bash setup.sh --login` keeps the password prompt), asks about the
-optional parts, and reboots. The first time takes a while (an hour or more on a Pi 4, as it builds
-the game emulators), so leave the Pi on until it says All set.
-
-Keep the `pitato` folder where it is: your settings live in its `static` folder. To update
-later, run `git pull` and `sudo bash setup.sh` again. Your settings stay as they are. If you set it
-up when it was called gpi-media, do the same, and it moves everything across to the new name.
 
 ## Cameras
 
