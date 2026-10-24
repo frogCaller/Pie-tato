@@ -209,6 +209,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.lights = HomeLights()   # the Lights page, through the same Home Assistant
         self.pihole = Pihole()       # the Pi-hole page (in the Home Assistant tab), from Pi-hole itself
         self.pihole_done = None      # ...what it said as it was added, for the next step
+        self.pihole_panel = 0        # ...its dashboard's list (◀▶): top blocked, top allowed, top clients, query types
         self.lights_scenes = False   # ...showing your scenes
         self.lights_hit = 0.0        # ...when an arrow last dimmed one
         self.home_sel = 0            # the icon picked on the home screen

@@ -38,8 +38,8 @@ everything across to the new name).
 
 It starts on a home screen of apps:
 
-- **Home Assistant**: a remote for your TVs, your lights, and your Pi-hole's stats (from the Pi-hole itself:
-  add it by its address)
+- **Home Assistant**: a remote for your TVs, your lights, and a dashboard of your Pi-hole's stats (from the
+  Pi-hole itself: add it by its address)
 - **TV**: Plex (Continue watching, Watchlist, Live TV with news and sports), Jellyfin, about 250 old
   cartoons and 150 old films from the Internet Archive, and your own streams
 - **Music**, **Radio**, **Photos** (filters, delete), **Videos** (picks up where you left off)

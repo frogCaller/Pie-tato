@@ -35,10 +35,12 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
                   between them
     Lights      - your lights, smart plugs and scenes: A switches one on or off, left and
                   right dim it, and All lights off
-    Pi-hole     - your Pi-hole's numbers, from the Pi-hole itself (no Home Assistant needed):
-                  A adds it by its address and signs in once (static/pihole.txt); then total
-                  queries, queries blocked and the percentage, domains on its lists, clients,
-                  and whether it's blocking. Pi-hole 6, or 5
+    Pi-hole     - your Pi-hole's dashboard, from the Pi-hole itself (no Home Assistant needed):
+                  A adds it by its address and signs in once (static/pihole.txt); then whether
+                  it's blocking, its total queries, queries blocked and the percentage, domains
+                  on its lists, the last 24 hours an hour a column (allowed and blocked), and
+                  below, ◀▶: top blocked and allowed domains, top clients, query types. Y (twice)
+                  forgets it. Pi-hole 6, or 5
   TV          - one menu for:
     Plex        - your Plex movies and shows, Continue watching, your Watchlist,
                   and Plex's free Live TV, with search; sign in once with a code at plex.tv/link

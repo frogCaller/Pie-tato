@@ -462,6 +462,8 @@ class DrawScreen:
             return self.render_settings()
         if ttype == "weather":
             return self.render_weather()
+        if ttype == "pihole" and self.pihole.configured:
+            return self.render_pihole()
         if ttype == "plex" and not self.plex.ready:
             return self.render_plex_signin()
         if ttype == "jellyfin" and not self.jellyfin.ready:
@@ -492,9 +494,6 @@ class DrawScreen:
             if ttype == "channels":
                 d.text((W - 20, self.LIST_TOP + 10), self.channels_note(), font=F["small"],
                        fill=MUTED, anchor="rm")
-            elif ttype == "pihole" and self.pihole.configured:     # (which one)
-                d.text((W - 20, self.LIST_TOP + 10), self.fit(d, self.pihole.where, F["small"], W // 2),
-                       font=F["small"], fill=MUTED, anchor="rm")
             d.text((20, self.LIST_TOP + 10), crumbs, font=F["small"], fill=MUTED, anchor="lm")
         elif ttype == "radio" and self.radio_stack:
             crumbs = "Radio  ›  " + self.radio_stack[-1]["title"]
@@ -674,6 +673,13 @@ class DrawScreen:
                             ("B", "Back")]),
                 ("", [("", "A plug: ◀▶ turns it"), ("", "off and on"), ("", "A scene: A sets it"),
                       ("", "All lights off: A")]),
+            ]
+        elif self.help_from == "list" and self.tab_type() == "pihole":
+            cols = [
+                ("Pi-hole", [("◀▶", "Top lists"), ("Y", "Forget (twice)"), ("A", "Sign in / try again"),
+                             ("L R", "Switch tab"), ("B", "Back")]),
+                ("The chart", [("", "The last 24 hours"), ("", "An hour a column"), ("", "Blue: allowed"),
+                               ("", "Orange: blocked")]),
             ]
         elif self.help_from == "list" and LIBRARY[self.tab]["name"] == "Simulator":
             cols = [

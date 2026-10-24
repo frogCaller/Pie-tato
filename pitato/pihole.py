@@ -14,6 +14,8 @@ import urllib.request
 from .config import read_config, settings_file, write_setting
 
 PIHOLE_POLL = 10         # seconds between asking Pi-hole for its numbers, while its page is open
+PIHOLE_MORE = 30         # ...and for its last 24 hours and its top lists (they change more slowly)
+PIHOLE_TOP = 5           # how many of each top list
 PIHOLE_FILE = "pihole.txt"
 
 
@@ -76,6 +78,30 @@ def v5_token(password):
     return hashlib.sha256(hashlib.sha256(password.encode()).hexdigest().encode()).hexdigest()
 
 
+def hourly(buckets, now=None):
+    """Pi-hole's ten-minute counts [(start, total, blocked)] as the last 24 hours, an hour at a time (hours of your
+    clock, the last the one under way): [(the hour's start, allowed, blocked)]."""
+    now = time.time() if now is None else now
+
+    def hour_of(t):
+        lt = time.localtime(t)
+        return int(t) - lt.tm_min * 60 - lt.tm_sec
+
+    this = hour_of(now)
+    hours = [this - 3600 * k for k in range(23, -1, -1)]
+    sums = {h: [0, 0] for h in hours}
+    for t, total, blocked in buckets:
+        try:
+            t, total, blocked = int(float(t)), max(0, int(float(total or 0))), max(0, int(float(blocked or 0)))
+        except (TypeError, ValueError):
+            continue
+        h = hour_of(t)
+        if h in sums:
+            sums[h][0] += max(0, total - blocked)
+            sums[h][1] += min(blocked, total) if total else blocked
+    return [(h, sums[h][0], sums[h][1]) for h in hours]
+
+
 def count(n):
     try:
         return f"{round(float(n)):,}"
@@ -99,8 +125,9 @@ def forget_pihole():
 
 class Pihole:
     """Your Pi-hole's numbers, from Pi-hole itself: its queries today, how many it blocked and the percentage, the
-    domains on its lists, its clients, and whether it's blocking; asked for every few seconds while its page is
-    open, on a thread of its own. pihole.txt (written when you sign in on its page):
+    domains on its lists, its clients, and whether it's blocking; and for its dashboard, its last 24 hours, its top
+    blocked and allowed domains, its top clients and its kinds of query. Asked for every few seconds while its page
+    is open, on a thread of its own. pihole.txt (written when you sign in on its page):
         address = http://192.168.1.2
         password = (its password, or an app password; none if it has none)
     """
@@ -111,6 +138,8 @@ class Pihole:
         self.sid = None              # Pi-hole 6's session, while it lasts
         self.version = None          # 6 or 5, once it's answered
         self.rows = []               # [(key, label, value, worry)]
+        self.more = {}               # the dashboard's: "hours" [(start, allowed, blocked)], "blocked", "allowed" and
+        self.more_at = 0.0           # "clients" [(name, count)], "types" [(kind, count)]; when to ask for them again
         self.error = None            # what's wrong, in a few words
         self.denied = False          # ...the password, which signing in again puts right
         self.found = False
@@ -129,6 +158,7 @@ class Pihole:
             self.url, self.password = key
             self.sid = self.version = None
             self.rows, self.error, self.denied, self.found = [], None, False, False
+            self.more, self.more_at = {}, 0.0
 
     @property
     def configured(self):
@@ -263,9 +293,67 @@ class Pihole:
                 ("cached", "Answered from cache", count(cached), False),
                 ("forwarded", "Forwarded", count(forwarded), False)]
 
+    def extras(self):
+        """The dashboard's: the last 24 hours, an hour at a time, and the top lists. What Pi-hole won't say is left
+        out (each on its own: the numbers above are what matter)."""
+        more = {}
+
+        def tried(what):
+            try:
+                return what()
+            except (Denied, TwoFactor, Busy):
+                raise
+            except Exception:
+                return None
+
+        n = PIHOLE_TOP
+        if self.version == 6:
+            h = tried(lambda: self.get6("/api/history").get("history"))
+            if isinstance(h, list):
+                more["hours"] = hourly([(x.get("timestamp"), x.get("total"), x.get("blocked"))
+                                        for x in h if isinstance(x, dict)])
+            for key, path in (("blocked", f"/api/stats/top_domains?count={n}&blocked=true"),
+                              ("allowed", f"/api/stats/top_domains?count={n}")):
+                got = tried(lambda: self.get6(path).get("domains"))
+                if isinstance(got, list):
+                    more[key] = [(str(x.get("domain") or ""), x.get("count") or 0) for x in got if isinstance(x, dict)]
+            got = tried(lambda: self.get6(f"/api/stats/top_clients?count={n}").get("clients"))
+            if isinstance(got, list):
+                more["clients"] = [(str(x.get("name") or x.get("ip") or ""), x.get("count") or 0)
+                                   for x in got if isinstance(x, dict)]
+            got = tried(lambda: self.get6("/api/stats/query_types").get("types"))
+            if isinstance(got, dict):
+                more["types"] = [(str(k), v) for k, v in got.items()]
+        else:
+            auth = f"&auth={v5_token(self.password)}" if self.password else ""
+
+            def ask5(what):
+                status, out = self.ask("GET", "/admin/api.php?" + what + auth)
+                return out if status == 200 and isinstance(out, dict) else {}
+
+            o = tried(lambda: ask5("overTimeData10mins"))
+            if o:
+                total, ads = o.get("domains_over_time") or {}, o.get("ads_over_time") or {}
+                if isinstance(total, dict) and isinstance(ads, dict):
+                    more["hours"] = hourly([(t, total.get(t), ads.get(t)) for t in total])
+            t = tried(lambda: ask5(f"topItems={n}")) or {}
+            for key, part in (("blocked", "top_ads"), ("allowed", "top_queries")):
+                if isinstance(t.get(part), dict):
+                    more[key] = list(t[part].items())[:n]
+            c = tried(lambda: ask5(f"topClients={n}")) or {}
+            if isinstance(c.get("top_sources"), dict):        # ("name|ip": count)
+                more["clients"] = [(k.split("|")[0] or k.split("|")[-1], v) for k, v in c["top_sources"].items()][:n]
+            q = tried(lambda: ask5("getQueryTypes")) or {}
+            if isinstance(q.get("querytypes"), dict):         # ("A (IPv4)": its percentage)
+                more["types"] = [(k.split(" ")[0], v) for k, v in q["querytypes"].items()]
+        return more
+
     def refresh(self):
         try:
             rows = self.numbers()
+            if time.monotonic() >= self.more_at:
+                self.more = self.extras()
+                self.more_at = time.monotonic() + PIHOLE_MORE
             self.rows, self.found, self.error, self.denied = rows, True, None, False
         except Denied:
             self.rows, self.error, self.denied = [], "wants its password", True
