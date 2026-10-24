@@ -70,7 +70,7 @@ On Raspberry Pi OS Lite (Bookworm):
 ```
 git clone https://github.com/frogCaller/pitato.git
 cd pitato
-sudo ./setup.sh
+sudo bash setup.sh
 ```
 
 It asks if the Pi is in a GPi Case 2W. If it is, it sets up the case's screen, speaker and
