@@ -82,6 +82,8 @@ class HomeScreen:
             self.remote_more = None
         elif ttype == "lights":
             self.lights_close()
+        elif ttype == "pihole":
+            self.pihole_close()
         self.confirm = (None, 0.0)
         self.picking = None
         self.friend_more = None

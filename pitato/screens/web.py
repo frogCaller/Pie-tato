@@ -33,6 +33,8 @@ class WebScreen:
         if p is not None:
             names.append(LIBRARY[p]["name"])
         names.append(LIBRARY[self.tab]["name"])
+        if self.prog is not None:
+            names.append(self.prog_name)
         stack = self.chan_stack.get(self.tab)
         if stack:
             names.append(stack[-1]["title"])
@@ -206,12 +208,17 @@ class WebScreen:
             self.close_keyboard(False)
         if self.view in ("photo", "pdf", "text", "wait"):
             self.close_viewer()
+        self.prog_stop()                               # (the Simulator's cmatrix or hollywood: it stops)
         if self.proc_owns_screen() or self.game is not None:
             self.stop()                                # (a video, or a game: kept for next time)
         return True
 
     def web_tab(self, name):
         i = next((k for k, t in enumerate(LIBRARY) if t["name"] == name), None)
+        if i is not None and LIBRARY[i]["type"] == "prog":        # (no page of its own: the Simulator, and it)
+            self.web_tab(LIBRARY[i]["parent"])
+            self.prog_start(LIBRARY[i]["prog"])
+            return i
         if i is not None:
             self.go_home()
             self.tab, self.view = i, "list"

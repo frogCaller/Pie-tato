@@ -67,7 +67,7 @@ def home_layout(n, cols):
 
 
 HOME_ICONS = {    # tab name -> (its colour: its tile's tint, a line about it)
-    "Home Assistant": ((92, 128, 184), "Your TV remote and lights"),
+    "Home Assistant": ((92, 128, 184), "Your TV remote, lights and Pi-hole"),
     "TV": ((70, 122, 204), "Plex, Jellyfin, cartoons, films, news, sports, streams"),
     "Music": ((186, 104, 160), "Your music in ~/Music"),
     "Radio": ((132, 108, 214), "Internet radio"),

@@ -278,6 +278,13 @@ step "Installing packages"
 apt-get update
 apt-get install -y python3-evdev python3-pil python3-numpy fonts-dejavu-core \
   mplayer poppler-utils iw evtest device-tree-compiler python3-flask alsa-utils ffmpeg bluez
+# the Simulator's cmatrix and hollywood: Linux's own. hollywood with what its panes show, but not atop or plocate,
+# which would keep running in the background
+apt-get install -y cmatrix || echo "(Couldn't install cmatrix: the Simulator's cmatrix won't start.)"
+apt-get install -y --no-install-recommends hollywood \
+  || echo "(Couldn't install hollywood: the Simulator's hollywood won't start.)"
+apt-get install -y --no-install-recommends apg bmon bsdextrautils ccze htop jp2a moreutils speedometer tree \
+  || echo "(Couldn't install some of what hollywood's panes show: it shows the rest.)"
 # Files > Other computers: Windows and Mac shared folders (cifs-utils, smbclient, and nmblookup in samba-common-bin
 # for a PC's own name), Linux computers over SSH (sshfs). (Without questions: samba-common asks one about WINS, and
 # the answer it'd take is No.)
@@ -752,81 +759,26 @@ RADIO
 fi
 
 # --------------------------------------------------------------------------
-step "Camera tab (optional)"
-if grep -qE '^\s*(url|ip|camera)\s*=' "$STATIC/camera.txt" 2>/dev/null \
-   && ! grep -q 'Tail Air' "$STATIC/camera.txt"; then
-  echo "Keeping your existing $STATIC/camera.txt"
-elif [ "$UPDATE" = yes ]; then
-  echo "No cameras yet: add them on the Camera tab."
-else
-  echo "The Camera tab shows the cameras on your other Pis (set one up with  sudo bash setup.sh --camera )"
-  echo "or any camera link. You can also add them later on the Camera tab."
-  read -r -p "A camera's address, e.g. 192.168.1.50 (blank to skip): " cam_url
-  if [ -n "$cam_url" ]; then
-    cat > "$STATIC/camera.txt" <<CAM
-# Cameras for the Camera tab, one per line:   camera = address   (a name after it if you like)
-# A Pi running Pitato's camera server (sudo bash setup.sh --camera),
-# or any MJPEG or JPEG camera link.
-camera = $cam_url
-CAM
-    chown "$USER_NAME:$USER_NAME" "$STATIC/camera.txt"
-  fi
-fi
-
-# --------------------------------------------------------------------------
-step "Finance tab"
+# the Finance tab's stocks and coins to start with (Y on the tab adds more), quietly; an old crypto.txt (the Crypto
+# tab's, from before it was Finance) moved across. No cameras: they're added later, on the Camera tab.
 FIN_HEAD="# Finance: stocks by their tickers, as on finance.yahoo.com (AAPL, AMZN, TSLA), and coins by their
 # CoinGecko ids, as in coingecko.com/en/coins/bitcoin. Y on the Finance tab looks them up and adds
 # them, or removes them."
-if [ -f "$STATIC/finance.txt" ]; then
-  echo "Keeping your existing $STATIC/finance.txt"
-elif [ -f "$STATIC/crypto.txt" ]; then                   # (the Crypto tab's, from before it was Finance)
-  echo "The Crypto tab is Finance now, with stocks too: your coins have moved from crypto.txt to finance.txt."
-  { echo "$FIN_HEAD"
-    grep -qiE '^[[:space:]]*stocks[[:space:]]*=' "$STATIC/crypto.txt" || echo "stocks = AAPL, AMZN, TSLA"
-    grep -vE '^[[:space:]]*#' "$STATIC/crypto.txt" || true
-  } > "$STATIC/finance.txt"
-  chown "$USER_NAME:$USER_NAME" "$STATIC/finance.txt"
-  rm -f "$STATIC/crypto.txt"
-else
-  echo "The Finance tab shows Apple, Amazon and Tesla (from Yahoo Finance), and Bitcoin, Ethereum and"
-  echo "Dogecoin (from CoinGecko). Y on it looks up more to add."
-  cat > "$STATIC/finance.txt" <<FINANCE
+if [ ! -f "$STATIC/finance.txt" ]; then
+  if [ -f "$STATIC/crypto.txt" ]; then
+    { echo "$FIN_HEAD"
+      grep -qiE '^[[:space:]]*stocks[[:space:]]*=' "$STATIC/crypto.txt" || echo "stocks = AAPL, AMZN, TSLA"
+      grep -vE '^[[:space:]]*#' "$STATIC/crypto.txt" || true
+    } > "$STATIC/finance.txt"
+    chown "$USER_NAME:$USER_NAME" "$STATIC/finance.txt"
+    rm -f "$STATIC/crypto.txt"
+  else
+    cat > "$STATIC/finance.txt" <<FINANCE
 $FIN_HEAD
 stocks = AAPL, AMZN, TSLA
 coins = bitcoin, ethereum, dogecoin
 FINANCE
-  chown "$USER_NAME:$USER_NAME" "$STATIC/finance.txt"
-fi
-
-# --------------------------------------------------------------------------
-step "TV Remote through Home Assistant (optional)"
-if grep -qE '^\s*token\s*=\s*\S' "$STATIC/homeassistant.txt" 2>/dev/null; then
-  echo "Keeping your existing $STATIC/homeassistant.txt"
-elif [ "$UPDATE" = yes ]; then
-  echo "No Home Assistant yet: run  sudo bash setup.sh  to add it."
-else
-  echo "TV > TV Remote and TV > Lights work through Home Assistant."
-  echo "Make a token in Home Assistant: your profile > Security > Long-lived access tokens."
-  read -r -p "Home Assistant address, e.g. homeassistant.local:8123 (blank to skip): " ha_url
-  if [ -n "$ha_url" ]; then
-    read -r -s -p "Long-lived access token (hidden as you paste): " ha_token
-    echo
-    read -r -p "TV entity, e.g. media_player.living_room_tv (Enter to find it): " ha_tv
-    ( umask 077
-      cat > "$STATIC/homeassistant.txt" <<HA
-# TV Remote and Lights: your Home Assistant and a long-lived access token. Keep this file private.
-url = $ha_url
-token = $ha_token
-# Optional. Found by themselves when blank:
-tv = $ha_tv
-remote =
-# How the TV names its buttons: samsung, android, roku, apple or lg
-style =
-HA
-    )
-    chown "$USER_NAME:$USER_NAME" "$STATIC/homeassistant.txt"
-    chmod 600 "$STATIC/homeassistant.txt"
+    chown "$USER_NAME:$USER_NAME" "$STATIC/finance.txt"
   fi
 fi
 
@@ -861,6 +813,37 @@ else
   echo "(Couldn't install BlueALSA: sound won't play through Bluetooth headphones.)"
 fi
 echo "Pair Bluetooth controllers, keyboards, headphones and the rest in Settings > Bluetooth, or on the web page."
+
+# --------------------------------------------------------------------------
+step "TV Remote through Home Assistant (optional)"
+if grep -qE '^\s*token\s*=\s*\S' "$STATIC/homeassistant.txt" 2>/dev/null; then
+  echo "Keeping your existing $STATIC/homeassistant.txt"
+elif [ "$UPDATE" = yes ]; then
+  echo "No Home Assistant yet: run  sudo bash setup.sh  to add it."
+else
+  echo "The Home Assistant tab's TV Remote and Lights work through Home Assistant."
+  echo "Make a token in Home Assistant: your profile > Security > Long-lived access tokens."
+  read -r -p "Home Assistant address, e.g. homeassistant.local:8123 (blank to skip): " ha_url
+  if [ -n "$ha_url" ]; then
+    read -r -s -p "Long-lived access token (hidden as you paste): " ha_token
+    echo
+    read -r -p "TV entity, e.g. media_player.living_room_tv (Enter to find it): " ha_tv
+    ( umask 077
+      cat > "$STATIC/homeassistant.txt" <<HA
+# TV Remote and Lights: your Home Assistant and a long-lived access token. Keep this file private.
+url = $ha_url
+token = $ha_token
+# Optional. Found by themselves when blank:
+tv = $ha_tv
+remote =
+# How the TV names its buttons: samsung, android, roku, apple or lg
+style =
+HA
+    )
+    chown "$USER_NAME:$USER_NAME" "$STATIC/homeassistant.txt"
+    chmod 600 "$STATIC/homeassistant.txt"
+  fi
+fi
 
 # --------------------------------------------------------------------------
 # a camera server from before Pitato had its name: under the new one

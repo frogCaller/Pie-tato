@@ -38,7 +38,8 @@ everything across to the new name).
 
 It starts on a home screen of apps:
 
-- **Home Assistant**: a remote for your TVs, and your lights
+- **Home Assistant**: a remote for your TVs, your lights, and your Pi-hole's stats (from the Pi-hole itself:
+  add it by its address)
 - **TV**: Plex (Continue watching, Watchlist, Live TV with news and sports), Jellyfin, about 250 old
   cartoons and 150 old films from the Internet Archive, and your own streams
 - **Music**, **Radio**, **Photos** (filters, delete), **Videos** (picks up where you left off)
@@ -51,7 +52,8 @@ It starts on a home screen of apps:
   bell when it's done, and sends it prompts you type
 - **Simulator**: Rock Paper Scissors (pick a winner before the first capture), Game of Life, Orbits,
   Forest Fire and the Mandelbrot set, which takes you on dives (or press the d-pad to explore it,
-  A to zoom in and Y to zoom out). Press SELECT to watch one full screen
+  A to zoom in and Y to zoom out). Press SELECT to watch one full screen. It can also start cmatrix and
+  hollywood without a keyboard: in cmatrix, ◀▶ change its colour and ▲▼ its speed, and B stops either
 - **Games**: Snake (press X and a decision model on your bot's computer plays it for you), and your own
   Game Boy, Game Boy Advance, NES, SNES, Genesis, Master System, Game Gear and PlayStation games, and
   N64, PSP and DS games on a Pi 4 or 5. Two can play on two controllers
@@ -195,6 +197,7 @@ All optional, in the `static` folder. Git leaves them out, so they stay off GitH
 | `camera.txt` | `camera =` an address per line, a name after it if you like |
 | `bot.txt` | `server =`, `model =`, `eyes =` (a model that can see) and `voice =` (Settings > Bot writes these) |
 | `homeassistant.txt` | `url =` and `token =` (a long-lived access token). Your TVs and lights are found by themselves, and `lights =` picks which lights show |
+| `pihole.txt` | `address =` and `password =`: the Pi-hole page writes them when you sign in there |
 | `jellyfin.txt` | `server =` if your Jellyfin server isn't found by itself, and `user =` and `password =` if you'd rather not use Quick Connect |
 | `webui.txt` | `password =` if you want the web page to ask for one, `hosts =` other names you open it by |
 

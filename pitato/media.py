@@ -27,6 +27,7 @@ from .coder import AgentPrompts, Coder, CODER_FPS
 from .crypto import Crypto
 from .stocks import Stocks
 from .homeassistant import HomeAssistant, HomeLights
+from .pihole import Pihole
 from .plex import Plex, PLEX_TIMELINE_SECS
 from .jellyfin import Jellyfin
 from .sims import SIM_FPS, SIM_FPS_BIG
@@ -49,6 +50,7 @@ from .screens.radio import RadioScreen
 from .screens.finance import FinanceScreen
 from .screens.remote import RemoteScreen
 from .screens.lights import LightsScreen
+from .screens.pihole import PiholeScreen
 from .screens.camera import CameraScreen
 from .screens.bot import BotScreen
 from .screens.coder import CoderScreen
@@ -61,6 +63,7 @@ from .screens.controller import ControllerScreen
 from .screens.weather import WeatherScreen
 from .screens.web import WebScreen
 from .screens.computers import ComputersScreen, NET
+from .screens.progs import ProgScreen
 
 _SAVING = threading.Lock()     # (state.json written one at a time: the shrinker's and radio's threads save too)
 
@@ -69,7 +72,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             PhotoScreen, ReadingScreen, ChannelScreen, RadioScreen, FinanceScreen,
             RemoteScreen, LightsScreen, CameraScreen, BotScreen, CoderScreen, SimScreen,
             SnakeScreen, GameScreen, SettingsScreen, BluetoothScreen, ControllerScreen, WeatherScreen, WebScreen,
-            ComputersScreen):
+            ComputersScreen, ProgScreen, PiholeScreen):
     """Media mode: what the screen shows and what the buttons do there. Its state is all here; each
     app's buttons and drawing come from its part (pitato/screens/)."""
 
@@ -108,6 +111,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.fb = None
         self.ttyfd = None
         self.prev_vt = "1"
+        self.prog = self.prog_name = None   # the Simulator's cmatrix or hollywood, while it's on (its process)
+        self.cm_colour, self.cm_bold, self.cm_speed = 0, 0, 4
         self.prober = self.thumber = self.sysloop = None
         self.thumbs = {}            # path -> small PIL image (most recent ~300)
         self.cwd = home_dir()
@@ -202,6 +207,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.last_shot = None        # a picture the Camera tab just saved, to select in Photos
         self.hass = HomeAssistant()
         self.lights = HomeLights()   # the Lights page, through the same Home Assistant
+        self.pihole = Pihole()       # the Pi-hole page (in the Home Assistant tab), from Pi-hole itself
+        self.pihole_done = None      # ...what it said as it was added, for the next step
         self.lights_scenes = False   # ...showing your scenes
         self.lights_hit = 0.0        # ...when an arrow last dimmed one
         self.home_sel = 0            # the icon picked on the home screen
@@ -499,6 +506,12 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             if self.active and self.tab == i and self.view == "list":
                 self.lights.start()
             self.items[i] = self.lights_rows()
+        elif tab["type"] == "pihole":
+            self.pihole.load(tab["files"])
+            self.pihole.on_change = self.pihole_changed
+            if self.active and self.tab == i and self.view == "list":
+                self.pihole.start()
+            self.items[i] = self.pihole_rows()
         elif tab["type"] == "weather":
             self.weather.refresh(full=self.active and self.tab == i and self.view == "list")
             self.items[i] = []
@@ -551,6 +564,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.remote_more = None
         if self.tab_type() == "lights":
             self.lights_close()
+        if self.tab_type() == "pihole":
+            self.pihole_close()
         self.confirm = (None, 0.0)
         self.picking = None                            # (picking a picture: not any more)
         self.friend_more = None
@@ -643,8 +658,9 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
 
     # -- mode ----------------------------------------------------------------
     def proc_owns_screen(self):
-        """A video, or a game, is drawing on the screen: the menus keep off it."""
-        return (bool(self.proc) and self.kind in SCREEN_KINDS) or (self.game is not None and self.view == "game")
+        """A video, a game, cmatrix or hollywood is drawing on the screen: the menus keep off it."""
+        return ((bool(self.proc) and self.kind in SCREEN_KINDS) or (self.game is not None and self.view == "game")
+                or self.prog is not None)
 
     def enter(self):
         try:
@@ -689,6 +705,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         """Back to the terminal. Music and radio keep playing; video stops."""
         if not self.active:
             return
+        self.prog_stop()
         if self.learn:                                 # the controller's buttons go back to keys
             self.cancel_learn("")
         self.picking = None                            # (nothing left half-open for next time)
@@ -701,6 +718,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.hass.stop()
         self.remote_more = None
         self.lights_close()
+        self.pihole_close()
         if self.remote_pad is not None:
             self.close_pad()
         if self.view == "keys":
@@ -722,6 +740,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         subprocess.run(["chvt", self.prev_vt])
 
     def shutdown(self):
+        self.prog_stop()                               # (first: "Shutting down" can't go over it)
         self.hush_stop()
         self.stop()
         self.shrinker.stop()
@@ -744,6 +763,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             if self.active and self.fb is not None:
                 if self.learn:
                     self.cancel_learn("")
+                self.prog_stop()
                 self.stop()                            # (a video would draw over it)
                 self.close_viewer()
                 self.camera.stop()
@@ -786,6 +806,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.browse(it["src"], select=self.cwd if kind == "up" else None)
         elif kind in ("netroot", "netpc", "netadd", "netshare"):
             self.net_open(it)
+        elif kind == "child" and self.tab_type(int(it["src"])) == "prog":
+            self.prog_start(LIBRARY[int(it["src"])]["prog"])   # (Linux's own, on the whole screen: no page of its own)
         elif kind == "child":
             self.tab = int(it["src"])
             self.load_tab(self.tab)
@@ -936,6 +958,10 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         now = time.monotonic()
         if self.net_done or self.net_changed:
             self.net_tick()
+        if self.prog is not None:
+            self.prog_tick()
+        if self.pihole_done is not None:
+            self.pihole_tick()
         self.shrinker.hold(bool(self.proc and self.kind in SCREEN_KINDS) or self.game is not None
                            or self.view == "update")
         if self.view == "update":
@@ -974,7 +1000,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
                 self.osd(SCREEN_SAY.get(note[0], note[0]), 1500 if note[0] in SCREEN_SAY else 3500)
             if not self.vsize:
                 self.cmd("pausing_keep_force get_video_resolution")
-        if self.proc and self.active and self.fb and self.proc_owns_screen() and self.vsize \
+        if self.proc and self.active and self.fb and self.proc_owns_screen() and self.prog is None and self.vsize \
                 and now - self.started > 1 and self.proc.poll() is None:
             bars = (id(self.proc), self.vsize, self.setting("screen"))
             if bars != self.bars_for:
@@ -1163,6 +1189,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         """Returns 'exit' when media mode should close."""
         if self.view == "update":                      # (updating: nothing to press till the Pi restarts)
             return None
+        if self.prog is not None:                      # the buttons are cmatrix's keys (hollywood's: B)
+            return self.press_prog(name, repeat)
         if self.view == "keepres":                     # a new resolution: keep it, or go back
             return self.press_keep_res(name, repeat)
         if self.view == "learn":                       # (controllers come in through learn_event)
@@ -1286,6 +1314,10 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             r = self.press_lights(name, repeat)
             if r != "pass":
                 return r
+        if ttype == "pihole":
+            r = self.press_pihole(name, repeat)
+            if r != "pass":
+                return r
         if ttype == "settings":
             r = self.press_settings(name, repeat)
             if r != "pass":
@@ -1375,6 +1407,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
                         self.close_pad()
                 if ttype == "lights":
                     self.lights_close()
+                if ttype == "pihole":
+                    self.pihole_close()
                 self.chan_stack[self.tab] = []
                 child = LIBRARY[self.tab]["name"]
                 self.tab = parent

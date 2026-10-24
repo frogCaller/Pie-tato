@@ -365,6 +365,8 @@ class DrawScreen:
         sel = self.sels.get(self.tab, 0)
         if ttype == "lights":
             return self.lights_hints(items[sel] if items and sel < len(items) else None)
+        if ttype == "pihole":
+            return self.pihole_hints(items[sel] if items and sel < len(items) else None)
         first = ("A", "Play")
         if ttype == "browser":
             first = ("A", "Open")
@@ -490,6 +492,9 @@ class DrawScreen:
             if ttype == "channels":
                 d.text((W - 20, self.LIST_TOP + 10), self.channels_note(), font=F["small"],
                        fill=MUTED, anchor="rm")
+            elif ttype == "pihole" and self.pihole.configured:     # (which one)
+                d.text((W - 20, self.LIST_TOP + 10), self.fit(d, self.pihole.where, F["small"], W // 2),
+                       font=F["small"], fill=MUTED, anchor="rm")
             d.text((20, self.LIST_TOP + 10), crumbs, font=F["small"], fill=MUTED, anchor="lm")
         elif ttype == "radio" and self.radio_stack:
             crumbs = "Radio  ›  " + self.radio_stack[-1]["title"]
@@ -669,6 +674,14 @@ class DrawScreen:
                             ("B", "Back")]),
                 ("", [("", "A plug: ◀▶ turns it"), ("", "off and on"), ("", "A scene: A sets it"),
                       ("", "All lights off: A")]),
+            ]
+        elif self.help_from == "list" and LIBRARY[self.tab]["name"] == "Simulator":
+            cols = [
+                ("In the lists", [("L R", "Switch tab"), ("▲▼", "Move (hold)"), ("A", "Open"),
+                                  ("B", "Back / home"), ("HOME", "Terminal"), ("", ""),
+                                  ("", "hollywood: B stops it")]),
+                ("While cmatrix is on", [("◀▶", "Colour"), ("▲▼", "Speed"), ("A", "Pause"), ("X", "Bold"),
+                                         ("Y", "Mixed speeds"), ("SELECT", "Rainbow"), ("B", "Stop")]),
             ]
         elif self.help_from == "now":
             cols = [

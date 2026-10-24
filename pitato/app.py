@@ -58,8 +58,9 @@ def run(ui, media, control=None, stop=None):
             media.leave()
 
     def home():
-        """HOME: media mode on or off; in a game, the game's menu (or back to the game)."""
-        if media.active and media.game_home():
+        """HOME: media mode on or off; in a game, the game's menu (or back to the game); cmatrix or hollywood
+        stops."""
+        if media.active and (media.game_home() or media.prog_home()):      # (cmatrix, hollywood: it stops)
             menu_held.clear()
             return
         toggle()

@@ -35,6 +35,10 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
                   between them
     Lights      - your lights, smart plugs and scenes: A switches one on or off, left and
                   right dim it, and All lights off
+    Pi-hole     - your Pi-hole's numbers, from the Pi-hole itself (no Home Assistant needed):
+                  A adds it by its address and signs in once (static/pihole.txt); then total
+                  queries, queries blocked and the percentage, domains on its lists, clients,
+                  and whether it's blocking. Pi-hole 6, or 5
   TV          - one menu for:
     Plex        - your Plex movies and shows, Continue watching, your Watchlist,
                   and Plex's free Live TV, with search; sign in once with a code at plex.tv/link
@@ -119,6 +123,11 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
                 of the set or as deep as the numbers go; or the d-pad explores it: A zooms in,
                 Y out, for as long as they're held
                 A pauses, X gives it a poke, Y starts it again, START has its options
+    cmatrix     - Linux's own cmatrix, on the whole screen, the buttons its keys: left and right its
+                colour, up and down its speed, A pauses, X bold, Y mixed speeds, SELECT rainbow, and
+                B (or HOME) stops it
+    hollywood   - Linux's own hollywood, on the whole screen: panes of htop, cmatrix, logs, maps, hex
+                dumps and more, swapped round every few seconds; B (or HOME) stops it
   Files       - browse everything; opens photos, PDFs, documents, text, video, music; Other computers
                 opens another computer's files by its address (Windows and Mac shared folders, or
                 Linux over SSH), read-only

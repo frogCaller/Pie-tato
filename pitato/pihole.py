@@ -1,0 +1,309 @@
+"""Your Pi-hole: its numbers from Pi-hole itself (its API: Pi-hole 6's, or 5's), signed in to once."""
+import hashlib
+import ipaddress
+import json
+import os
+import re
+import ssl
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+from .config import read_config, settings_file, write_setting
+
+PIHOLE_POLL = 10         # seconds between asking Pi-hole for its numbers, while its page is open
+PIHOLE_FILE = "pihole.txt"
+
+
+class Denied(Exception):
+    """Pi-hole didn't take the password (or wants one)."""
+
+
+class TwoFactor(Exception):
+    """Pi-hole wants a two-factor code as well (an app password goes without one)."""
+
+
+class NotPihole(Exception):
+    """Something answered, but not as a Pi-hole does."""
+
+
+class Busy(Exception):
+    """Pi-hole 6 has as many sign-ins open as it allows (they run out after half an hour unused)."""
+
+
+def pihole_url(text):
+    """Pi-hole's address as you might type it (192.168.1.2, pi.hole:8080, http://192.168.1.2/admin/) as the start
+    of its API's addresses, or '' when it isn't one."""
+    t = (text or "").strip()
+    if not t:
+        return ""
+    if "://" not in t:
+        t = "http://" + t
+    try:
+        u = urllib.parse.urlsplit(t)
+        host, port = u.hostname, u.port
+    except ValueError:
+        return ""
+    if u.scheme not in ("http", "https") or not host or not re.fullmatch(r"[A-Za-z0-9.-]+|[0-9A-Fa-f:]+", host):
+        return ""
+    return f"{u.scheme}://{'[' + host + ']' if ':' in host else host}" + (f":{port}" if port else "")
+
+
+def dns_guess():
+    """Where this Pi asks for names (your Pi-hole, as often as not): to start the address box with."""
+    try:
+        with open("/etc/resolv.conf") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 2 and parts[0] == "nameserver":
+                    try:
+                        ip = ipaddress.ip_address(parts[1])
+                    except ValueError:
+                        continue
+                    if ip.version == 4 and ip.is_private and str(ip) != "127.0.0.53":   # (on your network, or
+                        return str(ip)                                                    # this Pi; not systemd's)
+    except OSError:
+        pass
+    return ""
+
+
+def v5_token(password):
+    """Pi-hole 5's API token for a password (the token itself, from its Settings > API, as it is)."""
+    if re.fullmatch(r"[0-9a-f]{64}", password or ""):
+        return password
+    return hashlib.sha256(hashlib.sha256(password.encode()).hexdigest().encode()).hexdigest()
+
+
+def count(n):
+    try:
+        return f"{round(float(n)):,}"
+    except (TypeError, ValueError):
+        return "not known"
+
+
+def save_pihole(url, password):
+    """Your Pi-hole and its password, in static/pihole.txt (yours only: never shown on the web page)."""
+    write_setting(PIHOLE_FILE, "# Your Pi-hole, for the Pi-hole page in the Home Assistant tab: Pitato writes this\n"
+                               "# when you sign in there. Keep it private: it has your Pi-hole's password.\n"
+                               f"address = {url}\npassword = {password}\n", private=True)
+
+
+def forget_pihole():
+    try:
+        os.remove(settings_file(PIHOLE_FILE))
+    except FileNotFoundError:
+        pass
+
+
+class Pihole:
+    """Your Pi-hole's numbers, from Pi-hole itself: its queries today, how many it blocked and the percentage, the
+    domains on its lists, its clients, and whether it's blocking; asked for every few seconds while its page is
+    open, on a thread of its own. pihole.txt (written when you sign in on its page):
+        address = http://192.168.1.2
+        password = (its password, or an app password; none if it has none)
+    """
+
+    def __init__(self):
+        self.url = self.password = ""
+        self.loaded = None
+        self.sid = None              # Pi-hole 6's session, while it lasts
+        self.version = None          # 6 or 5, once it's answered
+        self.rows = []               # [(key, label, value, worry)]
+        self.error = None            # what's wrong, in a few words
+        self.denied = False          # ...the password, which signing in again puts right
+        self.found = False
+        self.lock = threading.Lock()
+        self.wake = threading.Event()
+        self.running = False
+        self.thread = None
+        self.poll_now = False
+        self.on_change = lambda: None
+
+    def load(self, patterns):
+        cfg = read_config(patterns)
+        key = (pihole_url(cfg.get("address", "")), cfg.get("password", ""))
+        if key != self.loaded:                         # another Pi-hole, or another password: afresh
+            self.loaded = key
+            self.url, self.password = key
+            self.sid = self.version = None
+            self.rows, self.error, self.denied, self.found = [], None, False, False
+
+    @property
+    def configured(self):
+        return bool(self.url)
+
+    @property
+    def where(self):
+        return self.url.split("://", 1)[-1]
+
+    # talking to Pi-hole
+    def ask(self, method, path, body=None, url=None, sid=None, timeout=6):
+        """(status, its JSON) from Pi-hole: its refusals are answers too (401: not signed in)."""
+        url = url or self.url
+        headers = {"Accept": "application/json"}
+        if body is not None:
+            headers["Content-Type"] = "application/json"
+        if sid:
+            headers["X-FTL-SID"] = sid
+        req = urllib.request.Request(url + path, method=method, headers=headers,
+                                     data=json.dumps(body).encode() if body is not None else None)
+        ctx = None
+        if url.startswith("https://"):                 # (Pi-hole's own certificate, made by itself)
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+        try:
+            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
+                status, raw = r.status, r.read(2_000_000)
+        except urllib.error.HTTPError as e:
+            status, raw = e.code, e.read(200_000)
+        try:
+            return status, (json.loads(raw) if raw.strip() else None)
+        except ValueError:
+            return status, None
+
+    def probe(self, url):
+        """What's at url: (6 or 5, whether it wants a password). NotPihole for something else; OSError when
+        nothing's there."""
+        status, out = self.ask("GET", "/api/auth", url=url)
+        if status in (200, 401) and isinstance(out, dict) and isinstance(out.get("session"), dict):
+            return 6, not out["session"].get("valid")
+        status, out = self.ask("GET", "/admin/api.php?summaryRaw", url=url)
+        if status == 200 and isinstance(out, dict) and "dns_queries_today" in out:
+            return 5, False
+        if status == 200 and out == []:                # (Pi-hole 5 says nothing without its token)
+            return 5, True
+        raise NotPihole()
+
+    def sign_in(self, url, password):
+        """Pi-hole 6: a session (its sid; None when it has no password). Denied, TwoFactor or NotPihole if not."""
+        status, out = self.ask("POST", "/api/auth", {"password": password}, url=url)
+        if status == 429:
+            raise Busy()
+        s = out.get("session") if isinstance(out, dict) else None
+        if not isinstance(s, dict):
+            raise NotPihole()
+        if s.get("valid"):
+            return s.get("sid")
+        words = str(s.get("message") or "").lower()
+        if s.get("totp") or "2fa" in words or "totp" in words:
+            raise TwoFactor()
+        raise Denied()
+
+    def check(self, url, password):
+        """Signing in, as it's added: (Pi-hole's version, its session), or Denied, TwoFactor, Busy, NotPihole,
+        OSError. (The session's kept for its numbers: Pi-hole 6 only has so many.)"""
+        version, needs = self.probe(url)
+        sid = None
+        if version == 6:
+            if needs or password:
+                sid = self.sign_in(url, password)
+        elif needs:
+            _, out = self.ask("GET", f"/admin/api.php?summaryRaw&auth={v5_token(password)}", url=url)
+            if not (isinstance(out, dict) and "dns_queries_today" in out):
+                raise Denied()
+        return version, sid
+
+    def sign_out(self, url, sid):
+        try:
+            self.ask("DELETE", "/api/auth", url=url, sid=sid, timeout=3)
+        except Exception:
+            pass
+
+    def get6(self, path):
+        """Pi-hole 6's answer, signed in (again, if the session's run out)."""
+        for again in (False, True):
+            status, out = self.ask("GET", path, sid=self.sid)
+            if status == 401 and not again:
+                self.sid = self.sign_in(self.url, self.password)
+                continue
+            if status == 401:
+                raise Denied()
+            if status != 200 or not isinstance(out, dict):
+                raise NotPihole()
+            return out
+
+    def numbers(self):
+        """[(key, label, value, worry)], as Pi-hole's own dashboard has them."""
+        if self.version is None:
+            self.version, needs = self.probe(self.url)
+            if needs and not self.password:
+                raise Denied()
+        if self.version == 6:
+            s, b = self.get6("/api/stats/summary"), self.get6("/api/dns/blocking")
+            q, c, g = s.get("queries") or {}, s.get("clients") or {}, s.get("gravity") or {}
+            blocking, total, blocked = b.get("blocking"), q.get("total"), q.get("blocked")
+            pct, lists, clients = q.get("percent_blocked"), g.get("domains_being_blocked"), c.get("active")
+            domains, cached, forwarded = q.get("unique_domains"), q.get("cached"), q.get("forwarded")
+        else:
+            auth = f"&auth={v5_token(self.password)}" if self.password else ""
+            status, s = self.ask("GET", "/admin/api.php?summaryRaw" + auth)
+            if s == []:
+                raise Denied()
+            if status != 200 or not isinstance(s, dict):
+                raise NotPihole()
+            blocking, total, blocked = s.get("status"), s.get("dns_queries_today"), s.get("ads_blocked_today")
+            pct, lists, clients = s.get("ads_percentage_today"), s.get("domains_being_blocked"), s.get("unique_clients")
+            domains, cached, forwarded = s.get("unique_domains"), s.get("queries_cached"), s.get("queries_forwarded")
+        try:
+            pct = f"{float(pct):.1f}%"
+        except (TypeError, ValueError):
+            pct = "not known"
+        on = {"enabled": "On", "disabled": "Off"}.get(str(blocking))
+        return [("blocking", "Blocking", on or str(blocking or "not known"), on != "On"),
+                ("total", "Total queries", count(total), False),
+                ("blocked", "Queries blocked", count(blocked), False),
+                ("percent", "Percentage blocked", pct, False),
+                ("lists", "Domains on lists", count(lists) if isinstance(lists, (int, float)) and lists >= 0
+                 else "not known", False),
+                ("clients", "Clients", count(clients), False),
+                ("domains", "Unique domains", count(domains), False),
+                ("cached", "Answered from cache", count(cached), False),
+                ("forwarded", "Forwarded", count(forwarded), False)]
+
+    def refresh(self):
+        try:
+            rows = self.numbers()
+            self.rows, self.found, self.error, self.denied = rows, True, None, False
+        except Denied:
+            self.rows, self.error, self.denied = [], "wants its password", True
+        except TwoFactor:
+            self.rows, self.error, self.denied = [], "wants a two-factor code", True
+        except Busy:
+            self.rows, self.error, self.denied = [], "too many signed in: try again later", False
+        except NotPihole:
+            self.rows, self.error, self.denied, self.version = [], "isn't answering as a Pi-hole", False, None
+        except Exception:
+            self.rows, self.error, self.denied, self.version = [], "not answering", False, None
+        self.on_change()
+
+    # its thread: while the page is open
+    def start(self):
+        if not self.configured:
+            return
+        with self.lock:
+            self.running = True
+            if self.thread is None:
+                self.thread = threading.Thread(target=self.loop, daemon=True, name="pihole")
+                self.thread.start()
+        self.wake.set()
+
+    def stop(self):
+        self.running = False
+        self.wake.set()
+
+    def loop(self):
+        next_poll = 0.0
+        while True:
+            with self.lock:
+                if not self.running:
+                    self.thread = None
+                    return
+            if self.poll_now or time.monotonic() >= next_poll:
+                self.poll_now = False
+                self.refresh()
+                next_poll = time.monotonic() + PIHOLE_POLL
+            self.wake.wait(0.25)
+            self.wake.clear()

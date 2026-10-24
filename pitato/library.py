@@ -7,7 +7,7 @@ from .tv import ia_best
 
 # ---- media mode: what's in each tab -----------------------------------------
 LIBRARY = [
-    {"name": "Home Assistant", "type": "group", "empty": "", "children": ["TV Remote", "Lights"]},
+    {"name": "Home Assistant", "type": "group", "empty": "", "children": ["TV Remote", "Lights", "Pi-hole"]},
     {"name": "TV", "type": "group", "empty": "",
      "children": ["Plex", "Jellyfin", "Cartoons", "Free Movies", "News", "Sports", "Streams"]},
     {"name": "Music", "type": "files", "dirs": ["/home/*/Music"],
@@ -24,7 +24,8 @@ LIBRARY = [
     {"name": "Finance", "type": "finance", "files": [settings_glob("finance.txt")], "empty": ""},
     {"name": "Bot", "type": "friend", "files": [settings_glob("bot.txt")], "empty": ""},
     {"name": "Simulator", "type": "group", "empty": "",
-     "children": ["Rock Paper Scissors", "Game of Life", "Orbits", "Forest Fire", "Mandelbrot Set"]},
+     "children": ["Rock Paper Scissors", "Game of Life", "Orbits", "Forest Fire", "Mandelbrot Set", "cmatrix",
+                  "hollywood"]},
     {"name": "Files", "type": "browser", "empty": "This folder is empty"},
     {"name": "System", "type": "system", "empty": ""},
     {"name": "Settings", "type": "settings", "empty": ""},
@@ -51,6 +52,8 @@ LIBRARY = [
     {"name": "Lights", "type": "lights", "parent": "Home Assistant", "badge": "LIGHT",
      "about": "Your lights through Home Assistant", "files": [settings_glob("homeassistant.txt")],
      "empty": ""},
+    {"name": "Pi-hole", "type": "pihole", "parent": "Home Assistant", "badge": "DNS",   # (from Pi-hole itself)
+     "about": "Your Pi-hole's numbers", "files": [settings_glob("pihole.txt")], "empty": ""},
     # inside the Games tab
     {"name": "Snake", "type": "sim", "sim": "snake", "parent": "Games", "badge": "EAT", "title": "Snake",
      "about": "Eat the apples, don't crash", "empty": ""},
@@ -65,6 +68,11 @@ LIBRARY = [
      "about": "Trees grow, fires spread", "empty": ""},
     {"name": "Mandelbrot Set", "type": "sim", "sim": "mandel", "parent": "Simulator", "badge": "ZOOM",
      "about": "Dives into the famous fractal", "empty": ""},
+    # (Linux's own cmatrix and hollywood: A starts one, on the whole screen)
+    {"name": "cmatrix", "type": "prog", "prog": "cmatrix", "parent": "Simulator", "badge": "CODE",
+     "about": "Linux's falling code. B stops it", "empty": ""},
+    {"name": "hollywood", "type": "prog", "prog": "hollywood", "parent": "Simulator", "badge": "HACK",
+     "about": "Movie hacker screens. B stops it", "empty": ""},
 ]
 
 MEDIA_VT = 7          # spare console the menu and player draw on
