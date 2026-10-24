@@ -53,6 +53,19 @@ def pihole_url(text):
     return f"{u.scheme}://{'[' + host + ']' if ':' in host else host}" + (f":{port}" if port else "")
 
 
+def pihole_tries(url):
+    """Where to look for the Pi-hole at url: there, if it has a port; with none, on 8080 (where it is when something
+    else has 80, as in Docker) and then on 80. (https with none: its own 443.)"""
+    try:
+        u = urllib.parse.urlsplit(url)
+        port = u.port
+    except ValueError:
+        return [url]
+    if port or u.scheme != "http":
+        return [url]
+    return [url + ":8080", url + ":80"]
+
+
 def dns_guess():
     """Where this Pi asks for names (your Pi-hole, as often as not): to start the address box with."""
     try:
@@ -128,12 +141,12 @@ class Pihole:
     domains on its lists, its clients, and whether it's blocking; and for its dashboard, its last 24 hours, its top
     blocked and allowed domains, its top clients and its kinds of query. Asked for every few seconds while its page
     is open, on a thread of its own. pihole.txt (written when you sign in on its page):
-        address = http://192.168.1.2
+        address = http://192.168.1.2:8080      (with no port: on 8080, or else 80)
         password = (its password, or an app password; none if it has none)
     """
 
     def __init__(self):
-        self.url = self.password = ""
+        self.address = self.url = self.password = ""   # (its address, as written; where it answers)
         self.loaded = None
         self.sid = None              # Pi-hole 6's session, while it lasts
         self.version = None          # 6 or 5, once it's answered
@@ -155,7 +168,8 @@ class Pihole:
         key = (pihole_url(cfg.get("address", "")), cfg.get("password", ""))
         if key != self.loaded:                         # another Pi-hole, or another password: afresh
             self.loaded = key
-            self.url, self.password = key
+            self.address, self.password = key
+            self.url = self.address                    # (with no port: which, found when it's first asked)
             self.sid = self.version = None
             self.rows, self.error, self.denied, self.found = [], None, False, False
             self.more, self.more_at = {}, 0.0
@@ -206,6 +220,19 @@ class Pihole:
         if status == 200 and out == []:                # (Pi-hole 5 says nothing without its token)
             return 5, True
         raise NotPihole()
+
+    def find(self, url):
+        """Where the Pi-hole at url answers (with no port: on 8080, or else 80): (there, 6 or 5, whether it wants a
+        password). NotPihole when something else answers there; OSError (or the like) when nothing does."""
+        trouble = None
+        for there in pihole_tries(url):
+            try:
+                return (there,) + self.probe(there)
+            except NotPihole as ex:
+                trouble = ex
+            except Exception as ex:
+                trouble = trouble if isinstance(trouble, NotPihole) else ex
+        raise trouble
 
     def sign_in(self, url, password):
         """Pi-hole 6: a session (its sid; None when it has no password). Denied, TwoFactor or NotPihole if not."""
@@ -258,7 +285,7 @@ class Pihole:
     def numbers(self):
         """[(key, label, value, worry)], as Pi-hole's own dashboard has them."""
         if self.version is None:
-            self.version, needs = self.probe(self.url)
+            self.url, self.version, needs = self.find(self.address)
             if needs and not self.password:
                 raise Denied()
         if self.version == 6:

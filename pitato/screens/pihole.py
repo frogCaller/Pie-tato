@@ -4,7 +4,8 @@ import threading
 import time
 
 from ..library import LIBRARY
-from ..pihole import Busy, Denied, NotPihole, TwoFactor, dns_guess, forget_pihole, pihole_url, save_pihole
+from ..pihole import (Busy, Denied, NotPihole, TwoFactor, dns_guess, forget_pihole, pihole_tries, pihole_url,
+                      save_pihole)
 from ..theme import BG, BODY, DONE, LINE, MUTED, ROW, TEXT, WARN
 from ..util import item
 
@@ -75,7 +76,7 @@ class PiholeScreen:
         ph = self.pihole
         if not ph.configured:
             if name == "a" and not repeat:
-                self.open_keyboard("Your Pi-hole's address (like 192.168.1.2)", dns_guess(), self.pihole_typed,
+                self.open_keyboard("Your Pi-hole's address (like 192.168.1.2:8080)", dns_guess(), self.pihole_typed,
                                    row=0, limit=120)
                 return None
             return "pass" if name not in ("up", "down", "left", "right") else None
@@ -360,9 +361,9 @@ class PiholeScreen:
     def pihole_typed(self, text):
         url = pihole_url(text)
         if not url:
-            self.toast("That isn't an address. Try 192.168.1.2", 4)
+            self.toast("That isn't an address. Try one like 192.168.1.2:8080", 4)
             return
-        self.toast(f"Looking for your Pi-hole at {url.split('://', 1)[1]}…", 10)
+        self.toast(f"Looking for your Pi-hole at {url.split('://', 1)[1]}…", 15)
         self.pihole_job("probe", url)
 
     def pihole_ask_password(self, url):
@@ -372,9 +373,9 @@ class PiholeScreen:
     def pihole_job(self, what, url, password=""):
         def work():
             try:
-                if what == "probe":
-                    version, needs = self.pihole.probe(url)
-                    out = ("needs" if needs else "ok", url, "", version, None)
+                if what == "probe":                    # (with no port typed: on 8080, or else 80)
+                    there, version, needs = self.pihole.find(url)
+                    out = ("needs" if needs else "ok", there, "", version, None)
                 else:
                     version, sid = self.pihole.check(url, password)
                     out = ("ok", url, password, version, sid)
@@ -398,6 +399,8 @@ class PiholeScreen:
         """(media mode's own thread) what the Pi-hole said, as it's added: the next step."""
         (what, url, password, version, sid), self.pihole_done = self.pihole_done, None
         where = url.split("://", 1)[1]
+        tries = pihole_tries(url)                      # (with no port typed, the ports it looked on)
+        ports = f" on port {' or '.join(t.rsplit(':', 1)[1] for t in tries)}" if len(tries) > 1 else ""
         if self.tab != self.tab_index("pihole") or self.view not in ("list", "keys"):
             return                                     # (gone elsewhere meanwhile)
         if what == "ok":
@@ -414,9 +417,9 @@ class PiholeScreen:
         elif what == "busy":
             self.toast("Your Pi-hole has too many signed in: try again in a while", 5)
         elif what == "notpihole":
-            self.toast(f"{where} doesn't answer as a Pi-hole", 4)
+            self.toast(f"{where} doesn't answer as a Pi-hole{ports}", 5 if ports else 4)
         else:
-            self.toast(f"Can't reach {where}", 4)
+            self.toast(f"Can't reach {where}{ports}", 5 if ports else 4)
         self.dirty = True
 
     def pihole_save(self, url, password, version=None, sid=None):
