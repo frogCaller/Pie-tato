@@ -22,7 +22,7 @@ adding your WiFi, time zone, username and password in its settings if you like (
 Pitato's Settings too). Without them, the user is `pi`, with no password until you set one
 (`sudo passwd pi`).
 
-Or set it up yourself, on Raspberry Pi OS Lite (Bookworm):
+Or set it up yourself, on Raspberry Pi OS Lite:
 
 ```
 git clone https://github.com/frogCaller/pitato.git
