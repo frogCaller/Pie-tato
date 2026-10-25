@@ -1,0 +1,44 @@
+# Pitato's SD card images (image/build.sh), made by GitHub for each release and attached to it: one for the GPi
+# Case 2W, one for a TV or monitor on HDMI. Actions > Image > Run workflow makes them without a release, to try
+# (they're kept with that run for a few days).
+name: Image
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  image:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Make the images
+        env:
+          NAME: ${{ github.event.release.tag_name || 'test' }}
+        run: |
+          df -h / /mnt 2> /dev/null || true
+          sudo env PITATO_REPO="$GITHUB_REPOSITORY" PITATO_COMMIT="$GITHUB_SHA" bash image/build.sh "$RUNNER_TEMP/images" "$NAME"
+
+      - name: Attach them to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" "$RUNNER_TEMP"/images/* --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Keep them with this run
+        if: github.event_name != 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pitato-images
+          path: ${{ runner.temp }}/images/
+          retention-days: 3
+          compression-level: 0

@@ -14,7 +14,15 @@ any Raspberry Pi with a TV or monitor on HDMI too.
 
 ## Install
 
-On Raspberry Pi OS Lite (Bookworm):
+The easy way is an SD card image, for any 64-bit Pi (Zero 2 W, 3, 4 or 5): from the
+[latest release](https://github.com/frogCaller/pitato/releases/latest), the one ending in
+`gpi-case-2w.img.xz` for the GPi Case 2W, or `hdmi.img.xz` for a TV or monitor. Write it to a microSD
+card (8 GB or more) with [Raspberry Pi Imager](https://www.raspberrypi.com/software/), under Use custom,
+adding your WiFi, time zone, username and password in its settings if you like (the WiFi can be set in
+Pitato's Settings too). Without them, the user is `pi`, with no password until you set one
+(`sudo passwd pi`).
+
+Or set it up yourself, on Raspberry Pi OS Lite (Bookworm):
 
 ```
 git clone https://github.com/frogCaller/pitato.git

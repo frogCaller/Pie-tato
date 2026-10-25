@@ -1,0 +1,38 @@
+#!/bin/sh
+# Pitato from its SD card image: its services follow its folder. Raspberry Pi Imager can rename the image's user as it
+# writes the card, which moves their home, and the pitato folder in it; then this points the services at where it is
+# now, and signs the new name in at start-up. A systemd generator (/etc/systemd/system-generators): run as each start
+# begins, it writes nothing but drop-ins in systemd's own folder for them, and only when something's moved.
+out="${1:-/run/systemd/generator}"
+root="${PITATO_ROOT:-}"                        # (for its tests: a pretend /)
+unit="$root/etc/systemd/system/pitato.service"
+[ -f "$unit" ] || exit 0
+was=$(sed -n 's/^Environment="PITATO_STATIC=\(.*\)"$/\1/p' "$unit" | head -n 1 | sed 's/%%/%/g')
+[ -n "$was" ] || exit 0
+[ -d "$root$was" ] && exit 0                   # (where setup.sh put it: still there)
+static=""
+for d in "$root"/home/*/pitato/static; do
+  if [ -d "$d" ]; then static=$d; break; fi
+done
+[ -n "$static" ] || exit 0
+uid=$(stat -c %u "${static%/static}")
+user=$(awk -F: -v u="$uid" '$3 == u {print $1; exit}' "$root/etc/passwd")
+home=$(awk -F: -v u="$uid" '$3 == u {print $6; exit}' "$root/etc/passwd")
+[ -n "$user" ] && [ -n "$home" ] || exit 0
+static=$(printf '%s' "${static#"$root"}" | sed 's/%/%%/g')
+home=$(printf '%s' "$home" | sed 's/%/%%/g')
+drop() {           # drop UNIT: its drop-in (last of all, so it's what counts), from what's on stdin
+  mkdir -p "$out/$1.d" && cat > "$out/$1.d/zz-pitato-user.conf"
+}
+printf '[Service]\nEnvironment="PITATO_STATIC=%s"\n' "$static" | drop pitato.service
+for svc in pitato-web pitato-camera; do
+  if [ -f "$root/etc/systemd/system/$svc.service" ]; then
+    printf '[Service]\nUser=%s\nWorkingDirectory=%s\nEnvironment="PITATO_STATIC=%s"\n' "$user" "$home" "$static" \
+      | drop "$svc.service"
+  fi
+done
+if [ -f "$root/etc/systemd/system/getty@tty1.service.d/autologin.conf" ]; then
+  printf '[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin %s --noclear %%I $TERM\n' "$user" \
+    | drop getty@tty1.service
+fi
+exit 0

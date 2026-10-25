@@ -36,6 +36,8 @@
 #               another Pi (camera.py, port 5433); nothing else is installed
 #   --update    no questions: it's set up as it was before (System > Update software runs it
 #               after git pull, then restarts the Pi itself)
+#   --image     for an SD card image (image/build.sh): no questions, every emulator built (for any
+#               Pi), nothing started and no restart; with --gpi for the GPi Case 2W
 # Safe to run again: it replaces its own settings instead of adding duplicates.
 
 set -e
@@ -49,6 +51,7 @@ GPI=""
 CAMERA=no
 LOGIN=no
 UPDATE=no
+IMAGE=no
 for arg in "$@"; do
   case "$arg" in
     --gpi) GPI=yes ;;
@@ -56,7 +59,8 @@ for arg in "$@"; do
     --login) LOGIN=yes ;;
     --camera) CAMERA=yes ;;
     --update) UPDATE=yes ;;
-    *) echo "Unknown option: $arg (use --gpi, --no-gpi, --login, --camera or --update)"; exit 1 ;;
+    --image) IMAGE=yes ;;
+    *) echo "Unknown option: $arg (use --gpi, --no-gpi, --login, --camera, --update or --image)"; exit 1 ;;
   esac
 done
 
@@ -249,11 +253,19 @@ CONFIG="$BOOT/config.txt"
 
 # --------------------------------------------------------------------------
 # the GPi Case 2W needs its own screen and speaker settings; any other Pi uses HDMI
-MODEL="$(tr -d '\0' < /proc/device-tree/model 2>/dev/null || true)"
+MODEL="$(tr -d '\0' 2> /dev/null < /proc/device-tree/model || true)"   # (none where an image is made)
 SLOW=no         # Pi Zero, 1, 2 and 3: video on a big TV is smoother at 720p
 case "$MODEL" in
   *Zero*|"Raspberry Pi 3"*|"Raspberry Pi 2"*|"Raspberry Pi Model"*|"Raspberry Pi Compute Module 3"*) SLOW=yes ;;
 esac
+BIG=no          # a Pi 4 or 5: N64, PSP and DS games too (their emulators built here)
+case "$MODEL" in
+  *"Pi 4"*|*"Pi 5"*|*"Compute Module 4"*|*"Compute Module 5"*) BIG=yes ;;
+esac
+if [ "$IMAGE" = yes ]; then  # (an image, for any Pi: made on another computer, whose own model doesn't count)
+  BIG=yes SLOW=no
+  if [ -z "$GPI" ]; then GPI=no; fi
+fi
 if [ -z "$GPI" ] && [ "$UPDATE" = yes ]; then       # (as it was set up: the case's settings there, or not)
   if grep -q '^# >>> gpi-case setup >>>' "$CONFIG" 2>/dev/null; then GPI=yes; else GPI=no; fi
 fi
@@ -331,7 +343,8 @@ build_pcsx_rearmed() {
         *"Pi 4"*|*"Pi 5"*|*"Compute Module 4"*|*"Compute Module 5"*) plat=rpi4_64 ;;   # (400 and 500 too)
         *"Pi 3"*|*"Zero 2"*|*"Compute Module 3"*) plat=rpi3_64 ;;
         *) plat=unix ;;
-      esac ;;
+      esac
+      if [ "$IMAGE" = yes ]; then plat=rpi3_64; fi ;;     # (an image: the slowest 64-bit Pi's, which all run)
     armhf|armv7l|armv6l)
       case "$MODEL" in
         *"Pi 4"*|*"Pi 5"*|*"Compute Module 4"*) plat=rpi4 ;;
@@ -393,17 +406,17 @@ build_mupen64plus() {
   echo "$MUPEN64PLUS" > "$CORES/mupen64plus_next.version"
   rm -rf "$tmp"
 }
-case "$MODEL" in
-  *"Pi 4"*|*"Pi 5"*|*"Compute Module 4"*|*"Compute Module 5"*)
-    if [ "$(cat "$CORES/mupen64plus_next.version" 2>/dev/null)" = "$MUPEN64PLUS" ] \
-        && [ -f "$CORES/mupen64plus_next_libretro.so" ]; then
-      echo "The N64 emulator (Mupen64Plus-Next) is built already."
-    else
-      step "Building the N64 emulator (Mupen64Plus-Next): about 20 minutes on a Pi 4, less on a Pi 5"
-      build_mupen64plus || echo "(Couldn't build Mupen64Plus-Next: N64 games won't start.)"
-    fi ;;
-  *) echo "(N64 games need a Pi 4 or 5: no N64 emulator on this one.)" ;;
-esac
+if [ "$BIG" = yes ]; then
+  if [ "$(cat "$CORES/mupen64plus_next.version" 2>/dev/null)" = "$MUPEN64PLUS" ] \
+      && [ -f "$CORES/mupen64plus_next_libretro.so" ]; then
+    echo "The N64 emulator (Mupen64Plus-Next) is built already."
+  else
+    step "Building the N64 emulator (Mupen64Plus-Next): about 20 minutes on a Pi 4, less on a Pi 5"
+    build_mupen64plus || echo "(Couldn't build Mupen64Plus-Next: N64 games won't start.)"
+  fi
+else
+  echo "(N64 games need a Pi 4 or 5: no N64 emulator on this one.)"
+fi
 
 # PSP: PPSSPP, built here from its source, on a Pi 4 or 5 only (it draws in 3D with their graphics chip too),
 # with patches/ppsspp-libretro-threads.patch (pausing, starting over and quitting made safe). Its own files (the
@@ -456,17 +469,17 @@ build_ppsspp() {
   echo "$PPSSPP_BUILT" > "$CORES/ppsspp.version"
   rm -rf "$tmp"
 }
-case "$MODEL" in
-  *"Pi 4"*|*"Pi 5"*|*"Compute Module 4"*|*"Compute Module 5"*)
-    if [ "$(cat "$CORES/ppsspp.version" 2>/dev/null)" = "$PPSSPP_BUILT" ] && [ -f "$CORES/ppsspp_libretro.so" ] \
-        && [ -f "$CORES/PPSSPP/compat.ini" ]; then
-      echo "The PSP emulator (PPSSPP) is built already."
-    else
-      step "Building the PSP emulator (PPSSPP): about an hour on a Pi 4, 20 minutes on a Pi 5"
-      build_ppsspp || echo "(Couldn't build PPSSPP: PSP games won't start.)"
-    fi ;;
-  *) echo "(PSP games need a Pi 4 or 5: no PSP emulator on this one.)" ;;
-esac
+if [ "$BIG" = yes ]; then
+  if [ "$(cat "$CORES/ppsspp.version" 2>/dev/null)" = "$PPSSPP_BUILT" ] && [ -f "$CORES/ppsspp_libretro.so" ] \
+      && [ -f "$CORES/PPSSPP/compat.ini" ]; then
+    echo "The PSP emulator (PPSSPP) is built already."
+  else
+    step "Building the PSP emulator (PPSSPP): about an hour on a Pi 4, 20 minutes on a Pi 5"
+    build_ppsspp || echo "(Couldn't build PPSSPP: PSP games won't start.)"
+  fi
+else
+  echo "(PSP games need a Pi 4 or 5: no PSP emulator on this one.)"
+fi
 
 # DS: melonDS, built here from its source, on a Pi 4 or 5 with the 64-bit Raspberry Pi OS: its quick way of running
 # a DS's two processors (a JIT) is 64-bit ARM's, and without it the games play too slowly. It draws them itself, in
@@ -493,20 +506,20 @@ build_melonds() {
   echo "$MELONDS" > "$CORES/melonds.version"
   rm -rf "$tmp"
 }
-case "$MODEL" in
-  *"Pi 4"*|*"Pi 5"*|*"Compute Module 4"*|*"Compute Module 5"*)
-    case "$(dpkg --print-architecture 2>/dev/null || uname -m)" in
-      arm64|aarch64)
-        if [ "$(cat "$CORES/melonds.version" 2>/dev/null)" = "$MELONDS" ] && [ -f "$CORES/melonds_libretro.so" ]; then
-          echo "The DS emulator (melonDS) is built already."
-        else
-          step "Building the DS emulator (melonDS): about 10 minutes on a Pi 4, less on a Pi 5"
-          build_melonds || echo "(Couldn't build melonDS: DS games won't start.)"
-        fi ;;
-      *) echo "(DS games need the 64-bit Raspberry Pi OS: no DS emulator on this one.)" ;;
-    esac ;;
-  *) echo "(DS games need a Pi 4 or 5: no DS emulator on this one.)" ;;
-esac
+if [ "$BIG" = yes ]; then
+  case "$(dpkg --print-architecture 2>/dev/null || uname -m)" in
+    arm64|aarch64)
+      if [ "$(cat "$CORES/melonds.version" 2>/dev/null)" = "$MELONDS" ] && [ -f "$CORES/melonds_libretro.so" ]; then
+        echo "The DS emulator (melonDS) is built already."
+      else
+        step "Building the DS emulator (melonDS): about 10 minutes on a Pi 4, less on a Pi 5"
+        build_melonds || echo "(Couldn't build melonDS: DS games won't start.)"
+      fi ;;
+    *) echo "(DS games need the 64-bit Raspberry Pi OS: no DS emulator on this one.)" ;;
+  esac
+else
+  echo "(DS games need a Pi 4 or 5: no DS emulator on this one.)"
+fi
 
 step "Installing LibreOffice (Word, Excel and PowerPoint files with their real layout; about 400 MB)"
 apt-get install -y --no-install-recommends libreoffice-core libreoffice-writer \
@@ -608,7 +621,7 @@ else
   PICKED="$(grep -oE 'video=HDMI-A-1:[0-9]+x[0-9]+' "$CMDLINE" 2>/dev/null | head -n 1 | sed 's/.*://')"
   if [ "$SLOW" = yes ] && [ -n "$PICKED" ] && [ "$PICKED" != 1280x720 ]; then
     echo "The TV picture stays at $PICKED (Settings > Resolution changes it)."
-  elif [ "$SLOW" = yes ] && [ -f "$CMDLINE" ] && [ "$UPDATE" != yes ]; then   # (an update: left as it is)
+  elif [ "$SLOW" = yes ] && [ -f "$CMDLINE" ] && [ "$UPDATE" != yes ] && [ "$IMAGE" != yes ]; then   # (an update: as it is)
     echo
     echo "This Pi plays video more smoothly on a TV set to 720p than at 1080p."
     read -r -p "Set the TV picture to 720p? [Y/n] " ans
@@ -841,7 +854,7 @@ echo "Pair Bluetooth controllers, keyboards, headphones and the rest in Settings
 step "TV Remote through Home Assistant (optional)"
 if grep -qE '^\s*token\s*=\s*\S' "$STATIC/homeassistant.txt" 2>/dev/null; then
   echo "Keeping your existing $STATIC/homeassistant.txt"
-elif [ "$UPDATE" = yes ]; then
+elif [ "$UPDATE" = yes ] || [ "$IMAGE" = yes ]; then
   echo "No Home Assistant yet: run  sudo bash setup.sh  to add it."
 else
   echo "The Home Assistant tab's TV Remote and Lights work through Home Assistant."
@@ -906,6 +919,14 @@ retire_old() {
 
 FINISHED=yes
 let_go             # (done: the power button shuts it down again)
+if [ "$IMAGE" = yes ]; then
+  install -d /var/lib/pitato             # (what's put in, for Update software)
+  git -c safe.directory='*' -C "$HERE" rev-parse HEAD > /var/lib/pitato/installed-commit
+  retire_old
+  echo
+  echo "All set, for the image (nothing started: it starts on the Pi it's written for)."
+  exit 0
+fi
 echo
 if [ "$GPI" = yes ]; then
   echo "All set. Reboot to apply the screen and audio settings."
