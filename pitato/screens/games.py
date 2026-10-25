@@ -8,7 +8,7 @@ from ..theme import ACCENT, BG, BODY, LINE, MUTED, ROW, TEXT
 from ..util import item
 from ..screen import aplay_device, sound_place
 from ..library import LIBRARY
-from ..home import draw_icon
+from ..snake import snake_card
 from ..games import (ANALOG_SYSTEMS, art_path, ArtFinder, bios_missing, find_core, find_games, game_kind,
                      GAME_PACKAGES, GAME_PLAYERS, GameRun, has_resume, plain_title, playable, system)
 from ..emulator import screen_picture
@@ -184,7 +184,8 @@ class GameScreen:
 
     def game_pic(self, it, kind):
         """A row's picture, ready to draw: "thumb" (on its row), "panel" (beside the list) or "back" (soft,
-        behind the list). Snake's is its icon. None: there isn't one."""
+        behind the list). Snake's is a little board from the game, the snake about to eat an apple. None:
+        there isn't one."""
         from PIL import Image, ImageFilter, ImageOps
         if it.get("kind") == "child":
             src, stamp = "icon", 0
@@ -206,7 +207,7 @@ class GameScreen:
         if src == "icon":
             if kind == "back":
                 return None
-            pic = draw_icon("Games", GAME_THUMB if kind == "thumb" else 132, card=True)
+            pic = snake_card(GAME_THUMB if kind == "thumb" else 132)
         else:
             try:
                 art = Image.open(src)

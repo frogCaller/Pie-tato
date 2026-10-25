@@ -32,6 +32,30 @@ SNAKE_AI_BEHIND = 0.5      # less than this share of the moves decided by it: it
 SNAKE_AI_JUDGE = 100       # ...once a game's gone on this many moves
 SNAKE_AI_SAYS = ("Which way should the snake go next? Never pick a deadly move, and avoid trapped and risky "
                  "ones. Of the safe moves, pick one that eats the apple, or else one that gets closer to it.")
+# Snake's picture in the Games list: a board this many cells across and down, the snake on it (tail first), the
+# way it's going, and the apple it's about to eat
+SNAKE_CARD = (5, ((0, 3), (1, 3), (2, 3), (2, 2), (2, 1), (3, 1)), (1, 0), (4, 1))
+
+
+def snake_card(size):
+    """Snake's picture in the Games list, rather than a game controller: the game itself on a little board of
+    its own, the snake about to eat an apple, on a card like the apps' (rounded, a thin edge in the Games
+    app's green). Drawn three times bigger and scaled down, so its edges come out smooth."""
+    from PIL import Image, ImageDraw
+    from .home import mix, tile_tint
+    S = size * 3
+    cells, body, way, apple = SNAKE_CARD
+    game = Snake(S, S, rng=random.Random(0))
+    game.cols = game.rows = cells
+    game.body, game.taken = deque(body), set(body)
+    game.dir, game.apple, game.phase = way, apple, "on"
+    shape = Image.new("L", (S, S), 0)
+    ImageDraw.Draw(shape).rounded_rectangle((0, 0, S - 1, S - 1), radius=int(S * 0.23), fill=255)
+    out = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    out.paste(game.picture(), (0, 0), shape)
+    edge = mix((66, 72, 84), tile_tint("Games"), 0.5)        # (as the apps' cards have it)
+    ImageDraw.Draw(out).rounded_rectangle((1, 1, S - 2, S - 2), radius=int(S * 0.23), outline=edge + (255,), width=3)
+    return out.resize((size, size), Image.LANCZOS)
 
 
 class Snake(Sim):
