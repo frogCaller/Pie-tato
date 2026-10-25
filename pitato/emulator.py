@@ -284,10 +284,12 @@ def write_file(path, data):
     os.replace(tmp, path)
 
 
-def picture_size(sw, sh, w, h, aspect, mode, most=None):
+def picture_size(sw, sh, w, h, aspect, mode, most=None, whole=True):
     """(width, height) of a w x h picture on a sw x sh screen: as big as fits in its proper shape,
     whole pixels when that's nearly as big (crisper); or (Sharp) whole pixels only. `most` caps the
-    pixels drawn (a Pi Zero on a TV)."""
+    pixels drawn (a Pi Zero on a TV). whole=False: as big as fits, always, in Fit (a picture the graphics
+    chip smooths as it scales, an N64's or a PSP's, is no crisper in whole pixels: just smaller, with a
+    black border round it on a TV)."""
     if mode == "Sharp":
         k = max(1, min(sw // w, sh // h))
         while most and k > 1 and w * k * h * k > most:
@@ -301,7 +303,7 @@ def picture_size(sw, sh, w, h, aspect, mode, most=None):
         k = math.sqrt(most / (dw * dh))
         dw, dh = dw * k, dh * k
     k = int(dh // h)
-    if k >= 1 and k * h / dh >= 0.88:
+    if whole and k >= 1 and k * h / dh >= 0.88:
         dw, dh = k * h * ar, float(k * h)
     return max(1, min(sw, int(round(dw)))), max(1, min(sh, int(round(dh))))
 
@@ -365,11 +367,11 @@ class Screen:
             self.luts[fmt] = lut
         return lut[a]
 
-    def layout(self, w, h, aspect):
-        key = (w, h, round(aspect or 0, 4), self.mode)
+    def layout(self, w, h, aspect, whole=True):
+        key = (w, h, round(aspect or 0, 4), self.mode, whole)
         if self.plan and self.plan[0] == key:
             return self.plan
-        dw, dh = picture_size(self.w, self.h, w, h, aspect, self.mode, self.most)
+        dw, dh = picture_size(self.w, self.h, w, h, aspect, self.mode, self.most, whole)
         x0, y0 = (self.w - dw) // 2, (self.h - dh) // 2
         ys = (np.arange(dh) * h // dh).astype(np.intp)
         xs = (np.arange(dw) * w // dw).astype(np.intp)
@@ -391,8 +393,9 @@ class Screen:
 
     def show_gpu(self, gpu, w, h, aspect, flipped=True):
         """A frame the graphics chip drew (a 3D game's, w x h): the chip makes it the picture's size and reads
-        it into the rows, in the screen's own pixels when it can."""
-        _, _, _, band, view, at, _ = self.layout(w, h, aspect)
+        it into the rows, in the screen's own pixels when it can. In Fit, as big as fits: the chip smooths it as
+        it scales, so whole pixels wouldn't make it any crisper."""
+        _, _, _, band, view, at, _ = self.layout(w, h, aspect, whole=False)
         kind = "rgb565" if self.native(FMT_RGB565) else "xrgb8888" if self.native(FMT_XRGB8888) else None
         got = gpu.read(view, kind, self.row_px, w, h, flipped, smooth=self.mode != "Sharp")
         if got is not None:                           # (red, green, blue bytes: the screen's pixels made here)
