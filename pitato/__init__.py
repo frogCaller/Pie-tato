@@ -1,4 +1,4 @@
-"""Pitato: game controller buttons as keys, plus a media mode. pitato.py starts it.
+"""Pie-tato: game controller buttons as keys, plus a media mode. pitato.py starts it.
 
   theme.py          colours, fonts and the accent
   config.py         the static folder, settings files, saved settings
@@ -35,6 +35,9 @@
   discs.py          disc games: PlayStation and PSP ones, and their game codes
   emulator.py       a game in a process of its own (libretro): its pictures, sound, saves
   gpu.py            the graphics chip, for a game drawn in 3D (an N64's, a PSP's)
+  gameai.py         the AI player: a decision model on your bot's computer plays the game, looking at its screen
+  anygame.py        ...any game: the next button to press, from what's on the screen
+  emerald.py        ...Pokémon Emerald: from the game's memory too (emerald_maps.py: its maps' names)
   inputs.py         controllers, keys, the power switch
   control.py        the web page's requests
   media.py          media mode: class Media

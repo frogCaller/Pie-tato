@@ -1,4 +1,4 @@
-"""The Weather tab."""
+"""The Weather tab, and its settings (START): where you are, and °F or °C."""
 import textwrap
 import threading
 import time
@@ -6,9 +6,11 @@ import time
 from ..theme import ACCENT, BODY, LINE, MUTED, ROW, TEXT, WARN
 from ..weather import compass, draw_wx, place_text, wx_icon_name, WX_TINT, wx_words
 
+WX_UNITS = ["°F", "°C"]
+
 
 class WeatherScreen:
-    """The Weather tab."""
+    """The Weather tab, and its settings (START)."""
 
     def weather_changed(self):
         """Location or units changed: the weather starts over."""
@@ -25,7 +27,9 @@ class WeatherScreen:
         return ["Now", "Week"] + (["Forecast"] if self.weather.nws else [])
 
     def press_weather(self, name, repeat):
-        if name in ("left", "right") and not repeat:
+        if name == "start" and not repeat:
+            self.wx_open_menu()
+        elif name in ("left", "right") and not repeat:
             n = len(self.wx_pages())
             self.wx_page = (self.wx_page + (1 if name == "right" else -1)) % n
         elif name == "x" and not repeat:
@@ -37,6 +41,115 @@ class WeatherScreen:
             threading.Thread(target=self.locate_job, args=(None,), daemon=True).start()
         self.dirty = True
         return None
+
+    # -- its settings (START): where you are, and the temperature's units -----------------------------------
+    def wx_open_menu(self):
+        self.wx_menu, self.wx_sel, self.loc_status = "menu", 0, None
+
+    def wx_rows(self):
+        """(key, label, more): Location and Temperature; or, for Location, the ways to set it and the towns found."""
+        if self.wx_menu == "location":
+            rows = [("find", "Find me", "From your internet address"),
+                    ("type", "Type a town…", "With the d-pad or your keyboard")]
+            return rows + [("place", place_text(r) + (f", {r['country']}" if r.get("country") else ""), r)
+                           for r in self.loc_results]
+        return [("location", "Location", None), ("units", "Temperature", WX_UNITS)]
+
+    def wx_set_units(self, step):
+        now = self.setting("units")
+        self.set_setting("units", WX_UNITS[((WX_UNITS.index(now) if now in WX_UNITS else 0) + step) % len(WX_UNITS)])
+        self.weather_changed()
+
+    def press_wx_menu(self, name, repeat):
+        """Weather's settings: up and down, A to set (◀▶ the units), B back (out of Location: to the settings;
+        out of the settings: to the weather), START closes them. L and R: on to the next tab, as ever."""
+        if name in ("l", "r"):
+            self.wx_menu = None
+            return "pass"
+        rows = self.wx_rows()
+        self.wx_sel %= len(rows)
+        key, label, extra = rows[self.wx_sel]
+        if name in ("up", "down"):
+            self.wx_sel = (self.wx_sel + (1 if name == "down" else -1)) % len(rows)
+        elif repeat:
+            pass
+        elif name == "b" and self.wx_menu == "location":
+            self.wx_menu, self.wx_sel, self.loc_status = "menu", 0, None
+        elif name in ("b", "start"):
+            self.wx_menu, self.loc_status = None, None
+        elif self.wx_menu == "location":
+            if name == "a" and key == "find":
+                self.loc_status = "Finding you…"
+                threading.Thread(target=self.locate_job, args=(None,), daemon=True).start()
+            elif name == "a" and key == "type":
+                self.open_keyboard("Town or city", "", lambda text: (
+                    setattr(self, "loc_status", "Looking…"),
+                    threading.Thread(target=self.locate_job, args=(text,), daemon=True).start()))
+            elif name == "a" and key == "place":
+                self.set_setting("location", extra)
+                self.toast(f"Location: {place_text(extra)}", 2)
+                self.weather_changed()
+                self.wx_menu, self.wx_sel, self.loc_status = "menu", 0, None
+        elif key == "units" and name in ("left", "right", "a"):
+            self.wx_set_units(-1 if name == "left" else 1)
+        elif key == "location" and name == "a":
+            self.wx_menu, self.wx_sel, self.loc_status = "location", 0, None
+        self.dirty = True
+        return None
+
+    def render_wx_menu(self):
+        """Weather's settings, as Settings' pages look."""
+        F = self.fonts
+        img, d = self.canvas()
+        W, H = self.fb.w, self.fb.h
+        self.header(img, d)
+        rows = self.wx_rows()
+        sel = self.wx_sel % len(rows)
+        crumb = "Weather  ›  Location" if self.wx_menu == "location" else "Weather  ›  Settings"
+        d.text((20, self.LIST_TOP + 10), crumb, font=F["small"], fill=MUTED, anchor="lm")
+        if self.wx_menu == "location":
+            here = place_text(self.setting("location")) if self.setting("location") else "Not set"
+            d.text((W - 20, self.LIST_TOP + 10), self.fit(d, "Now: " + here, F["small"], 300),
+                   font=F["small"], fill=MUTED, anchor="rm")
+        top, rh = self.LIST_TOP + 26, 46
+        rows_fit = (H - self.FOOTER - top) // rh
+        first = max(0, min(sel - rows_fit + 1, len(rows) - rows_fit))
+        for r, k in enumerate(range(first, min(first + rows_fit, len(rows)))):
+            key, label, extra = rows[k]
+            y = top + r * rh
+            on = k == sel
+            if on:
+                d.rounded_rectangle((12, y + 2, W - 12, y + rh - 4), radius=10, fill=ROW)
+                d.rectangle((12, y + 10, 15, y + rh - 12), fill=ACCENT)
+            mid = y + rh / 2 - 1
+            if self.wx_menu == "location":
+                d.text((30, mid), self.fit(d, label, F["row"], W - 300), font=F["row"],
+                       fill=TEXT if on else BODY, anchor="lm")
+                if key != "place":
+                    d.text((W - 28, mid), extra, font=F["small"], fill=MUTED, anchor="rm")
+                continue
+            d.text((30, mid), label, font=F["row"], fill=TEXT if on else BODY, anchor="lm")
+            value = ((place_text(self.setting("location")) if self.setting("location") else "Not set")
+                     if key == "location" else self.setting("units") if self.setting("units") in WX_UNITS
+                     else WX_UNITS[0])
+            x1 = W - 28
+            if extra and on:                          # ◀ value ▶
+                d.text((x1, mid), "▶", font=F["small"], fill=ACCENT, anchor="rm")
+                x1 -= 22
+            shown = self.fit(d, value, F["row"], 300)
+            d.text((x1, mid), shown, font=F["row"], fill=ACCENT if on else MUTED, anchor="rm")
+            if extra and on:
+                d.text((x1 - d.textlength(shown, font=F["row"]) - 10, mid), "◀", font=F["small"], fill=ACCENT,
+                       anchor="rm")
+        if self.loc_status and self.wx_menu == "location":
+            d.text((W / 2, H - self.FOOTER - 22), self.loc_status, font=F["small"], fill=ACCENT, anchor="mm")
+        if self.wx_menu == "location":
+            hints = [("A", "Choose"), ("B", "Back")]
+        else:
+            hints = [("◀▶", "Change") if rows[sel][0] == "units" else ("A", "Set"), ("B", "Back"),
+                     ("START", "Close")]
+        self.footer(d, hints)
+        self.fb.show(img)
 
     def wx_icon(self, name, size):
         key = (name, size)
@@ -60,6 +173,8 @@ class WeatherScreen:
         return time.strftime("%-I %p", t)
 
     def render_weather(self):
+        if self.wx_menu:
+            return self.render_wx_menu()
         F = self.fonts
         img, d = self.canvas()
         W, H = self.fb.w, self.fb.h
@@ -67,8 +182,8 @@ class WeatherScreen:
         wx, loc = self.weather.data, self.setting("location")
         top = self.LIST_TOP
         if not loc:
-            self.empty_state(d, "Where are you?", "A finds you from your internet address, or set a town in Settings")
-            self.footer(d, [("A", "Find me"), ("L R", "Tabs"), ("B", "Home")])
+            self.empty_state(d, "Where are you?", "A finds you from your internet address, or START to type a town")
+            self.footer(d, [("A", "Find me"), ("START", "Settings"), ("L R", "Tabs"), ("B", "Home")])
             self.fb.show(img)
             return
         if not wx:
@@ -76,7 +191,7 @@ class WeatherScreen:
                 self.empty_state(d, "Can't reach the weather service", "Check the WiFi; X tries again")
             else:
                 self.empty_state(d, "Getting the weather", place_text(loc))
-            self.footer(d, [("X", "Refresh"), ("L R", "Tabs"), ("B", "Home")])
+            self.footer(d, [("X", "Refresh"), ("START", "Settings"), ("L R", "Tabs"), ("B", "Home")])
             self.fb.show(img)
             return
         pages = self.wx_pages()
@@ -118,7 +233,7 @@ class WeatherScreen:
                 d.text((x, y), text, font=F["small"], fill=BODY, anchor="lm")
                 x += d.textlength(text, font=F["small"]) + 20
             # the next hours (on a taller screen than the GPi Case's, these and the days lower down)
-            more = max(0, H - 480) // 3
+            more = self.spare() // 3                   # (a taller screen, or no bars: room to spread out)
             y0 = top + 178 + more
             d.line((20, y0, W - 20, y0), fill=LINE)
             hours = (wx.get("hours") or [])[:8]
@@ -153,7 +268,7 @@ class WeatherScreen:
                     d.text((cx - tw / 2 + d.textlength(hi, font=F["small_b"]) + 6, y1 + 60), lo,
                            font=F["label"], fill=MUTED, anchor="lm")
         elif page == "Week":
-            rh = 44 + max(0, H - 480) // 8                # (a taller screen: taller rows)
+            rh = 44 + self.spare() // 8                    # (a taller screen, or no bars: taller rows)
             for i, day in enumerate((wx.get("days") or [])[:7]):
                 y = top + 30 + i * rh
                 if y + rh > H - self.FOOTER:
@@ -194,6 +309,6 @@ class WeatherScreen:
                       fill=TEXT if on else LINE)
             x += gap
         nxt = pages[(self.wx_page + 1) % len(pages)]
-        self.footer(d, [("◀▶", nxt), ("X", "Refresh"), ("L R", "Tabs"), ("B", "Home")],
+        self.footer(d, [("◀▶", nxt), ("X", "Refresh"), ("START", "Settings"), ("B", "Home")],   # (room for the credit)
                     right="from Open-Meteo" + (" + NWS" if page == "Forecast" else ""))
         self.fb.show(img)

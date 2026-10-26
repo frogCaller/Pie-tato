@@ -722,6 +722,7 @@ class GameRun:
         self.disc = (0, 1)                           # the disc in (from 0), of how many
         self.answers = []                            # what it said that hasn't been asked about
         self.cond = threading.Condition()
+        self.writing = threading.Lock()              # (a line at a time: an AI player sends from its own thread)
         self.ended = False                           # it's gone (quit, or it stopped)
 
     def start(self, core, sound="", volume=80, picture="Fit", fb="/dev/fb0", resume=True, options=()):
@@ -795,8 +796,9 @@ class GameRun:
         if self.p is None or self.ended:
             return False
         try:
-            self.p.stdin.write(line + "\n")
-            self.p.stdin.flush()
+            with self.writing:
+                self.p.stdin.write(line + "\n")
+                self.p.stdin.flush()
             return True
         except (OSError, ValueError):
             return False

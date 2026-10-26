@@ -3,7 +3,7 @@ import os
 import time
 
 from ..theme import (
-    ACCENT, BADGE, BG, BODY, DONE, FONT, FONT_BOLD, FONT_MONO, FONT_MONO_BOLD, FONT_THIN, FONT_THINNER, FONT_UI, FONT_UI_BOLD, LINE,
+    ACCENT, BADGE, BG, BODY, DONE, FONT, FONT_BOLD, FONT_MONO, FONT_MONO_BOLD, FONT_THIN, FONT_UI, FONT_UI_BOLD, LINE,
     MUTED, ROW, TEXT, WARN)
 from ..config import home_dir
 from ..util import clock, human_size, short_path
@@ -14,15 +14,44 @@ from ..screen import slow_pi
 
 KEY_FILL = (62, 68, 79)      # a button, in the hints along the bottom
 FOOT_NOTE = (206, 211, 218)  # the home screen's line about the app picked
+BASE_ROOM = 480 - 48 - 76    # the GPi Case's screen between its bars: what a page with a set layout is drawn for
+FULL_VIEWS = ("list", "now", "photo", "pdf", "text")   # what Full screen apps puts on the whole screen
+
+
+class Bar:
+    """How tall a bar is (or where a list starts, under them): its own size, or, while Settings > Full screen apps
+    has an app on the whole screen, what's left without the bars. Asked of the class itself: its own size."""
+
+    def __init__(self, shown, full):
+        self.shown, self.full = shown, full
+
+    def __get__(self, screen, owner=None):
+        return self.shown if screen is None or not screen.full_app() else self.full
 
 
 class DrawScreen:
     """Drawing: the fonts, the status bar and tabs, lists and grids, and the buttons along the bottom."""
 
     # -- drawing -------------------------------------------------------------
-    STATUS_H, HEADER, LIST_TOP = 26, 68, 76   # status bar, tab line, first row
-    ROW_H, FOOTER = 48, 48
+    STATUS_H, HEADER, LIST_TOP = Bar(26, 0), Bar(68, 40), Bar(76, 48)   # status bar, tab line (Full screen apps: the
+    ROW_H, FOOTER = 48, Bar(48, 8)                                      # app's name), first row
     GRID_COLS, CELL_H = 4, 116
+
+    def full_app(self):
+        """Settings > Full screen apps: an app on the whole screen, no status bar, tabs or buttons along the
+        bottom (its Controls, X, has the buttons): its page, Now playing, a picture or a document. Not the home
+        screen, Controls, a box to type in or a game's menu; nor a sim, which has its own (SELECT)."""
+        if getattr(self, "view", None) not in FULL_VIEWS or not getattr(self, "state", None):
+            return False
+        try:
+            return self.setting("app_full") == "On" and self.tab_type() != "sim"
+        except (AttributeError, IndexError, KeyError, TypeError):
+            return False
+
+    def spare(self):
+        """Room beyond the GPi Case's screen between its bars, for a page with a set layout to spread into: a
+        taller screen's, and the bars' while Full screen apps is on."""
+        return max(0, (self.fb.h if self.fb else 480) - self.FOOTER - self.LIST_TOP - BASE_ROOM)
 
     def load_fonts(self):
         if self.fonts:
@@ -31,7 +60,7 @@ class DrawScreen:
 
         def f(path, size):
             try:
-                if path in (FONT_THIN, FONT_THINNER, FONT_UI, FONT_UI_BOLD) and path.endswith(".otf"):
+                if path in (FONT_THIN, FONT_UI, FONT_UI_BOLD) and path.endswith(".otf"):
                     basic = ImageFont.Layout.BASIC if hasattr(ImageFont, "Layout") else ImageFont.LAYOUT_BASIC
                     return ImageFont.truetype(path, size, layout_engine=basic)   # (Inter: much quicker so)
                 return ImageFont.truetype(path, size)
@@ -48,9 +77,7 @@ class DrawScreen:
             "home_clock": f(FONT_THIN, 52), "wx_temp": f(FONT_THIN, 52), "home_ampm": f(FONT_UI, 17),
             "home_date": f(FONT_UI, 17), "home_label": f(FONT_UI, 14), "home_foot": f(FONT_UI, 15),
             "home_pop_head": f(FONT_UI_BOLD, 11), "home_pop_title": f(FONT_UI_BOLD, 18), "home_pop_sub": f(FONT_UI, 14),
-            "home3_clock": f(FONT_THINNER, 44), "home3_small": f(FONT_UI, 14), "home3_label": f(FONT_UI, 13),
-            "home3_key": f(FONT_UI_BOLD, 12), "home3_keylabel": f(FONT_UI, 12), "home3_note": f(FONT_UI, 13),
-            "home3_title": f(FONT_UI, 17), "home4_clock": f(FONT_BOLD, 48), "home4_date": f(FONT, 18),
+            "home4_clock": f(FONT_BOLD, 48), "home4_date": f(FONT, 18),
             "home4_temp": f(FONT_BOLD, 34), "home4_label": f(FONT, 13),
             "keycap": f(FONT, 20), "face": f(FONT, 40), "chat": f(FONT, 18),
             "co_code": f(FONT_MONO_BOLD if os.path.exists(FONT_MONO_BOLD) else FONT_MONO, 17),
@@ -60,7 +87,8 @@ class DrawScreen:
 
     def list_top(self):
         crumbs = (self.tab_type() in ("browser", "plex") or self.parent_of(self.tab) is not None
-                  or (self.tab_type() == "radio" and self.radio_stack))
+                  or (self.tab_type() == "radio" and self.radio_stack)
+                  or (self.tab_type() == "games" and getattr(self, "games_q", None)))
         return self.LIST_TOP + (28 if crumbs else 0)
 
     def visible_rows(self):
@@ -121,18 +149,27 @@ class DrawScreen:
         d.text((x + w / 2, y), label, font=F["key"], fill=BG if on else TEXT, anchor="mm")
         return x + w
 
-    def footer(self, d, items, right=None, credit=None, plain=False):
+    def footer(self, d, items, right=None, credit=None, plain=False, pill=True, always=False):
         """Button hints along the bottom (key, label[, lit]) and a note on the right. A credit (where the numbers
         come from) is always shown, as clearly as the hints: any hint that would run into it is left out instead.
-        plain: the home screen's, straight onto what's behind it under a thin line, in its own typeface."""
+        plain: the home screen's, straight onto what's behind it under a thin line, in its own typeface. pill:
+        a notice above it, if there's one (False: it's put up later, over what's drawn after). always: even with
+        Full screen apps on (an are-you-sure's buttons)."""
         F, W, H = self.fonts, self.fb.w, self.fb.h
-        y = H - self.FOOTER // 2
+        if self.full_app() and not plain and not always:   # Full screen apps: no buttons, a credit small in the corner
+            if credit:
+                d.text((W - 12, H - 6), credit, font=F["label"], fill=MUTED, anchor="rd")
+            if pill:
+                self.msg_pill(d)
+            return
+        fh = type(self).FOOTER if always else self.FOOTER   # (an are-you-sure's: as tall as ever, even so)
+        y = H - fh // 2
         font = F["home_foot"] if plain else F["small"]
         if plain:
-            d.line((28, H - self.FOOTER + 4, W - 28, H - self.FOOTER + 4), fill=LINE)
+            d.line((28, H - fh + 4, W - 28, H - fh + 4), fill=LINE)
         else:
-            d.rectangle((0, H - self.FOOTER, W, H), fill=BG)
-            d.line((0, H - self.FOOTER, W, H - self.FOOTER), fill=LINE)
+            d.rectangle((0, H - fh, W, H), fill=BG)
+            d.line((0, H - fh, W, H - fh), fill=LINE)
         room = W - 20 - (d.textlength(credit, font=font) + 18 if credit else 0)
         x = 28 if plain else 20
         for it in items:
@@ -148,7 +185,8 @@ class DrawScreen:
             end = W - 28 if plain else W - 20
             if x - (10 if plain else 0) + d.textlength(right, font=font) < end:   # (16 apart is enough, there)
                 d.text((end, y), right, font=font, fill=FOOT_NOTE if plain else MUTED, anchor="rm")
-        self.msg_pill(d)
+        if pill:
+            self.msg_pill(d)
 
     def msg_pill(self, d):
         """A short notice (toast) above the footer."""
@@ -193,8 +231,11 @@ class DrawScreen:
             d.text((x, y), txt, font=F["status"], fill=ACCENT, anchor="rm")
 
     def header(self, img, d):
-        """Status bar plus the tab strip, scrolled so the current tab shows."""
+        """Status bar plus the tab strip, scrolled so the current tab shows (Full screen apps: just the app's name)."""
         from PIL import Image, ImageDraw
+        if self.full_app():
+            self.app_title(d, LIBRARY[self.strip_tab()]["name"])
+            return
         self.status_bar(d)
         F, W = self.fonts, self.fb.w
         vis = self.visible_tabs()
@@ -249,8 +290,22 @@ class DrawScreen:
             d.text((W - 10, cy), "›", font=F["tab_b"], fill=MUTED, anchor="mm")
         d.line((0, self.HEADER, W, self.HEADER), fill=LINE)
 
+    def app_title(self, d, title, right=None, right_fill=MUTED):
+        """Full screen apps' top: the app's name (or Now playing, a document's) and a note on the right, no status
+        bar."""
+        F, W = self.fonts, self.fb.w
+        y = self.HEADER // 2
+        rw = d.textlength(right, font=F["small"]) + 24 if right else 0
+        d.text((20, y), self.fit(d, title, F["head"], W - 40 - rw), font=F["head"], fill=TEXT, anchor="lm")
+        if right:
+            d.text((W - 20, y), right, font=F["small"], fill=right_fill, anchor="rm")
+        d.line((0, self.HEADER, W, self.HEADER), fill=LINE)
+
     def title_row(self, d, title, right=None, right_fill=MUTED):
-        """Status bar plus a plain title, for screens that aren't tabs."""
+        """Status bar plus a plain title, for screens that aren't tabs (Full screen apps: the title, no status bar)."""
+        if self.full_app():
+            self.app_title(d, title, right, right_fill)
+            return
         self.status_bar(d)
         F, W = self.fonts, self.fb.w
         y = (self.STATUS_H + self.HEADER) // 2
@@ -280,8 +335,9 @@ class DrawScreen:
         if kind == "action":
             if self.confirm[0] == it["src"]:
                 return "press A again", ACCENT, None
-            if it["src"] == "update":                  # (New version, or Finish updating)
-                return it.get("sub", ""), ACCENT, None
+            if it["src"] == "update":                  # (New version, or Finish updating: lit; Up to date: not)
+                sub = it.get("sub", "")
+                return sub, MUTED if sub == "Up to date" else ACCENT, None
             return "", MUTED, None
         if kind in ("radio", "radiodir", "radiosearch", "plexsearch", "jfsearch", "chdir", "chsearch", "chplex",
                     "chretry", "chwait"):
@@ -413,12 +469,14 @@ class DrawScreen:
             hints = [("B", "Back") if h[0] == "B" else h for h in hints]
         if ttype == "group":
             hints = [("A", "Open"), ("L R", "Tabs"), ("B", "Home")] + hints[4:]
-        if ttype == "games":
-            act = self.game_hint(items[sel]) if items and sel < len(items) else None
+        if ttype == "games":                           # (START: a game found by name, not Now playing; L R
+            act = self.game_hint(items[sel]) if items and sel < len(items) else None   # on its Controls, for room)
             finding = self.art_finder is not None and self.art_finder.busy
             some = any(it["kind"] == "game" for it in items)
+            back = ("B", "All games") if self.games_q else None
             hints = (([("A", act)] if act else []) + ([("Y", "Find pictures")] if some and not finding else [])
-                     + [h for h in hints if h[0] != "A"])
+                     + [back if back and h[0] == "B" else h for h in hints if h[0] not in ("A", "START", "L R")]
+                     + [("START", "Search")])
         if ttype == "channels" and items and sel < len(items):
             it = items[sel]
             first = {"chdir": "Open", "chsearch": "Open", "chplex": "Sign in", "chretry": "Try again"}.get(
@@ -661,7 +719,8 @@ class DrawScreen:
             folders = [("", "gb, gbc, gba, nes, snes,"), ("", "genesis, sms, gg, ps1" + ("," if fast else ""))] + \
                 ([("", "n64, psp and nds")] if fast else [])
             cols = [
-                ("Games", [("A", "Play"), ("Y", "Find pictures"), ("L R", "Switch tab"), ("B", "Home"),
+                ("Games", [("A", "Play"), ("Y", "Find pictures"), ("START", "Search"), ("L R", "Switch tab"),
+                           ("B", "Home"),
                            ("", "Your games go in the Games"), ("", "folder, a folder for each:")] + folders),
                 ("In a game", [("HOME", "Its menu"), ("", "Save or load a state,"), ("", "start over, or quit"),
                                ("", "Quitting keeps your place"), ("", "Two players: one"),
@@ -682,10 +741,14 @@ class DrawScreen:
                                ("", "Orange: blocked")]),
             ]
         elif self.help_from == "list" and LIBRARY[self.tab]["name"] == "Simulator":
+            rows, sel = self.tab_items(), self.sels.get(self.tab, 0)
+            on = rows[sel]["title"] if rows and 0 <= sel < len(rows) else ""
             cols = [
                 ("In the lists", [("L R", "Switch tab"), ("▲▼", "Move (hold)"), ("A", "Open"),
                                   ("B", "Back / home"), ("HOME", "Terminal"), ("", ""),
                                   ("", "The others: B stops"), ("", "cacafire: A pauses")]),
+                ("While htop is on", [("▲▼", "Move (hold)"), ("◀▶", "Scroll"), ("A", "Pause"), ("X", "Sort by CPU"),
+                                      ("Y", "Sort by memory"), ("SELECT", "Tree"), ("B", "Stop")]) if on == "htop" else
                 ("While cmatrix is on", [("◀▶", "Colour"), ("▲▼", "Speed"), ("A", "Pause"), ("X", "Bold"),
                                          ("Y", "Mixed speeds"), ("SELECT", "Rainbow"), ("B", "Stop")]),
             ]
@@ -707,12 +770,15 @@ class DrawScreen:
                                          ("X", "Time left"), ("Y", "Full screen"),
                                          ("SEL ST", "Prev / next"), ("B", "Back to list")]),
             ]
+        most = max((len(rows) for _, rows in cols), default=1)
+        room = self.fb.h - self.FOOTER - 16 - (self.LIST_TOP + 44)    # (down to the last row's middle)
+        step = min(36, room / max(most - 1, 1))       # (a long column: its rows a little closer, all of them shown)
         for c, (head, rows) in enumerate(cols):
             x = 24 + c * (W // 2)
             if head:
                 d.text((x, self.LIST_TOP + 12), head.upper(), font=F["key"], fill=MUTED, anchor="lm")
             for r, (k, label) in enumerate(rows):
-                y = self.LIST_TOP + 44 + r * 36
+                y = self.LIST_TOP + 44 + round(r * step)
                 end = self.key(d, x, y, k) if k else x
                 d.text((max(end, x + 64) + 10, y), label, font=F["small"],
                        fill=BODY if k else MUTED, anchor="lm")
@@ -746,12 +812,16 @@ class DrawScreen:
         W, H = self.fb.w, self.fb.h
         self.status_bar(d)                             # (the time and WiFi: no tabs, there's nowhere to go)
         state, words = self.update_view
-        title = "Restarting" if state == "restarting" else "Updating Pitato"
+        title = "Restarting" if state == "restarting" else "Updating Pie-tato"
         d.text((W / 2, H / 2 - 50), self.fit(d, title, F["big"], W - 60), font=F["big"], fill=TEXT, anchor="mm")
         d.text((W / 2, H / 2 - 6), self.fit(d, words or "One moment", F["row"], W - 60), font=F["row"],
                fill=ACCENT, anchor="mm")
         y = H / 2 + 34
-        note = "Leave the Pi on" if state == "restarting" else "Leave the Pi on. It restarts by itself when it's done"
+        pulling = state == "going" and words == "Getting the new version"   # (git pull: maybe nothing newer yet)
+        note = ("Leave the Pi on" if state == "restarting" else
+                "Leave the Pi on. If there's a newer version, it restarts by itself once it's in"
+                if pulling and not self.updater.available() else
+                "Leave the Pi on. It restarts by itself when it's done")
         for line in self.wrap(d, note, F["small"], W - 80):
             d.text((W / 2, y), line, font=F["small"], fill=MUTED, anchor="mm")
             y += 26

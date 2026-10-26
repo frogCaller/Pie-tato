@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
-# image/build.sh - Pitato's SD card images, made from a fresh Raspberry Pi OS Lite (Bookworm, 64-bit) that's never
-# started while they're made. In them: Raspberry Pi OS, Pitato and its emulators, and nothing of anyone's (no WiFi,
+# image/build.sh - Pie-tato's SD card images, made from a fresh Raspberry Pi OS Lite (Bookworm, 64-bit) that's never
+# started while they're made. In them: Raspberry Pi OS, Pie-tato and its emulators, and nothing of anyone's (no WiFi,
 # sign-ins, keys or passwords: image/check.sh looks before each one's let go). Two of them: one for the GPi Case 2W,
 # one for a TV or monitor on HDMI. GitHub makes them for each release (.github/workflows/image.yml); on 64-bit ARM
 # Linux (a Pi 4 or 5 with the 64-bit Raspberry Pi OS, say) this makes them too:
 #   sudo bash image/build.sh OUT_FOLDER [NAME]
-# NAME: what they're called after "pitato-" (the release's tag); the date when left out. Pitato goes in as git clone
+# NAME: what they're called after "pie-tato-" (the release's tag); the date when left out. Pie-tato goes in as git clone
 # gets it (so Update software works): PITATO_REPO (owner/name) and PITATO_COMMIT say which (GitHub's own, there).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT="${1:?Usage: sudo bash image/build.sh OUT_FOLDER [NAME]}"
 NAME="${2:-$(date +%Y-%m-%d)}"
-REPO="${PITATO_REPO:-${GITHUB_REPOSITORY:-frogCaller/pitato}}"
+REPO="${PITATO_REPO:-${GITHUB_REPOSITORY:-frogCaller/pie-tato}}"
 COMMIT="${PITATO_COMMIT:-${GITHUB_SHA:-}}"
 OS_LIST="https://downloads.raspberrypi.com/os_list_imagingutility_v4.json"   # (Raspberry Pi Imager's own list)
-GROW=4G            # room to put Pitato in, taken back off at the end (Raspberry Pi OS grows it to fill the card when it
+GROW=4G            # room to put Pie-tato in, taken back off at the end (Raspberry Pi OS grows it to fill the card when it
                    # first starts)
 # (for its tests, on a computer that isn't 64-bit ARM: PITATO_ANY_ARCH=1, PITATO_BASE_IMG a base image already here,
-# and PITATO_CLONE_FROM a folder to clone Pitato from)
+# and PITATO_CLONE_FROM a folder to clone Pie-tato from)
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Run it as root:  sudo bash image/build.sh OUT_FOLDER"
@@ -161,7 +161,7 @@ for it in walk(json.load(sys.stdin).get("os_list") or []):
   echo "$sha  $IMG" | sha256sum -c --quiet - || { echo "That isn't the Raspberry Pi OS Raspberry Pi lists."; exit 1; }
 }
 
-put_in_pitato() { # Pitato's folder in the first user's home, as git clone makes it, theirs
+put_in_pitato() { # Pie-tato's folder in the first user's home, as git clone makes it, theirs
   local dir gid
   IMG_USER=$(awk -F: '$3 == 1000 {print $1; exit}' "$ROOT/etc/passwd")
   IMG_HOME=$(awk -F: '$3 == 1000 {print $6; exit}' "$ROOT/etc/passwd")
@@ -170,7 +170,7 @@ put_in_pitato() { # Pitato's folder in the first user's home, as git clone makes
     echo "Raspberry Pi OS has no first user here (1000, with a home)."
     exit 1
   fi
-  dir="$ROOT$IMG_HOME/pitato"
+  dir="$ROOT$IMG_HOME/pie-tato"
   rm -rf "$dir"
   git clone -q --depth 1 --branch main "${PITATO_CLONE_FROM:-https://github.com/$REPO.git}" "$dir"
   if [ -n "$COMMIT" ] && [ "$(git -C "$dir" rev-parse HEAD)" != "$COMMIT" ]; then
@@ -178,7 +178,7 @@ put_in_pitato() { # Pitato's folder in the first user's home, as git clone makes
     git -C "$dir" reset -q --hard FETCH_HEAD
   fi
   git -C "$dir" remote set-url origin "https://github.com/$REPO.git"
-  echo "Pitato: $REPO at $(git -C "$dir" rev-parse --short HEAD)"
+  echo "Pie-tato: $REPO at $(git -C "$dir" rev-parse --short HEAD)"
   chown -R "1000:$gid" "$dir"
 }
 
@@ -189,25 +189,25 @@ image_settings() { # what an image has that a Pi set up by hand doesn't
   in_root systemctl enable getty@tty1.service > /dev/null 2>&1
   rm -f "$ROOT/etc/ssh/sshd_config.d/rename_user.conf"     # (SSH's "until a valid user has been set up": it is)
   in_root systemctl enable regenerate_ssh_host_keys.service > /dev/null 2>&1 || true   # (each Pi its own)
-  echo pitato > "$ROOT/etc/hostname"
-  sed -i -E 's/^(127\.0\.1\.1[[:space:]]+).*/\1pitato/' "$ROOT/etc/hosts"
+  echo pie-tato > "$ROOT/etc/hostname"
+  sed -i -E 's/^(127\.0\.1\.1[[:space:]]+).*/\1pie-tato/' "$ROOT/etc/hosts"
   # no passwords that work (Imager sets yours): the accounts locked, as Raspberry Pi OS's are
   in_root usermod -L "$IMG_USER" > /dev/null 2>&1 || true
   in_root usermod -L root > /dev/null 2>&1 || true
   # WiFi on (Raspberry Pi OS keeps it off till a country's picked; till then, the rules that hold everywhere), so
-  # Pitato's Settings can join a network
+  # Pie-tato's Settings can join a network
   for f in "$ROOT"/var/lib/systemd/rfkill/*:wlan; do
     if [ -e "$f" ]; then echo 0 > "$f"; fi
   done
   if [ -f "$ROOT/var/lib/NetworkManager/NetworkManager.state" ]; then
     sed -i 's/^WirelessEnabled=.*/WirelessEnabled=true/' "$ROOT/var/lib/NetworkManager/NetworkManager.state"
   fi
-  # Pitato's services follow its folder (Imager can rename the user, and its home), and the first start's own bits
+  # Pie-tato's services follow its folder (Imager can rename the user, and its home), and the first start's own bits
   install -D -m 755 "$HERE/pitato-user" "$ROOT/etc/systemd/system-generators/pitato-user"
   install -D -m 755 "$HERE/pitato-firstboot" "$ROOT/usr/local/share/pitato/image-firstboot"
   cat > "$ROOT/etc/systemd/system/pitato-firstboot.service" <<'UNIT'
 [Unit]
-Description=Pitato: the first start from its SD card image
+Description=Pie-tato: the first start from its SD card image
 ConditionPathExists=!/var/lib/pitato/image-firstboot-done
 Before=pitato.service pitato-web.service
 
@@ -254,15 +254,15 @@ shrink() {         # the root filesystem as small as resize2fs makes it (it leav
   truncate -s $(( (start + want) * 512 )) "$IMG"
 }
 
-make_one() {       # make_one --no-gpi|--gpi KIND: Pitato set up for that screen, checked, out as OUT/pitato-NAME-KIND
-  local file="pitato-$NAME-$2.img.xz"
+make_one() {       # make_one --no-gpi|--gpi KIND: Pie-tato set up for that screen, checked, out as OUT/pie-tato-NAME-KIND
+  local file="pie-tato-$NAME-$2.img.xz"
   echo
   echo "==> $file"
   mount_image
   if [ "$1" = --no-gpi ]; then put_in_pitato; fi
   IMG_USER=$(awk -F: '$3 == 1000 {print $1; exit}' "$ROOT/etc/passwd")
   IMG_HOME=$(awk -F: '$3 == 1000 {print $6; exit}' "$ROOT/etc/passwd")
-  in_root env SUDO_USER="$IMG_USER" bash "$IMG_HOME/pitato/setup.sh" --image "$1" < /dev/null
+  in_root env SUDO_USER="$IMG_USER" bash "$IMG_HOME/pie-tato/setup.sh" --image "$1" < /dev/null
   if [ "$1" = --no-gpi ]; then image_settings; fi
   tidy
   bash "$HERE/check.sh" "$ROOT"
@@ -282,4 +282,4 @@ make_one --no-gpi hdmi
 grow 1G                                                    # (room for the package lists again)
 make_one --gpi gpi-case-2w
 echo
-echo "Done: $(cd "$OUT" && ls pitato-"$NAME"-*.img.xz | tr '\n' ' ')"
+echo "Done: $(cd "$OUT" && ls pie-tato-"$NAME"-*.img.xz | tr '\n' ' ')"

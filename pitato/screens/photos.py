@@ -350,7 +350,7 @@ class PhotoScreen:
                 d.text((W / 2, cy0 + 76), self.fit(d, name, F["small"], cw - 40), font=F["small"],
                        fill=BODY, anchor="mm")
                 d.text((W / 2, cy0 + 102), "It can't be undone.", font=F["small"], fill=MUTED, anchor="mm")
-                self.footer(d, [("A", "Delete"), ("B", "Keep")])
+                self.footer(d, [("A", "Delete"), ("B", "Keep")], always=True)   # (its buttons, whatever)
             label = self.fit(d, name, F["small"], W - 80)
             lw = d.textlength(label, font=F["small"]) + 24
             d.rounded_rectangle((12, 12, 12 + lw, 40), radius=14, fill=BG)

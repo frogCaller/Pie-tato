@@ -57,24 +57,71 @@ def video_target():
     return PLEX_RESOLUTION, PLEX_BITRATE, PLEX_LIVE_HEIGHT
 
 
-def sound_cards():
-    """[(card id, name)] for the sound outputs: ("vc4hdmi0", "HDMI 1"), ("Headphones", ...)..."""
+ASOUND = "/proc/asound"                         # the kernel's sound cards
+NOT_SPEAKERS = re.compile(r"controller|gamepad|joystick|dualsense|dualshock", re.I)   # USB sound that isn't one
+_usb_seen = {}                                 # card id -> name: each USB speaker seen (one unplugged is still known)
+_descs = {}                                    # card id -> the card's own name (what Settings > Sound once called it)
+
+
+def can_play(num):
+    """A sound card with something to play through (not only a microphone): its playback devices (pcm0p...).
+    One the kernel doesn't show the insides of: yes."""
+    pcms = [os.path.basename(p) for p in glob.glob(os.path.join(ASOUND, f"card{num}", "pcm*"))]
+    return not pcms or any(p.endswith("p") for p in pcms)
+
+
+def sound_list():
+    """The sound outputs, in the kernel's order: [{"id", "name", "desc", "usb"}]. Only cards that can play (a USB
+    microphone can't); "name" is Settings > Sound's ("HDMI 1", "Headphones", "USB speaker"...), "desc" the card's own,
+    "usb" a USB speaker (or headphones, or a DAC: not a game controller's)."""
     out = []
-    for line in read_file("/proc/asound/cards").splitlines():
-        m = re.match(r"\s*\d+\s+\[(\S+)\s*\]:\s*\S+\s+-\s+(.+)", line)
-        if not m:
+    for line in read_file(os.path.join(ASOUND, "cards")).splitlines():
+        m = re.match(r"\s*(\d+)\s+\[(\S+)\s*\]:\s*(\S+)\s+-\s+(.+)", line)
+        if not m or not can_play(m.group(1)):
             continue
-        cid, desc = m.group(1), m.group(2).strip()
+        cid, driver, full = m.group(2), m.group(3), m.group(4).strip()
+        desc = full[:24]
+        usb = driver == "USB-Audio" and not NOT_SPEAKERS.search(full)
         hd = re.fullmatch(r"vc4hdmi(\d?)", cid)
         if hd:
             name = "HDMI" + (f" {int(hd.group(1)) + 1}" if hd.group(1) else "")
         elif cid == "Headphones" or "headphone" in desc.lower():
             name = "Headphones"
+        elif usb:
+            name = "USB speaker"
         else:
-            name = desc[:24]
-        if name not in [n for _, n in out]:
-            out.append((cid, name))
+            name = desc
+        out.append({"id": cid, "name": name, "desc": desc, "usb": usb})
+    names = [c["name"] for c in out]
+    for c in out:                                  # two of a name: each its own after it ("USB speaker: Jabra")
+        if names.count(c["name"]) > 1 and c["desc"] != c["name"]:
+            c["name"] = f"{c['name']}: {c['desc']}"
+    seen = {}
+    for c in out:                                  # (still two: numbered)
+        seen[c["name"]] = seen.get(c["name"], 0) + 1
+        if seen[c["name"]] > 1:
+            c["name"] = f"{c['name']} {seen[c['name']]}"
+        if c["usb"]:
+            _usb_seen[c["id"]] = c["name"]
+        else:
+            _usb_seen.pop(c["id"], None)           # (its name now taken by something else)
+        _descs[c["id"]] = c["desc"]
     return out
+
+
+def sound_cards():
+    """[(card id, name)] for the sound outputs: ("vc4hdmi0", "HDMI 1"), ("Headphones", ...)..."""
+    return [(c["id"], c["name"]) for c in sound_list()]
+
+
+def sound_moves(route):
+    """A route the sound moves to and from while something plays: Bluetooth, or a USB speaker (plugged in or out)."""
+    return route == "bluetooth" or route in _usb_seen
+
+
+def usb_name(route):
+    """A USB speaker's name, even once it's unplugged: "USB speaker"."""
+    return _usb_seen.get(route, "USB speaker")
 
 
 def hdmi_ports():
@@ -182,20 +229,65 @@ def set_boot_video(ports, args):
     return was
 
 
+def edid_sound(edid):
+    """From a screen's EDID: True when it can play sound (an HDMI screen that says it can, as the kernel reads
+    it), False when it can't (a computer monitor without speakers, a screen on a DVI adapter), None when there's
+    no telling (no EDID)."""
+    if len(edid) < 128 or edid[:8] != b"\x00\xff\xff\xff\xff\xff\xff\x00":
+        return None
+    hdmi = audio = False
+    for i in range(1, min(edid[126], len(edid) // 128 - 1) + 1):
+        b = edid[128 * i:128 * (i + 1)]
+        if b[0] != 0x02:                           # (only the CEA block says what a TV can do)
+            continue
+        audio = audio or bool(b[3] & 0x40)         # basic audio
+        j = 4
+        while j < min(b[2], 127):                  # its data blocks, up to where its picture timings start
+            tag, n = b[j] >> 5, b[j] & 0x1F
+            if tag == 1:                           # an audio block
+                audio = True
+            elif tag == 3 and n >= 3 and b[j + 1:j + 4] == b"\x03\x0c\x00":   # HDMI's own block (IEEE 00-0C-03)
+                hdmi = True
+            j += 1 + n
+    return hdmi and audio
+
+
+def hdmi_sound(port):
+    """Whether the screen on an HDMI port (0, 1) can play sound, as it says: True, False, or None (it doesn't say)."""
+    for path in sorted(glob.glob(os.path.join(DRM_DIR, f"card*-HDMI-A-{port + 1}", "edid"))):
+        try:
+            with open(path, "rb") as f:
+                got = edid_sound(f.read(32768))
+        except OSError:
+            continue
+        if got is not None:
+            return got
+    return None
+
+
 def sound_card(choice):
-    """The card for Settings > Sound. Auto plays through the TV when one is plugged into HDMI, and
-    through the Pi's usual output otherwise (None: the system's default)."""
+    """The card for Settings > Sound (by its name, or by the card's own name it had before). Auto: a USB speaker
+    while one's plugged in (the last, with two), else the TV on HDMI, else the Pi's usual output (None: the
+    system's default); with the screen on HDMI saying it can't play sound (a monitor without speakers), the
+    Pi's headphone jack."""
     cards = sound_cards()
     ids = [c for c, _ in cards]
-    cid = None
     if choice and choice != "Auto":
-        cid = next((c for c, n in cards if n == choice), None)
-    else:
-        for port in hdmi_ports():
-            cid = next((c for c in (f"vc4hdmi{port}", "vc4hdmi") if c in ids), None)
-            if cid:
-                break
-    return cid
+        return next((c for c, n in cards if n == choice), None) or \
+            next((c for c in ids if choice in (_descs.get(c), c)), None)
+    usb = [c for c in ids if c in _usb_seen]        # (the USB speakers plugged in now)
+    if usb:
+        return usb[-1]
+    silent = False
+    for port in hdmi_ports():
+        cid = next((c for c in (f"vc4hdmi{port}", "vc4hdmi") if c in ids), None)
+        if cid and hdmi_sound(port) is False:
+            silent = True                              # (a screen without speakers: not there)
+        elif cid:
+            return cid
+    if silent and "Headphones" in ids:
+        return "Headphones"
+    return None
 
 
 def sound_route(choice):
@@ -216,10 +308,13 @@ def sound_place(choice):
 
 
 def sound_name(route):
-    """A route's name, as Settings > Sound has it: "HDMI", "Headphones"..., "Bluetooth", or "the Pi" (its own)."""
+    """A route's name, as Settings > Sound has it: "HDMI", "Headphones", "USB speaker"..., "Bluetooth", or "the Pi"
+    (its own)."""
     if route == "bluetooth":
         return "Bluetooth"
-    return next((n for c, n in sound_cards() if c == route), "the Pi") if route else "the Pi"
+    if not route:
+        return "the Pi"
+    return next((n for c, n in sound_cards() if c == route), None) or _usb_seen.get(route) or "the Pi"
 
 
 def sound_device(choice, route=None):

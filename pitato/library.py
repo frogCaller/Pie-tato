@@ -25,7 +25,7 @@ LIBRARY = [
     {"name": "Bot", "type": "friend", "files": [settings_glob("bot.txt")], "empty": ""},
     {"name": "Simulator", "type": "group", "empty": "",
      "children": ["Rock Paper Scissors", "Game of Life", "Forest Fire", "Mandelbrot Set", "cmatrix", "hollywood",
-                  "nyancat", "cacafire"]},
+                  "nyancat", "cacafire", "htop"]},
     {"name": "Files", "type": "browser", "empty": "This folder is empty"},
     {"name": "System", "type": "system", "empty": ""},
     {"name": "Settings", "type": "settings", "empty": ""},
@@ -66,7 +66,7 @@ LIBRARY = [
      "about": "Trees grow, fires spread", "empty": ""},
     {"name": "Mandelbrot Set", "type": "sim", "sim": "mandel", "parent": "Simulator", "badge": "ZOOM",
      "about": "Dives into the famous fractal", "empty": ""},
-    # (Linux's own cmatrix, hollywood, nyancat and cacafire: A starts one, on the whole screen)
+    # (Linux's own cmatrix, hollywood, nyancat, cacafire and htop: A starts one, on the whole screen)
     {"name": "cmatrix", "type": "prog", "prog": "cmatrix", "parent": "Simulator", "badge": "CODE",
      "about": "Linux's falling code. B stops it", "empty": ""},
     {"name": "hollywood", "type": "prog", "prog": "hollywood", "parent": "Simulator", "badge": "HACK",
@@ -75,6 +75,8 @@ LIBRARY = [
      "about": "The rainbow cat. B stops it", "empty": ""},
     {"name": "cacafire", "type": "prog", "prog": "cacafire", "parent": "Simulator", "badge": "HEAT",
      "about": "Flames made of letters. B stops it", "empty": ""},
+    {"name": "htop", "type": "prog", "prog": "htop", "parent": "Simulator", "badge": "PROC",
+     "about": "What's running on the Pi. B stops it", "empty": ""},
 ]
 
 MEDIA_VT = 7          # spare console the menu and player draw on

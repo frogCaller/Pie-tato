@@ -1,4 +1,4 @@
-# Pitato
+# Pie-tato
 
 Turns your Raspberry Pi GPi Case 2W into a pocket-sized smart media center. Versatile home entertainment
 remote where you can watch live TV, stream videos, listen to music and radio, view photos, play your own
@@ -15,18 +15,18 @@ any Raspberry Pi with a TV or monitor on HDMI too.
 ## Install
 
 The easy way is an SD card image, for any 64-bit Pi (Zero 2 W, 3, 4 or 5): from the
-[latest release](https://github.com/frogCaller/pitato/releases/latest), the one ending in
+[latest release](https://github.com/frogCaller/pie-tato/releases/latest), the one ending in
 `gpi-case-2w.img.xz` for the GPi Case 2W, or `hdmi.img.xz` for a TV or monitor. Write it to a microSD
 card (8 GB or more) with [Raspberry Pi Imager](https://www.raspberrypi.com/software/), under Use custom,
 adding your WiFi, time zone, username and password in its settings if you like (the WiFi can be set in
-Pitato's Settings too). Without them, the user is `pi`, with no password until you set one
+Pie-tato's Settings too). Without them, the user is `pi`, with no password until you set one
 (`sudo passwd pi`).
 
 Or set it up yourself, on Raspberry Pi OS Lite:
 
 ```
-git clone https://github.com/frogCaller/pitato.git
-cd pitato
+git clone https://github.com/frogCaller/pie-tato.git
+cd pie-tato
 sudo bash setup.sh
 ```
 
@@ -38,11 +38,11 @@ itself at start-up (`sudo bash setup.sh --login` keeps the password prompt), ask
 optional parts, and reboots. The first time takes a while (an hour or more on a Pi 4, as it builds
 the game emulators), so leave the Pi on until it says All set.
 
-Keep the `pitato` folder where it is: your settings live in its `static` folder. When there's a
-new version, System shows Update software at the top: press it, and the Pi gets it, puts it in and
-restarts. Your settings stay as they are. If you set it up before it had Update software, or when it
-was called gpi-media, run `git pull` and `sudo bash setup.sh` once (from gpi-media, that moves
-everything across to the new name).
+Keep the `pie-tato` folder where it is: your settings live in its `static` folder. To update, press
+Update software at the top of System (it says New version when there is one): it runs `git pull`, and
+if that brings a new version, the Pi puts it in and restarts. Your settings stay as they are. If you
+set it up before it had Update software, or when it was called gpi-media, run `git pull` and
+`sudo bash setup.sh` once (from gpi-media, that moves everything across to the new name).
 
 It starts on a home screen of apps:
 
@@ -51,22 +51,27 @@ It starts on a home screen of apps:
 - **TV**: Plex (Continue watching, Watchlist, Live TV with news and sports), Jellyfin, about 250 old
   cartoons and 150 old films from the Internet Archive, and your own streams
 - **Music**, **Radio**, **Photos** (filters, delete), **Videos** (picks up where you left off)
-- **Weather**, and **Finance**: stock and coin prices and charts. Press Y on Finance to look up more to add
+- **Weather** (press START there to set where you are, and °F or °C), and **Finance**: stock and coin prices
+  and charts. Press Y on Finance to look up more to add
 - **Files**: PDFs, documents, text, pictures, video and music, on the Pi or on your other computers
-- **Camera**: the cameras on your other Pis, or any camera link: switch between them with L and R,
+- **Camera**: any camera on your network, or the ones on your other Pis: switch between them with L and R,
   steer an OBSBOT, take pictures, and have your bot say what it sees
 - **Bot**: talks through Ollama on another computer, sees through your camera and takes pictures,
   out loud if you give it a voice. At work, it acts out what your coding agent is doing, rings a
   bell when it's done, and sends it prompts you type
 - **Simulator**: Rock Paper Scissors (pick a winner before the first capture), Game of Life, Forest Fire
   and the Mandelbrot set, which takes you on dives (or press the d-pad to explore it, A to zoom in and
-  Y to zoom out). Press SELECT to watch one full screen. It can also start cmatrix, hollywood, nyancat
-  and cacafire without a keyboard: in cmatrix, ◀▶ change its colour and ▲▼ its speed, and B stops any of them
+  Y to zoom out). Press SELECT to watch one full screen. It can also start cmatrix, hollywood, nyancat,
+  cacafire and htop without a keyboard: in cmatrix, ◀▶ change its colour and ▲▼ its speed; in htop, ▲▼ move
+  through what's running and X or Y sort it by CPU or memory; and B stops any of them
 - **Games**: Snake (press X and a decision model on your bot's computer plays it for you), and your own
   Game Boy, Game Boy Advance, NES, SNES, Genesis, Master System, Game Gear and PlayStation games, and
   N64, PSP and DS games on a Pi 4 or 5. Two can play on two controllers
-- **System** and **Settings**: WiFi, Bluetooth, the home screen's style, background, colours, location,
-  video size, a TV or monitor's resolution, sound, controller
+- **System** and **Settings**: WiFi, Bluetooth, the home screen's style, background, colours, video size,
+  a TV or monitor's resolution, sound, controller
+- If you'd rather see the apps on the whole screen, set Settings > Full screen apps to On. The status
+  bar, the tabs and the button hints go away, leaving just the app's name at the top. The buttons work
+  the same, and L and R still switch apps
 
 ![Media mode](docs/screens.png)
 
@@ -79,10 +84,16 @@ The GPi Case's own buttons, or any USB or Bluetooth game controller (Xbox, PlayS
   command, A for Enter). To start in the console instead, set Settings > At start-up to Terminal.
 - If your controller is Bluetooth, put it in pairing mode and pick it in Settings > Bluetooth, or
   under Bluetooth on the web page. Keyboards and headphones pair the same way, and while headphones
-  are connected, sound plays through them. If they disconnect, what's playing pauses.
+  are connected, sound plays through them. If they disconnect, what's playing pauses. A USB speaker
+  works the same way while it's plugged in.
 - If A and B are the wrong way round, use that controller to set Settings > Swap A and B to On.
 - If a button does the wrong thing, open Settings > Controller and press each button it asks for.
 - If your controller has no Home button, press Select and Start together.
+- A keyboard works the apps too: W A S D (or the arrow keys) is the d-pad, Enter or Space is A,
+  Backspace or Esc is B, X and Y are X and Y, Q and E are L and R, P is Start and O is Select. Home
+  stays on the controller. In the console, and in a box you're typing into, it types as usual.
+- A trackpad (like the BB9900's) or a mouse works too: swipe to move, one step for a short swipe and a
+  few for a long one, and press it to pick. The right button goes back.
 
 ## The web page
 
@@ -93,6 +104,11 @@ can open it, so if you share your WiFi, set a password in `webui.txt` (see Setti
 films, news, sports, radio, a camera or any app on it. You can also talk to your bot there, and
 pair Bluetooth devices.
 
+**Draw** is paper the shape of the Pi's screen. Draw with your finger or the mouse, add words or a
+photo, and press Show on the Pi: it stays on the screen until you press B, and it's kept in
+`~/Pictures/Drawings`, so you can open it again in Photos. With Live on, it goes to the screen as
+you draw. If you've set up a bot, Ask your bot has it say what it sees.
+
 **Files** takes files or whole folders dropped on it. Music, videos, pictures, documents and games
 each go to their own folder, and settings files like `radio.txt` go to Settings. Each file can
 be shown on the Pi's screen, downloaded or deleted. The Computers tab has your other computers' files.
@@ -101,13 +117,15 @@ be shown on the Pi's screen, downloaded or deleted. The Computers tab has your o
 
 Add a camera on the Camera tab or the web page by typing its address. It can be:
 
+- any camera on your network: a webcam a script shares from another computer, an IP camera, an
+  ESP32-CAM. Its address and port (like `192.168.1.20:5656`) is enough: the picture is found on its
+  page. A link straight to its stream or picture works too.
 - a Pi with a USB camera: run `sudo bash setup.sh --camera` on it. If the camera turns (an OBSBOT,
   a PTZ webcam), the d-pad steers it.
-- any MJPEG or JPEG camera link, such as an ESP32-CAM's
 
 Pis running the camera server show up by themselves under On your network. If a camera is on its
-side, press Y on it in your list of cameras to rotate its picture, and if it turns the wrong way when
-you steer it, press ◀ or ▶ on it.
+side, press Y on it in your list of cameras to rotate its picture. If it turns the wrong way when you
+steer it, press START on it there for its settings: Flip left and right, and Flip up and down.
 
 ## Games
 
@@ -117,9 +135,11 @@ drop them on the web page (zips work too, for the cartridge ones). They're playe
 Snes9x, Genesis Plus GX, PCSX ReARMed, Mupen64Plus-Next, PPSSPP and melonDS.
 
 In a game, Home opens its menu: save or load a state, start over, the players, the volume, the picture
-size, or quit. Quitting keeps your place for next time. If you want to play with someone, plug in or pair
-a second controller: the one that started the game is player 1, and the next one to press a button is
-player 2 (an N64 game takes four).
+size, the AI player (see Bot below), or quit. For the picture, Fit keeps the game's shape, Sharp uses
+whole pixels, and Fill fills the screen: on a TV an N64 game is drawn wide, and the others are
+stretched. Each console keeps its own. Quitting keeps your place for next time. If you want to play
+with someone, plug in or pair a second controller: the one that started the game is player 1, and the
+next one to press a button is player 2 (an N64 game takes four).
 
 - N64: the right stick is the C buttons, and L2 is Z.
 - DS (with the 64-bit Raspberry Pi OS): both screens side by side, and the right stick moves a pointer
@@ -128,7 +148,8 @@ player 2 (an N64 game takes four).
 - A BIOS isn't needed, but if you have one from your own console, put it in `Games/BIOS` and more
   PlayStation games work.
 
-Press Y on the Games tab to find pictures of your games.
+Press Y on the Games tab to find pictures of your games. If you have a lot of them, press Start to
+search by name (or by console, like `gba`), and B to see them all again.
 
 ## Other computers
 
@@ -143,13 +164,21 @@ model in Settings > Bot, or on the web page. On that computer Ollama has to list
 network (`OLLAMA_HOST=0.0.0.0`). The bot knows the time, the weather, your stocks and coins, and
 what's playing. Ask it to take a picture and your camera takes one, into Photos and the conversation.
 
-With a model that can see (Gemma, LLaVA, Qwen-VL), it also looks through your camera now and then
-and says what it sees, and looks at pictures you send it: press X on the Bot page to pick one from
-Photos, or use the picture button on the web page to send one from your phone. Press SELECT on the
-Camera tab, or Describe on the web page's Cameras, and it says what that camera sees.
+It also looks through your camera now and then and says what it sees, and looks at pictures you
+send it: press X on the Bot page to pick one from Photos, or use the picture button on the web page
+to send one from your phone. Press SELECT on the Camera tab, or Describe on the web page's Cameras,
+and it says what that camera sees. It looks with the model you picked; if that model can't see
+pictures, it tells you.
 
 If that computer has a decision model (Ollama 0.35 or newer: `ollama pull nimble`), press X in
 Snake and the model plays. Pick which one in Snake's options (START), and Slow if it can't keep up.
+
+It can also play your games for you: in a game, open its menu with Home and press ▶ on AI player to
+pick a decision model. It looks at the screen and picks the next button to press, while the game goes
+on at its own speed, and your buttons wait while it plays. It plays Pokémon Emerald (the English
+cartridge) best, as there it reads the game's memory too: it battles, reads, answers, walks around and
+works toward the next badge, though it can't shop, catch Pokémon or solve every puzzle yet. What it saw
+and picked goes in `Games/Saves`, in a file ending in `.ai.log`.
 
 If you pick a voice in Settings > Bot > Voice, it says its replies out loud with
 [Piper](https://github.com/rhasspy/piper), which runs on the Pi. The first time, the Pi
@@ -203,7 +232,7 @@ All optional, in the `static` folder. Git leaves them out, so they stay off GitH
 | `streams.txt`, `radio.txt` | your own streams and stations, `Name \| URL` per line |
 | `finance.txt` | `stocks =` the stocks to show (tickers, as on Yahoo Finance) and `coins =` the coins (CoinGecko ids). Y on the Finance tab adds and removes them |
 | `camera.txt` | `camera =` an address per line, a name after it if you like |
-| `bot.txt` | `server =`, `model =`, `eyes =` (a model that can see) and `voice =` (Settings > Bot writes these) |
+| `bot.txt` | `server =`, `model =` and `voice =` (Settings > Bot writes these) |
 | `homeassistant.txt` | `url =` and `token =` (a long-lived access token). Your TVs and lights are found by themselves, and `lights =` picks which lights show |
 | `pihole.txt` | `address =` and `password =`: the Pi-hole page writes them when you sign in there |
 | `jellyfin.txt` | `server =` if your Jellyfin server isn't found by itself, and `user =` and `password =` if you'd rather not use Quick Connect |
@@ -217,7 +246,7 @@ makes it smaller by itself in the background, in place of the original.
 
 ## AI-Assisted Development
 
-Pitato was built with the help of AI, but bringing the idea to life took a bit of hands-on work, testing, and troubleshooting.
+Pie-tato was built with the help of AI, but bringing the idea to life took a bit of hands-on work, testing, and troubleshooting.
 I'm building this project because I enjoy experimenting with hardware, making useful things out of devices I already
 own, and seeing how far I can push them.
 
@@ -225,7 +254,7 @@ I understand that people have different opinions about AI-assisted development, 
 every line of code was written by hand. What matters to me is building something real, sharing what I've made,
 and hopefully giving other people something they can build on.
 
-Pitato is an ongoing project, and there's still plenty I'd like to improve.
+Pie-tato is an ongoing project, and there's still plenty I'd like to improve.
 
 ## License
 

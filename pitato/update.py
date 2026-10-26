@@ -1,11 +1,12 @@
-"""System > Update software: a newer Pitato where it came from, and putting it in.
+"""System > Update software: a newer Pie-tato where it came from, and putting it in.
 
-The pitato folder is a git clone (git clone, then sudo bash setup.sh). Now and then it's asked, as the folder's owner
-(git fetch: never as root, which would leave files in it that git pull couldn't change), whether there's anything
-newer; System shows Update software only while there is. That runs git pull, then setup.sh --update (no questions:
-it keeps how it was set up), then restarts the Pi, as a job of its own (systemd-run), so setup.sh putting in a new
-media mode can't stop it partway. setup.sh notes what it put in: an update that got no further than git pull is
-offered again, to finish."""
+The Pie-tato folder is a git clone (git clone, then sudo bash setup.sh). Update software is always at the top of System;
+now and then it's asked, as the folder's owner (git fetch: never as root, which would leave files in it that git pull
+couldn't change), whether there's anything newer, and the row says so. Pressed, it runs git pull; if that brought a
+newer version, setup.sh --update (no questions: it keeps how it was set up), then a restart of the Pi, as a job of its
+own (systemd-run), so setup.sh putting in a new media mode can't stop it partway. Nothing newer: it says it's up to
+date, and nothing's restarted. setup.sh notes what it put in: an update that got no further than git pull is put in
+the next time."""
 import os
 import pwd
 import shlex
@@ -29,24 +30,34 @@ INSTALLED = os.path.join(os.path.dirname(STATE_FILE), "installed-commit")   # wh
 GIT_QUIET = {"GIT_TERMINAL_PROMPT": "0", "GIT_SSH_COMMAND": "ssh -o BatchMode=yes -o ConnectTimeout=20",
              "LC_ALL": "C"}    # (a question from git or ssh would wait for ever, unseen: an error instead)
 UPDATE_SH = """#!/bin/bash
-# Pitato's update, from System > Update software (pitato/update.py wrote this): the pitato folder brought up to date
-# by git pull, as its owner; then setup.sh --update puts it in, and the Pi restarts.
+# Pie-tato's update, from System > Update software (pitato/update.py wrote this): the Pie-tato folder brought up to date
+# by git pull, as its owner; then, if that brought a newer version (or the last one wasn't put in), setup.sh --update
+# puts it in, and the Pi restarts. Nothing newer: it's up to date, and that's all.
 DIR="$1" OWNER="$2"
 STATUS={status}
+INSTALLED={installed}
 exec > {log} 2>&1
 say() {{ printf '%s\\n' "$1" > "$STATUS.tmp" && mv -f "$STATUS.tmp" "$STATUS"; }}
-echo "Pitato update, $(date)"
+echo "Pie-tato update, $(date)"
 say pull
 HOME_DIR="$(getent passwd "$OWNER" | cut -d: -f6)"
 AS=()
 if [ "$(id -u)" = 0 ] && [ "$OWNER" != root ]; then AS=(runuser -u "$OWNER" --); fi
-"${{AS[@]}}" env HOME="$HOME_DIR" GIT_TERMINAL_PROMPT=0 \\
-  GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=20" git -C "$DIR" pull --ff-only > "$STATUS.pull" 2>&1
+git_() {{ "${{AS[@]}}" env HOME="$HOME_DIR" GIT_TERMINAL_PROMPT=0 \\
+  GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=20" git -C "$DIR" "$@"; }}
+WAS="$(git_ rev-parse HEAD 2> /dev/null)"
+git_ pull --ff-only > "$STATUS.pull" 2>&1
 rc=$?
 cat "$STATUS.pull"
 if [ $rc -ne 0 ]; then
   say "failed pull $(tr -s '\\n\\t' '  ' < "$STATUS.pull" | cut -c1-400)"
   exit 1
+fi
+NOW="$(git_ rev-parse HEAD 2> /dev/null)"
+if [ -n "$NOW" ] && [ "$NOW" = "$WAS" ] && [ "$(cat "$INSTALLED" 2> /dev/null)" = "$NOW" ]; then
+  echo "==> Already up to date"
+  say uptodate
+  exit 0
 fi
 say install
 echo "==> Putting it in"
@@ -62,7 +73,7 @@ systemctl reboot
 
 
 def update_folder():
-    """The pitato folder this was put in from (setup.sh tells the service where its settings are: the static
+    """The Pie-tato folder this was put in from (setup.sh tells the service where its settings are: the static
     folder in it), when it's a git clone; else None."""
     folder = os.path.dirname(os.path.abspath(STATIC))
     if os.path.isdir(os.path.join(folder, ".git")) and os.path.isfile(os.path.join(folder, "setup.sh")):
@@ -84,9 +95,9 @@ def update_why(status):
     if words.startswith("pull"):
         said = words[len("pull"):].lower()
         if any(w in said for w in ("fast-forward", "diverg", "rejected")):
-            return "The update didn't start: this Pi's pitato folder has changes of its own (git pull says more)"
+            return "The update didn't start: this Pi's Pie-tato folder has changes of its own (git pull says more)"
         if any(w in said for w in ("would be overwritten", "commit your changes", "unmerged", "conflict")):
-            return "The update didn't start: files in the pitato folder were changed here (git pull says which)"
+            return "The update didn't start: files in the Pie-tato folder were changed here (git pull says which)"
         if any(w in said for w in ("resolve host", "unable to access", "could not read from remote", "timed out",
                                    "unreachable", "connection")):
             return "The update didn't start: GitHub didn't answer. Is the WiFi on?"
@@ -97,13 +108,14 @@ def update_why(status):
 
 
 class Updater:
-    """Whether there's a newer Pitato (looked at on a thread of its own, now and then), and the update itself."""
+    """Whether there's a newer Pie-tato (looked at on a thread of its own, now and then), and the update itself."""
 
     def __init__(self, folder=None):
         self.folder = update_folder() if folder is None else folder or None
         self.lock = threading.Lock()
         self.new = 0               # newer versions (commits) waiting where it came from
         self.behind = False        # one pulled, but not put in yet (an update that didn't finish)
+        self.fetched = False       # the last look reached where it came from (nothing newer then: it's up to date)
         self.looked = 0.0          # when it last looked (monotonic)
         self.looking = False
         self.started = 0.0         # an update under way since then (monotonic)
@@ -114,17 +126,23 @@ class Updater:
 
     # -- what's there ---------------------------------------------------------------------------------------------
     def available(self):
+        """A newer version's waiting (or one pulled and not put in)."""
         return bool(self.folder) and (self.new > 0 or self.behind)
+
+    def shown(self):
+        """Update software is at the top of System: always, when the Pie-tato folder's a git clone (it can update)."""
+        return bool(self.folder)
 
     def words(self):
         """What System's Update software row says on its right."""
-        return "New version" if self.new > 0 else "Finish updating" if self.behind else ""
+        return ("New version" if self.new > 0 else "Finish updating" if self.behind else
+                "Up to date" if self.fetched else "")
 
     def owner(self):
         return pwd.getpwuid(os.stat(self.folder).st_uid)
 
     def git(self, *args, timeout=60):
-        """git in the pitato folder, as its owner: (ok, what it said, its error)."""
+        """git in the Pie-tato folder, as its owner: (ok, what it said, its error)."""
         try:
             u = self.owner()
             env = dict(os.environ, HOME=u.pw_dir, **GIT_QUIET)
@@ -154,6 +172,7 @@ class Updater:
                 if ok and out.isdigit():
                     self.new = int(out)
                 self.behind = bool(here_ok and put_in and put_in != head)
+                self.fetched = fetched and ok
                 self.looked = time.monotonic()
         finally:
             self.looking = False
@@ -199,14 +218,15 @@ class Updater:
         try:
             os.makedirs(UPDATE_RUN, exist_ok=True)
             with open(UPDATE_SCRIPT, "w") as f:
-                f.write(UPDATE_SH.format(status=shlex.quote(UPDATE_STATUS), log=shlex.quote(UPDATE_LOG)))
+                f.write(UPDATE_SH.format(status=shlex.quote(UPDATE_STATUS), log=shlex.quote(UPDATE_LOG),
+                                         installed=shlex.quote(INSTALLED)))
             os.chmod(UPDATE_SCRIPT, 0o700)
             with open(UPDATE_STATUS, "w") as f:
                 f.write("start\n")
             owner = self.owner().pw_name
         except (OSError, KeyError) as ex:
             return f"The update didn't start ({ex})"
-        cmd = ["systemd-run", "--quiet", "--collect", f"--unit={UPDATE_UNIT}", "--description=Pitato update",
+        cmd = ["systemd-run", "--quiet", "--collect", f"--unit={UPDATE_UNIT}", "--description=Pie-tato update",
                "/bin/bash", UPDATE_SCRIPT, self.folder, owner]
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL)
@@ -244,10 +264,13 @@ class Updater:
         return False
 
     def progress(self):
-        """How the update's getting on: ("going", words), ("restarting", words) or ("failed", why)."""
+        """How the update's getting on: ("going", words), ("restarting", words), ("uptodate", words): git pull
+        brought nothing newer, or ("failed", why)."""
         status = read_text(UPDATE_STATUS)
         if status.startswith("failed"):
             return "failed", update_why(status)
+        if status == "uptodate":
+            return "uptodate", "Pie-tato is up to date"
         if status == "restart":
             return "restarting", "The new version starts in a moment"
         if time.monotonic() - self.started > UPDATE_GRACE and not self.going():
@@ -259,7 +282,8 @@ class Updater:
         return "going", "Getting the new version"
 
     def done(self):
-        """The update's over (it didn't work): System looks again, to show what's left to do."""
+        """The update's over (it didn't work, or there was nothing newer): System looks again, to show what's left
+        to do."""
         self.started = 0.0
         self.looked = 0.0
         self.poke()

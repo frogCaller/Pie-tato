@@ -11,7 +11,8 @@ class KeyboardScreen:
         """A box to type in: done(text) when you're done. local: it notes whether the web page's remote typed
         in it (kb["remote"]). cancel(text): what you typed, when you back out."""
         back = self.kb["back_to"] if self.kb else self.view       # one box straight after another
-        self.kb = {"title": title, "text": text, "done": done, "r": row, "c": 0, "shift": False, "sym": False,
+        self.kb = {"title": title, "text": text, "done": done, "r": row, "c": 0, "shift": False, "caps": False,
+                   "sym": False,
                    "back_to": back, "strip": strip, "empty": empty, "limit": limit, "local": local,
                    "cancel": cancel, "remote": False}
         self.view = "keys"
@@ -63,8 +64,8 @@ class KeyboardScreen:
         elif name == "a":
             if kb["r"] < len(KEY_ROWS):
                 ch = (KEY_SYMBOLS if kb["sym"] else KEY_ROWS)[kb["r"]][kb["c"] % 10]
-                self.keyboard_key("char", ch.upper() if kb["shift"] else ch)
-                kb["shift"] = False
+                self.keyboard_key("char", ch.upper() if kb["shift"] or kb.get("caps") else ch)
+                kb["shift"] = False                    # (⇧: the next letter; Caps: all of them, till it's off)
             else:
                 what = KEY_BOTTOM[kb["c"]][0]
                 if what == "shift":
@@ -81,8 +82,8 @@ class KeyboardScreen:
             self.keyboard_key("back")
         elif name == "y":
             self.keyboard_key("char", " ")
-        elif name == "select" and not repeat:
-            kb["shift"] = not kb["shift"]
+        elif name == "select" and not repeat:      # Caps on, or off
+            kb["caps"], kb["shift"] = not kb.get("caps"), False
         elif name == "start" and not repeat:
             self.keyboard_key("done")
         elif name == "b" and not repeat:
@@ -94,7 +95,8 @@ class KeyboardScreen:
 
     def render_keys(self):
         F = self.fonts
-        kb = self.kb or {"title": "", "text": "", "r": 0, "c": 0, "shift": False}
+        kb = self.kb or {"title": "", "text": "", "r": 0, "c": 0, "shift": False, "caps": False}
+        upper = kb["shift"] or kb.get("caps")
         img, d = self.canvas()
         W = self.fb.w
         self.title_row(d, kb["title"])
@@ -114,7 +116,7 @@ class KeyboardScreen:
                 x, y = x0 + c * (kw + gap), y0 + r * (kh + gap)
                 on = kb["r"] == r and kb["c"] == c
                 d.rounded_rectangle((x, y, x + kw, y + kh), radius=9, fill=ACCENT if on else ROW)
-                label = ch.upper() if kb["shift"] else ch
+                label = ch.upper() if upper else ch
                 d.text((x + kw / 2, y + kh / 2), label, font=F["keycap"], fill=BG if on else TEXT, anchor="mm")
         y = y0 + len(KEY_ROWS) * (kh + gap)
         x = x0
@@ -122,7 +124,7 @@ class KeyboardScreen:
         for c, (what, label, span) in enumerate(KEY_BOTTOM):
             w = unit * span
             on = kb["r"] == len(KEY_ROWS) and kb["c"] == c
-            lit = (what == "shift" and kb["shift"]) or (what == "sym" and kb.get("sym"))
+            lit = (what == "shift" and upper) or (what == "sym" and kb.get("sym"))
             d.rounded_rectangle((x, y, x + w, y + kh), radius=9,
                                 fill=ACCENT if on else (LINE if not lit else MUTED))
             if what == "sym" and kb.get("sym"):
@@ -130,5 +132,6 @@ class KeyboardScreen:
             d.text((x + w / 2, y + kh / 2), label, font=F["keycap"] if len(label) < 3 else F["small"],
                    fill=BG if on else TEXT, anchor="mm")
             x += w + gap
-        self.footer(d, [("A", "Type"), ("X", "Delete"), ("Y", "Space"), ("START", "Done"), ("B", "Cancel")])
+        self.footer(d, [("A", "Type"), ("X", "Delete"), ("Y", "Space"), ("SEL", "Caps", kb.get("caps")),
+                        ("START", "Done"), ("B", "Cancel")])
         self.fb.show(img)

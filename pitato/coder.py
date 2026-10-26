@@ -288,14 +288,15 @@ def co_light(light, accent):
     return off
 
 
-def coder_desk(img, ox=0, oy=0):
-    """The desk and the mug on it (what doesn't move). ox, oy: where its 640x480 start, on a bigger screen."""
+def coder_desk(img, ox=0, oy=0, bottom=None):
+    """The desk and the mug on it (what doesn't move). ox, oy: where its 640x480 start, on a bigger screen. bottom:
+    how far down its front goes (down to the buttons, unless it's said)."""
     from PIL import ImageDraw
     d = ImageDraw.Draw(img)
     top = CO_TOP + oy
     d.rectangle((0, top, img.width, top + 8), fill=CO_DESK)
     d.line((0, top, img.width, top), fill=CO_DESK_EDGE, width=2)
-    d.rectangle((0, top + 8, img.width, img.height - 49), fill=CO_DESK_FRONT)   # (down to the buttons)
+    d.rectangle((0, top + 8, img.width, img.height - 49 if bottom is None else bottom), fill=CO_DESK_FRONT)
     d.rounded_rectangle((ox + 128, oy + 338, ox + 160, top + 2), radius=6, fill=CO_MUG)
     d.arc((ox + 114, oy + 346, ox + 136, oy + 366), 90, 270, fill=CO_MUG, width=5)
     d.rectangle((ox + 131, oy + 341, ox + 157, oy + 345), fill=co_mix(CO_MUG, (255, 255, 255), 0.18))

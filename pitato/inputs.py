@@ -1,10 +1,12 @@
-"""Buttons and keys: game controllers, the keys they stand for in terminal mode, a real keyboard while
-the on-screen one is up, and the GPi Case's power switch."""
+"""Buttons and keys: game controllers, the keys they stand for in terminal mode, a real keyboard (its keys as the
+buttons in media mode, and typing while the on-screen one is up), a trackpad or mouse (its swipes the d-pad in media
+mode), and the GPi Case's power switch."""
 import json
 import os
 import selectors
 import signal
 import threading
+import time
 from evdev import ecodes as e, InputDevice, list_devices
 
 
@@ -185,6 +187,159 @@ class KeyReader:
 NAME = "pitato"
 
 
+# ---- a keyboard in media mode: its keys are the buttons --------------------------------------------
+# W A S D is the d-pad (for a keyboard with no arrows: the BB9900's, say), and the arrows; Enter or the space
+# bar A; Backspace or Esc B; X and Y; Q and E (or [ and ]) L and R; P START, O SELECT. HOME stays the
+# controller's: a key pressed by mistake would leave you typing into the terminal.
+KEYBOARD_BUTTONS = {
+    e.KEY_W: "up", e.KEY_A: "left", e.KEY_S: "down", e.KEY_D: "right",
+    e.KEY_UP: "up", e.KEY_LEFT: "left", e.KEY_DOWN: "down", e.KEY_RIGHT: "right",
+    e.KEY_ENTER: "a", e.KEY_KPENTER: "a", e.KEY_SPACE: "a",
+    e.KEY_BACKSPACE: "b", e.KEY_ESC: "b",
+    e.KEY_X: "x", e.KEY_Y: "y",
+    e.KEY_Q: "l", e.KEY_E: "r", e.KEY_LEFTBRACE: "l", e.KEY_RIGHTBRACE: "r",
+    e.KEY_P: "start", e.KEY_O: "select",
+}
+
+# a trackpad (the BB9900's) or a mouse, in media mode: a swipe is the d-pad, a step for each bit of the way it goes
+# (the first comes soon, so a short swipe is one); pressed (its left button) it's A, its right button B. A wheel
+# (the BB9900's trackpad with Caps Lock on) steps too, a step a click.
+MOUSE_BUTTONS = {e.BTN_LEFT: "a", e.BTN_RIGHT: "b"}
+SWIPE_FIRST = 50       # moved this far, a swipe's first step (in the mouse's counts: about 30 a mm on the BB9900's)
+SWIPE_MORE = 100       # ...and this much further for each one after it, the same way
+SWIPE_REST = 0.2       # still this long (the finger lifted): what moves next is a new swipe
+SWIPE_SLOW = 0.6       # a step's way gone in this long, or it's forgotten (a finger resting on it, a mouse nudged)
+SWIPE_MOST = 4         # steps at once, at most (one big jump of the mouse)
+WHEEL = {(e.REL_WHEEL, 1): "up", (e.REL_WHEEL, -1): "down", (e.REL_HWHEEL, 1): "right", (e.REL_HWHEEL, -1): "left"}
+STEPS = {("y", 1): "down", ("y", -1): "up", ("x", 1): "right", ("x", -1): "left"}
+
+
+def is_keyboard(dev):
+    """A keyboard (a Bluetooth one, the BBQ20...): letters and Enter. Not our own keys (a controller's, typed
+    into the terminal)."""
+    if dev.name == NAME:
+        return False
+    keys = set(dev.capabilities().get(e.EV_KEY, []))
+    return {e.KEY_A, e.KEY_Z, e.KEY_ENTER} <= keys
+
+
+def is_mouse(dev):
+    """A mouse, or a trackpad that is one (the BB9900 keyboard's, on its own or in with its keys): it moves left
+    and right and up and down, and has a button."""
+    if dev.name == NAME:
+        return False
+    caps = dev.capabilities()
+    return {e.REL_X, e.REL_Y} <= set(caps.get(e.EV_REL, [])) and e.BTN_LEFT in caps.get(e.EV_KEY, [])
+
+
+class Keys:
+    """A keyboard, for media mode: its keys as the buttons (KEYBOARD_BUTTONS); its trackpad, or a mouse, too
+    (its swipes the d-pad, its buttons MOUSE_BUTTONS). Only media mode asks it: the terminal, a text box (KeyReader)
+    and cmatrix and the others have its keys as they are."""
+
+    def __init__(self, dev, mouse=False):
+        self.dev, self.path = dev, dev.path
+        self.mouse = mouse                             # just a mouse (a keyboard's trackpad, on its own): no keys
+        self.codes = set()                             # its keys (and mouse buttons) held down that are buttons
+        self.swipe_reset()
+
+    def held(self):
+        return {KEYBOARD_BUTTONS.get(c) or MOUSE_BUTTONS[c] for c in self.codes}
+
+    @staticmethod
+    def pointer(ev):
+        """It's its mouse's (moving, its wheel, its buttons), not a key."""
+        return ev.type in (e.EV_REL, e.EV_SYN) or (ev.type == e.EV_KEY and ev.code in MOUSE_BUTTONS)
+
+    def translate(self, ev, now=None):
+        """[(button, pressed)] for one raw event: a button's down while any of its keys is (W and the up arrow
+        both up); a swipe's steps, each pressed and let go."""
+        if ev.type in (e.EV_REL, e.EV_SYN):
+            if now is None:                            # when it moved, not when it's read (the menus drawing slowly
+                when = getattr(ev, "timestamp", None)  # on a Pi Zero don't make one swipe two)
+                now = when() if callable(when) else time.monotonic()
+            return self.swipe(ev, now)
+        if ev.type != e.EV_KEY or ev.value not in (0, 1):
+            return []
+        name = KEYBOARD_BUTTONS.get(ev.code) or MOUSE_BUTTONS.get(ev.code)
+        if name is None:
+            return []
+        was = name in self.held()
+        if ev.value:
+            self.codes.add(ev.code)
+        else:
+            self.codes.discard(ev.code)
+        if ev.code in MOUSE_BUTTONS:
+            self.swipe_reset()                         # (pressing it may roll the finger a little: not a swipe)
+        down = name in self.held()
+        return [(name, down)] if down != was else []
+
+    def swipe_reset(self):
+        """No swipe going: the next movement starts one."""
+        self.dx = self.dy = 0                          # moved since the last step
+        self.axis, self.steps = None, 0                # "x" or "y": the way it's going, once it's stepped
+        self.since = self.last = float("-inf")         # when the way to the next step began; when it last moved
+
+    def swipe(self, ev, now):
+        """[(button, pressed)] for its moving: nothing till the report's end (all of it in), its wheel's at once."""
+        if ev.type == e.EV_SYN:
+            if ev.code == e.SYN_DROPPED:
+                self.swipe_reset()                     # (some of it lost: start afresh)
+                return []
+            return self.swipe_steps(now) if ev.code == e.SYN_REPORT else []
+        if not ev.value:
+            return []
+        name = WHEEL.get((ev.code, 1 if ev.value > 0 else -1))
+        if name:                                       # a wheel: a step a click
+            return [(name, d) for _ in range(min(abs(ev.value), SWIPE_MOST)) for d in (True, False)]
+        if ev.code not in (e.REL_X, e.REL_Y) or self.codes & MOUSE_BUTTONS.keys():
+            return []                                  # (moved while it's pressed: nothing)
+        if now - self.last > SWIPE_REST:
+            self.swipe_reset()                         # a new swipe
+            self.since = now
+        elif now - self.since > SWIPE_SLOW:
+            self.dx = self.dy = 0                      # too slow for a step: forgotten
+            self.since = now
+        self.last = now
+        if ev.code == e.REL_X:
+            self.dx += ev.value
+        else:
+            self.dy += ev.value
+        return []
+
+    def swipe_steps(self, now):
+        """[(button, pressed)]: the steps it's gone since the last, each one pressed and let go. A swipe keeps to
+        the way it started (up and down, or left and right) until it rests."""
+        out = []
+        for _ in range(SWIPE_MOST):
+            axis = self.axis or ("y" if abs(self.dy) >= abs(self.dx) else "x")
+            moved = self.dy if axis == "y" else self.dx
+            need = SWIPE_MORE if self.steps else SWIPE_FIRST
+            if abs(moved) < need:
+                return out
+            way = 1 if moved > 0 else -1
+            name = STEPS[(axis, way)]
+            out += [(name, True), (name, False)]
+            self.axis, self.steps, self.since = axis, self.steps + 1, now
+            if axis == "y":
+                self.dx, self.dy = 0, moved - way * need
+            else:
+                self.dx, self.dy = moved - way * need, 0
+        self.dx = self.dy = 0                          # (as many as there may be at once: the rest dropped)
+        return out
+
+    def let_go(self, kind=None):
+        """The buttons it's holding down, let go of (they aren't media mode's now): all of them, or just its keys'
+        ("keys") or its mouse's ("pointer", a swipe going forgotten too)."""
+        before = self.held()
+        if kind == "keys":
+            self.codes = {c for c in self.codes if c in MOUSE_BUTTONS}
+        else:
+            self.codes = set() if kind is None else {c for c in self.codes if c not in MOUSE_BUTTONS}
+            self.swipe_reset()
+        return sorted(before - self.held())
+
+
 # ---- input: controllers ---------------------------------------------------------
 CHORD_WAIT = 0.25   # no HOME button: how long SELECT or START waits to see if the other comes
 SCAN_EVERY = 2.0    # seconds between looks for controllers plugged in
@@ -362,6 +517,7 @@ class Pads:
     def __init__(self, sel):
         self.sel = sel
         self.by_path = {}
+        self.keyboards = {}          # path -> Keys: keyboards (and mice), their keys the buttons in media mode
         self.skip = {}               # path -> its device node: looked at, not a controller
         self.power = {}              # path -> PowerKey: the case's power switch
         self.gpi = gpi_case_set_up()
@@ -425,7 +581,7 @@ class Pads:
             pad.apply(None)
 
     def scan(self, now, force=False):
-        """Controllers plugged in since the last look: [Pad]."""
+        """Controllers (and keyboards and mice) plugged in since the last look: [Pad or Keys]."""
         if now < self.next_scan and not force:
             return []
         self.next_scan = now + SCAN_EVERY
@@ -438,7 +594,7 @@ class Pads:
                 del self.skip[path]
         new = []
         for path in sorted(paths):
-            if path in self.by_path or path in self.power:
+            if path in self.by_path or path in self.power or path in self.keyboards:
                 continue
             try:
                 node = os.stat(path).st_ino
@@ -455,6 +611,14 @@ class Pads:
                         self.sel.register(dev, selectors.EVENT_READ, switch)
                         self.power[path] = switch
                         print(f"power switch: {dev.name} ({path})", flush=True)
+                        continue
+                    keyboard = is_keyboard(dev)
+                    if keyboard or is_mouse(dev):      # (a keyboard's trackpad may be a mouse of its own)
+                        kb = Keys(dev, mouse=not keyboard)
+                        self.sel.register(dev, selectors.EVENT_READ, kb)
+                        self.keyboards[path] = kb
+                        print(f"{'mouse' if kb.mouse else 'keyboard'}: {dev.name} ({path})", flush=True)
+                        new.append(kb)
                         continue
                     dev.close()
                     self.skip[path] = node
@@ -479,6 +643,8 @@ class Pads:
     def drop(self, pad):
         if isinstance(pad, PowerKey):
             self.power.pop(pad.path, None)
+        elif isinstance(pad, Keys):
+            self.keyboards.pop(pad.path, None)
         else:
             self.by_path.pop(pad.path, None)
         try:

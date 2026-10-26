@@ -1,6 +1,9 @@
-"""The Camera tab's cameras: your other Pis running camera.py, or any MJPEG or JPEG link."""
+"""The Camera tab's cameras: your other Pis running camera.py, or any camera with a stream, a picture or a web
+page (an address and its port is enough: the picture is found there)."""
+import html
 import io
 import json
+import re
 import socket
 import threading
 import time
@@ -11,15 +14,36 @@ import uuid
 from .config import clean_name, read_lines, read_own_text, settings_file, write_setting
 from .util import save_picture
 from .net import cam_address, cam_host, cam_json, CAM_JSON_MAX, cam_key, cam_open, read_capped
+from .screen import slow_pi
 
 
-# Camera tab: cameras on other Pis (PiE-ink, or camera.py from this repo), or any MJPEG/JPEG link
+# Camera tab: cameras on other Pis (PiE-ink, or camera.py from this repo), or any camera on your network
 CAM_SPEED = {"slow": 25, "normal": None, "fast": 120}   # None: the camera's own setting
 CAM_TICK = 0.15          # stick messages while the d-pad is held (it stops after 0.7 s quiet)
-CAM_FPS = 4              # how often the picture refreshes on the Camera tab
+CAM_FPS = 4              # how often a camera that's only a picture is fetched, for the Camera tab
+CAM_STREAM_FPS = (15, 8)  # ...and the pictures of one that streams, shown at most this many a second (on a Pi 4
+                          # or 5; on a slower Pi)
+PIE_STREAM = "/api/camera/stream"   # a Pi's camera (camera.py's): its stream, watched rather than its picture fetched
+PIE_STREAMS = ("Pitato camera", "Pie-tato camera")   # ...the camera server that has one, as it says (PiE-ink's
+                                                     # picture is fetched). camera.py says the first, as it always has
+                                                     # (Pis not yet updated look for it): shown as the second
+CAM_SHOWN_AS = {"Pitato camera": "Pie-tato camera"}   # a camera server's name, as the Camera tab and web page show it
+CAM_STREAM_WAIT = 15.0   # seconds a stream may send nothing before it's connected again (some send a picture only
+                         # when they have a new one)
+CAM_STALE = 3.0          # seconds without a new picture: "Reconnecting…" over the last one, which stays up
+CAM_LOST = 20.0          # ...this long (or nothing yet, twice): "Can't reach this camera"
+CAM_RETRY = (0.3, 1.0, 2.0)   # seconds before connecting again, after each time in a row it didn't work
 CAM_PORTS = (5000, 5433)  # where a Pi's camera answers: PiE-ink's web app, then camera.py
-CAM_LINKS = [(8080, "/?action=stream"), (8080, "/stream"), (81, "/stream"), (8081, "/")]  # other servers
-CAM_PATHS = ("/stream", "/?action=stream", "/video", "/mjpg/video.mjpg", "/")   # ...at an address:port
+CAM_LINKS = [(8080, "/?action=stream"), (8080, "/stream"), (81, "/stream"), (8081, "/"), (80, "/")]  # other servers
+CAM_PATHS = ("/video_feed", "/stream", "/stream.mjpg", "/video", "/mjpeg", "/?action=stream", "/mjpg/video.mjpg",
+             "/video.mjpg", "/live", "/feed", "/cam", "/camera", "/webcam", "/videostream.cgi", "/snapshot.jpg",
+             "/shot.jpg", "/capture", "/image.jpg", "/jpg")   # ...at an address:port: where camera servers put it
+CAM_BATCH = 4            # places asked at once (a camera that answers one at a time keeps up)
+CAM_PAGE_MAX = 300_000   # bytes of a camera's web page read, for the picture on it
+CAM_PAGE_LINKS = 8       # pictures on a page tried, at most
+CAM_SNIFF = 4096         # bytes looked at, when a camera doesn't say what it sends
+CAM_LINK_WORDS = re.compile(r"stream|video|mjpe?g|jpe?g|snap|shot|feed|cam|frame|image|live|capture|picture|cgi",
+                            re.I)
 CAM_BEACON = 5151        # PiE-inks and camera.py say they're there, a few times a minute
 CAM_FOUND_FOR = 30       # a camera gone quiet this long drops off "On your network"
 CAM_FOUND_KEEP = 16      # at most this many cameras heard on the network are kept in mind
@@ -36,6 +60,27 @@ CAM_TURNS = (0, 90, 180, 270)   # a camera's picture turned clockwise (a camera 
 TURNED_DPAD = {90: {"up": "left", "right": "up", "down": "right", "left": "down"},   # (the picture's up, as the
                180: {"up": "down", "right": "left", "down": "up", "left": "right"},   # camera turns for it)
                270: {"up": "right", "right": "down", "down": "left", "left": "up"}}
+
+
+class NotAStream(OSError):
+    """What answered where a stream was looked for isn't one (a web page, say)."""
+
+
+def fit_size(w, h, area):
+    """(width, height) of a w x h picture as big as fits in area (w, h), its shape kept."""
+    s = min(area[0] / w, area[1] / h)
+    return max(int(w * s), 1), max(int(h * s), 1)
+
+
+def fit_picture(im, area):
+    """A picture made as big as fits in area (w, h), its shape kept (None: no area)."""
+    if im is None or not area or area[0] < 1 or area[1] < 1:
+        return None
+    size = fit_size(im.width, im.height, area)
+    if size == im.size:
+        return im
+    from PIL import Image
+    return im.resize(size, Image.BILINEAR)
 
 
 def turn_picture(im, deg):
@@ -63,10 +108,10 @@ def turn_file(data, deg, quality=90):
         return data
 
 
-# ---- cameras: other Pis (PiE-ink, or camera.py), or any MJPEG/JPEG link ------------------------
+# ---- cameras: other Pis (PiE-ink, or camera.py), or any camera on your network -----------------
 CAMERA_HEAD = ("# Cameras for the Camera tab, one per line:   camera = address   (a name after it if you like)\n"
-               "# A Pi running Pitato's camera server (sudo bash setup.sh --camera),\n"
-               "# or any MJPEG or JPEG camera link.\n")
+               "# Any camera on your network: its address and port (the picture is found there), or its link.\n"
+               "# A Pi can share its USB camera too: sudo bash setup.sh --camera on it.\n")
 
 
 def read_cameras(patterns):
@@ -130,25 +175,86 @@ def edit_cameras(add=None, name="", remove=None):
 
 
 def cam_candidates(addr):
-    """(kind, url) to try at an address, most likely first: a Pi's camera on its usual ports, then
-    where other camera servers usually put their stream. A link with a path is tried as it is."""
+    """(kind, url) to try at an address, most likely first, in two parts: (first, then). First a Pi's camera on
+    its usual ports and the address's own page; then, at an address with a port, where camera servers usually put
+    their stream. A link with a path is tried as it is."""
     full = addr if "://" in addr else "http://" + addr
     u = urllib.parse.urlsplit(full)
     base = f"{u.scheme}://{u.netloc}"
     if u.path not in ("", "/") or u.query:
-        return [("link", full)]
+        return [("link", full)], []
     if u.port:
-        return [("pie", base)] + [("link", base + p) for p in CAM_PATHS]
-    return [("pie", f"{base}:{p}") for p in CAM_PORTS] + [("link", f"{base}:{p}{path}") for p, path in CAM_LINKS]
+        return [("pie", base), ("link", base + "/")], [("link", base + p) for p in CAM_PATHS]
+    return [("pie", f"{base}:{p}") for p in CAM_PORTS] + [("link", f"{base}:{p}{path}") for p, path in CAM_LINKS], []
+
+
+ANSWERED = {"kind": "none"}   # cam_probe: something answered there, but not a camera
+
+
+def read_some(r, most, until):
+    """Up to `most` bytes of an answer: as much as has come by `until` (on time.monotonic())."""
+    out, n = [], 0
+    read = r.read1 if hasattr(r, "read1") else r.read
+    while n < most and time.monotonic() < until:
+        try:
+            chunk = read(min(65536, most - n))
+        except OSError:                               # (timed out, or cut off: what came so far)
+            break
+        if not chunk:
+            break
+        out.append(chunk)
+        n += len(chunk)
+    return b"".join(out)
+
+
+def sniffed(head, length):
+    """What a camera sends, from its first bytes, when it doesn't say (or says it's something else): "mjpeg" for
+    a stream of pictures (a part's boundary first, or a picture with no length to it), "jpeg" for one picture,
+    or None."""
+    h = head.lstrip(b"\r\n")
+    if h.startswith(b"--") and b"\xff\xd8" in h:
+        return "mjpeg"
+    if h.startswith(b"\xff\xd8\xff"):
+        return "jpeg" if length else "mjpeg"
+    if h.startswith(b"\x89PNG"):
+        return "jpeg"
+    return None
+
+
+def page_links(text, url):
+    """The pictures on a camera's web page, as links to try: its <img>s, <video>s and the like first, then what's
+    quoted in it that looks like a link to a stream or a picture (a page's script may put the picture in)."""
+    found = re.findall(r"""<(?:img|video|source|iframe|embed|object)\b[^>]*?\b(?:src|data)\s*=\s*["']?([^"'\s>]+)""",
+                       text, re.I)
+    found += [q for q in re.findall(r"""["']([^"'\s<>(){}]{2,200})["']""", text)
+              if ("/" in q or "." in q) and CAM_LINK_WORDS.search(q)]
+    out = []
+    for link in found:
+        link = html.unescape(link).strip()
+        path = link.lower().split("?")[0].split("#")[0]
+        if not link or link.startswith(("data:", "javascript:", "#", "mailto:", "blob:")) or path.endswith(
+                (".js", ".css", ".png", ".gif", ".svg", ".ico", ".html", ".htm", ".json", ".woff", ".woff2", ".ttf")):
+            continue
+        try:
+            full = urllib.parse.urljoin(url, link).split("#")[0]
+        except ValueError:
+            continue
+        if full.startswith(("http://", "https://")) and full != url and full not in out:
+            out.append(full)
+    return out[:CAM_PAGE_LINKS]
 
 
 def cam_probe(kind, url, timeout=3):
-    """What answers at url: {"kind": "pie"/"mjpeg"/"jpeg", "url", "name", "server"}, or None."""
+    """What answers at url: {"kind": "pie"/"mjpeg"/"jpeg", "url", "name", "server"}; {"kind": "page", "links"}: a
+    web page, and the pictures on it to try; ANSWERED: something else; None: nothing answered."""
     try:
         if kind == "pie":
-            info = cam_json(url + "/api/ptz", timeout)
+            try:
+                info = cam_json(url + "/api/ptz", timeout)
+            except (ValueError, urllib.error.HTTPError):
+                return ANSWERED                         # (something's there: not a Pi's camera)
             if not isinstance(info, dict) or "available" not in info:
-                return None
+                return ANSWERED
             name = clean_name(info.get("name"))
             if not name:                                # PiE-ink: its name is in its status
                 try:
@@ -158,18 +264,30 @@ def cam_probe(kind, url, timeout=3):
             return {"kind": "pie", "url": url, "name": name, "server": clean_name(info.get("server") or "PiE-ink")}
         with cam_open(url, timeout=timeout) as r:
             ctype = (r.headers.get("Content-Type") or "").lower()
-        if "multipart/x-mixed-replace" in ctype:
-            return {"kind": "mjpeg", "url": url, "name": "", "server": "MJPEG stream"}
-        if ctype.startswith("image/"):
-            return {"kind": "jpeg", "url": url, "name": "", "server": "Picture link"}
+            stream = {"kind": "mjpeg", "url": url, "name": "", "server": "MJPEG stream"}
+            picture = {"kind": "jpeg", "url": url, "name": "", "server": "Picture link"}
+            if "multipart/x-mixed-replace" in ctype:
+                return stream
+            if ctype.startswith("image/"):
+                return picture
+            until = time.monotonic() + timeout
+            head = read_some(r, CAM_SNIFF, until)       # (what it sends, if it doesn't say, or says it's a page)
+            what = sniffed(head, r.headers.get("Content-Length"))
+            if what:
+                return stream if what == "mjpeg" else picture
+            if "html" in ctype or "xml" in ctype or head.lstrip()[:1] == b"<":   # a web page: the pictures on it
+                page = head + read_some(r, CAM_PAGE_MAX - len(head), until)
+                links = page_links(page.decode("utf-8", "replace"), r.geturl() or url)
+                return {"kind": "page", "url": url, "links": links} if links else ANSWERED
+            return ANSWERED
+    except urllib.error.HTTPError:
+        return ANSWERED                                 # (something's there: not this)
     except Exception:
         return None
-    return None
 
 
-def cam_detect(addr, timeout=3):
-    """Every likely place at once; the first of them, in order, that answers is the camera."""
-    cands = cam_candidates(addr)
+def cam_probe_all(cands, timeout):
+    """cam_probe on each of [(kind, url)] at once: what answered at each, in order."""
     found = [None] * len(cands)
 
     def one(i, kind, url):
@@ -180,7 +298,65 @@ def cam_detect(addr, timeout=3):
     end = time.monotonic() + timeout * 2 + 1
     for t in threads:
         t.join(max(0.0, end - time.monotonic()))
-    return next((f for f in found if f), None)
+    return list(found)
+
+
+def cam_pick(found):
+    """The camera among what answered: a Pi's camera or a stream before a single picture, each in order."""
+    for kinds in (("pie", "mjpeg"), ("jpeg",)):
+        hit = next((f for f in found if f and f["kind"] in kinds), None)
+        if hit:
+            return hit
+    return None
+
+
+def cam_detect(addr, timeout=3, most=20.0):
+    """What's at an address: a Pi's camera, or any camera's stream or picture. First a Pi's camera and the
+    address's own page (and if that's a web page, the pictures on it); then where camera servers usually put
+    their stream, a few at a time (some answer one at a time). None when nothing answers there at all."""
+    first, queue = cam_candidates(addr)
+    end = time.monotonic() + most
+    results = cam_probe_all(first, timeout)
+    if not any(results):
+        return None
+    tried = {u for _, u in first}
+
+    def pictures_first(found, queue):
+        """The pictures on any page among found, at the front of the queue (once each)."""
+        links = []
+        for p in found:
+            if p and p["kind"] == "page":
+                links += [u for u in p["links"] if u not in tried and u not in links]
+        return [("link", u) for u in links] + [c for c in queue if c[1] not in links]
+    queue = pictures_first(results, queue)
+    while queue and time.monotonic() < end and not any(r and r["kind"] in ("pie", "mjpeg") for r in results):
+        batch, queue = queue[:CAM_BATCH], queue[CAM_BATCH:]
+        tried.update(u for _, u in batch)
+        got = cam_probe_all(batch, timeout)
+        results += got
+        queue = pictures_first(got, queue)
+    return cam_pick(results)
+
+
+def stream_patience(resp, secs):
+    """An answer waited on longer than connecting was: a stream that's quiet a while isn't gone."""
+    try:
+        resp.fp.raw._sock.settimeout(secs)
+    except AttributeError:
+        pass                                          # (as it was opened, then)
+
+
+def cam_grab(url, timeout=4):
+    """A picture from a link: all of it when the camera says how long it is; otherwise the first whole JPEG of
+    what it sends (some send a stream of them while saying it's one picture)."""
+    with cam_open(url, timeout=timeout) as r:
+        ctype = (r.headers.get("Content-Type") or "").lower()
+        if r.headers.get("Content-Length") or not (ctype in ("", "application/octet-stream") or "jp" in ctype):
+            return read_capped(r, CAM_FRAME_MAX, time.monotonic() + timeout * 2)
+        data = next(mjpeg_frames(r, patience=timeout * 2), None)
+    if not data:
+        raise OSError("no picture came")
+    return data
 
 
 def mjpeg_frames(resp, alive=None, patience=10.0):
@@ -218,14 +394,15 @@ def mjpeg_frames(resp, alive=None, patience=10.0):
 class Camera:
     """The Camera tab: cameras on your other Pis, or anywhere on your network.
 
-    A Pi running PiE-ink, or Pitato's own camera server (camera.py: setup.sh --camera), is
+    A Pi running PiE-ink, or Pie-tato's own camera server (camera.py: setup.sh --camera), is
     worked with the same calls as PiE-ink's web page: /api/ptz/drive while the d-pad is held,
     /api/ptz/stop when let go, /api/ptz/set for zoom, /api/ptz/follow and /api/ptz/home; the
     picture comes from /api/camera.jpg, and a picture is taken with its own shutter (POST
-    /api/photos: the camera's biggest size) and copied into ~/Pictures. Any other camera with an
-    MJPEG or JPEG link (an ESP32-CAM, motion, mjpg-streamer...) can be watched, and A keeps the
-    picture on screen. Your cameras are in camera.txt; Pis that say they have one (PiE-ink
-    and camera.py announce themselves) are listed as found."""
+    /api/photos: the camera's biggest size) and copied into ~/Pictures. Any other camera with a
+    stream or a picture (a script sharing a webcam, an ESP32-CAM, motion, mjpg-streamer...) can be
+    watched, found from its address and port alone (cam_detect: on its web page, or where camera
+    servers usually put it), and A keeps the picture on screen. Your cameras are in camera.txt; Pis
+    that say they have one (PiE-ink and camera.py announce themselves) are listed as found."""
 
     def __init__(self):
         self.patterns = []
@@ -247,12 +424,18 @@ class Camera:
         self.reached = None          # True / False once we've tried
         self.frame = None            # the newest picture (PIL image)
         self.jpeg = None             # ...as it came (a camera without a shutter: the photo)
+        self.fit_to = None           # (w, h): where the Camera tab shows it, for...
+        self.fitted = None           # ...(the newest picture, it made that size): made on the camera's thread
         self.frame_at = 0.0
+        self.no_stream = set()       # the Pis whose camera has no stream: their picture's fetched instead
+        self.connecting = False      # connecting again (its stream ended, or it didn't answer), till a picture comes
+        self.was_stale = False       # the screen said "Reconnecting…" last time it looked
         self.action = ""
         self.sid = uuid.uuid4().hex[:10]
         self.seq = 0
         self.running = False
         self.on_change = lambda: None
+        self.on_frame = None         # a new picture came (and nothing else changed): on_change, if it's not set
         self.on_saved = lambda path: None
         self.shooting = False        # a picture on its way
         self.shot = None             # (small copy, path, when) of the last one taken
@@ -265,7 +448,9 @@ class Camera:
         self.scanning = False
         self.on_pie = lambda ip, msg: None   # every PiE-ink heard (it's asked first for what it has)
         self.turns = {}              # cam_key -> how far its picture is turned clockwise (90, 180, 270)
-        self.flips = {}              # cam_key -> True: it turns left when told right (◀▶ on it, in your list)
+        self.flips = {}              # cam_key -> True: it turns left when told right (its settings: START in your
+                                     # list of cameras)
+        self.flips_v = {}            # cam_key -> True: it turns down when told up (there too)
         self.raw = None              # the newest picture, as the camera has it (frame is it turned)
         self.turned = {}             # cam_key -> (when, how far, the picture turned): the last one asked for
         self.lock = threading.Lock()   # the gen, and what its threads bring back, change together
@@ -294,6 +479,11 @@ class Camera:
     def kind_of(self, addr):
         got = self.known.get(cam_key(addr)) or self.found.get(cam_key(addr)) or {}
         return got.get("server", "")
+
+    def kind_shown(self, addr, server=""):
+        """What answers at addr (a camera server's name, a stream...), in words for the screen and the web page."""
+        kind = self.kind_of(addr) or server or ""
+        return CAM_SHOWN_AS.get(kind, kind)
 
     @property
     def where(self):
@@ -331,15 +521,18 @@ class Camera:
                 self.frame = turn_picture(self.raw, self.turn_of(addr))
         self.on_change()
 
-    # one that turns the wrong way: left and right swapped as it's steered
-    def flipped(self, addr):
-        return bool(addr) and self.flips.get(cam_key(addr)) is True
+    # one that turns the wrong way: left and right (or up and down) swapped as it's steered
+    def flipped(self, addr, axis="x"):
+        """Left and right swapped as it's steered; axis "y": up and down."""
+        flips = self.flips_v if axis == "y" else self.flips
+        return bool(addr) and flips.get(cam_key(addr)) is True
 
-    def set_flip(self, addr, on):
+    def set_flip(self, addr, on, axis="x"):
+        flips = self.flips_v if axis == "y" else self.flips
         if on:
-            self.flips[cam_key(addr)] = True
+            flips[cam_key(addr)] = True
         else:
-            self.flips.pop(cam_key(addr), None)
+            flips.pop(cam_key(addr), None)
         self.on_change()
 
     def may_steer(self, addr):
@@ -371,6 +564,7 @@ class Camera:
             got = self.known.get(cam_key(addr)) if addr else None
             self.kind, self.url = (got["kind"], got["url"]) if got else (None, "")
             self.frame, self.raw, self.jpeg, self.reached, self.info, self.zoom = None, None, None, None, {}, None
+            self.fitted, self.connecting = None, False
         self.held.clear()
         self.zoom_dir, self.sel_down, self.start_down, self.action = 0, None, None, ""
         if self.running:
@@ -508,6 +702,8 @@ class Camera:
                 vy = ("up" in held) - ("down" in held)
                 if self.flipped(self.addr):           # (one that turns left when told right)
                     vx = -vx
+                if self.flipped(self.addr, "y"):      # (...or down when told up)
+                    vy = -vy
                 self.seq += 1
                 body = {"vx": vx, "vy": vy, "sid": self.sid, "seq": self.seq}
                 if CAM_SPEED[self.speed]:
@@ -533,55 +729,116 @@ class Camera:
             self.post("/api/ptz/stop", {"sid": self.sid, "seq": self.seq}, base)
 
     def picture_loop(self, gen, kind, url):
+        """The picture while the camera's on screen: its stream watched (connected again when it ends), or its
+        picture fetched a few times a second. A Pi's camera streams too, when it has one (camera.py's does; one
+        that hasn't is fetched from then on). The last picture stays up while it connects again ("Reconnecting…"
+        over it); "Can't reach this camera" only once nothing's come for a while."""
+        fails = 0
+        streams = kind == "pie" and self.kind_of(self.addr) in PIE_STREAMS   # (camera.py's: PiE-ink's is fetched)
         while self.running and gen == self.gen:
             t0 = time.monotonic()
             try:
-                if kind == "mjpeg":
-                    self.watch_stream(gen, url)
-                else:
-                    self.show(gen, self.call(url + "/api/camera.jpg" if kind == "pie" else url,
-                                             timeout=4, raw=True))
+                stream = url if kind == "mjpeg" else url + PIE_STREAM if streams and \
+                    cam_key(url) not in self.no_stream else None
+                if stream:
+                    try:
+                        came = self.watch_stream(gen, stream, only_streams=kind == "pie")
+                    except (urllib.error.HTTPError, NotAStream) as ex:
+                        if kind != "pie" or getattr(ex, "code", 404) not in (404, 405, 501):
+                            raise
+                        self.no_stream.add(cam_key(url))   # (no stream there after all: its picture, fetched)
+                        continue
+                    if not came:
+                        raise OSError("no pictures came")
+                    fails, self.connecting = 0, True
+                    self.wait_a_moment(gen, CAM_RETRY[0])   # (a camera that serves one at a time: done with us)
+                    continue
+                self.show(gen, cam_grab(url + "/api/camera.jpg" if kind == "pie" else url))
+                fails = 0
             except Exception:
+                fails += 1
                 with self.lock:
                     if gen != self.gen:
                         return
-                    gone = time.monotonic() - self.frame_at > 5 and (self.frame is not None or self.reached is None)
-                    if gone:
+                    self.connecting = True
+                    lost = (self.frame is None and fails >= 2) or (self.frame is not None and
+                                                                   time.monotonic() - self.frame_at > CAM_LOST)
+                    if lost:
                         self.frame = self.raw = None
                         if kind != "pie":
                             self.reached = False
-                if gone:
-                    self.on_change()
-                time.sleep(1)
+                self.on_change()
+                self.wait_a_moment(gen, CAM_RETRY[min(fails, len(CAM_RETRY)) - 1])
+                continue
             time.sleep(max(0.0, 1 / CAM_FPS - (time.monotonic() - t0)))
 
+    def wait_a_moment(self, gen, secs):
+        end = time.monotonic() + secs
+        while self.running and gen == self.gen and time.monotonic() < end:
+            time.sleep(0.05)
+
+    @property
+    def stale(self):
+        """The picture on screen is old, and it's connecting again (a stream that's only slow, still connected,
+        isn't: some send a picture every few seconds)."""
+        return self.frame is not None and self.connecting and time.monotonic() - self.frame_at > CAM_STALE
+
+    def stale_changed(self):
+        """Called every loop: True when the picture's just gone old, or come back (the screen says so)."""
+        now = self.stale
+        if now != self.was_stale:
+            self.was_stale = now
+            return True
+        return False
+
     def show(self, gen, data):
+        """A picture that came: decoded (small: quick on a Pi Zero), turned as the camera is, and made the size
+        the Camera tab shows it, here on the camera's thread (the screen's only puts it up)."""
         from PIL import Image
         im = Image.open(io.BytesIO(data))
-        im.draft("RGB", (640, 480))                   # decoded small: quick on a Pi Zero
+        im.draft("RGB", (640, 480))
         rgb = im.convert("RGB")
+        was = self.connecting or self.frame is None   # (back, or the first: the whole screen's drawn again)
+        frame = turn_picture(rgb, self.turn_of(self.addr))
+        fitted = fit_picture(frame, self.fit_to)
         with self.lock:
             if gen != self.gen:
                 return
             self.raw, self.jpeg, self.frame_at, self.reached = rgb, data, time.monotonic(), True
-            self.frame = turn_picture(rgb, self.turn_of(self.addr))
-        self.on_change()
+            self.frame, self.fitted, self.connecting = frame, (frame, fitted), False
+        (self.on_frame if self.on_frame is not None and not was else self.on_change)()
 
-    def watch_stream(self, gen, url):
-        """An MJPEG camera: its stream, a few pictures a second of it decoded."""
+    @staticmethod
+    def stream_fps():
+        """A stream's pictures shown a second, at most: as many as this Pi draws easily."""
+        return CAM_STREAM_FPS[1 if slow_pi() else 0]
+
+    def watch_stream(self, gen, url, only_streams=False):
+        """An MJPEG camera: its stream, as many of its pictures a second decoded as the screen shows (the rest
+        passed over), until it ends (or sends nothing for CAM_STREAM_WAIT). How many pictures came; it raises
+        when it couldn't connect (NotAStream, only_streams: what answered isn't a stream)."""
         alive = lambda: self.running and gen == self.gen   # noqa: E731
+        came = 0
+        every = 0.8 / self.stream_fps()               # (a hair less: one sent at just that rate isn't passed over)
         with cam_open(url, timeout=5) as r:
+            if only_streams and "multipart/x-mixed-replace" not in (r.headers.get("Content-Type") or "").lower():
+                raise NotAStream(url)
+            stream_patience(r, CAM_STREAM_WAIT)
             last = 0.0
-            for jpeg in mjpeg_frames(r, alive):
-                now = time.monotonic()
-                if now - last >= 1 / CAM_FPS:
-                    last = now
-                    try:
-                        self.show(gen, jpeg)
-                    except OSError:
-                        pass                          # a broken picture: the next one
-        if alive():
-            raise OSError("the stream ended")
+            try:
+                for jpeg in mjpeg_frames(r, alive, patience=CAM_STREAM_WAIT):
+                    came += 1
+                    now = time.monotonic()
+                    if now - last >= every:
+                        last = now
+                        try:
+                            self.show(gen, jpeg)
+                        except OSError:
+                            pass                      # a broken picture: the next one
+            except Exception:
+                if not came:
+                    raise                             # (it went quiet, or was cut off: again, as it was going)
+        return came
 
     # the cameras on the network, and a small picture of each for the list
     def listen(self):
@@ -691,6 +948,9 @@ class Camera:
         have = self.thumbs.get(k)
         if have and time.time() - have[2] < max_age:
             return have
+        live = self.live_snapshot(addr, max(max_age, 1.0))
+        if live:
+            return live
         got = self.known.get(k)
         if not got:
             got = cam_detect(addr)
@@ -703,8 +963,7 @@ class Camera:
                 with cam_open(got["url"], timeout=5) as r:
                     data = next(mjpeg_frames(r, patience=8), None)
             else:
-                data = self.call(got["url"] + "/api/camera.jpg" if got["kind"] == "pie" else got["url"],
-                                 timeout=6, raw=True)
+                data = cam_grab(got["url"] + "/api/camera.jpg" if got["kind"] == "pie" else got["url"], timeout=6)
             from PIL import Image
             im = Image.open(io.BytesIO(data or b""))
             im.draft("RGB", (320, 240))
@@ -724,6 +983,19 @@ class Camera:
         self.missing.pop(k, None)
         self.thumbs[k] = (data, small, time.time())
         return self.thumbs[k]
+
+    def live_snapshot(self, addr, max_age):
+        """The camera on screen's newest picture, if it's no older than max_age seconds: a snapshot without a
+        second connection to it (a camera that serves one at a time would make the two take turns)."""
+        with self.lock:
+            if not (self.running and self.addr and cam_key(addr) == cam_key(self.addr)) or self.jpeg is None \
+                    or self.raw is None or time.monotonic() - self.frame_at > max_age or len(self.jpeg) > CAM_KEEP_MAX:
+                return None
+            data, small = self.jpeg, self.raw.copy()
+        small.thumbnail((64, 48))
+        self.missing.pop(cam_key(addr), None)
+        self.thumbs[cam_key(addr)] = (data, small, time.time())
+        return self.thumbs[cam_key(addr)]
 
     # buttons
     def press(self, name):

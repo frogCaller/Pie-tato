@@ -12,10 +12,14 @@ way round? Settings > Swap A and B swaps them on the controller you're holding (
 to it on the web page), and keeps it for that controller. If a button does the wrong thing, Settings >
 Controller sets yours up: press each button it asks for. No HOME button? Press SELECT and START
 together. On the GPi Case, the star with HOME is HOME once, and the star on its own is HOME too, once
-Settings > Controller has it (if the case sends it to the Pi at all).
+Settings > Controller has it (if the case sends it to the Pi at all). A keyboard works media mode too
+(pitato/inputs.py's KEYBOARD_BUTTONS): W A S D or the arrows the d-pad, Enter or space A, Backspace or
+Esc B, X Y, Q E (or [ ]) L R, P START, O SELECT; in the terminal, and in a text box, it types. Its trackpad
+(the BB9900's), or a mouse, works media mode too: a swipe the d-pad, pressed A, its right button B.
 
 The web page (webui.py) shows what's on the screen, has a remote, puts cartoons, films, news,
-radio, apps and your own files on the screen, and pairs Bluetooth devices. It talks to this script on
+radio, apps and your own files on the screen, and pairs Bluetooth devices. Its Draw tab puts a
+drawing on the whole screen until B (kept in ~/Pictures/Drawings). It talks to this script on
 127.0.0.1:5480.
 
 While a video plays, Y turns full screen on or off (the choice is kept for the next videos);
@@ -65,13 +69,15 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
   Radio       - real stations by genre, popular near you, or search by name (from the free
                 Radio Browser directory), and your own list in static/radio.txt
   Camera      - cameras on your other Pis (PiE-ink, or this repo's camera.py: setup.sh
-                --camera) or any MJPEG/JPEG link, listed in static/camera.txt or added by typing
-                an address; L/R switch between them, the d-pad steers one that turns
+                --camera) or any camera on your network (its address and port: the picture is
+                found on its page, or where camera servers put it; or its stream's link), listed
+                in static/camera.txt or added by typing an address; L/R switch between them, the
+                d-pad steers one that turns
                 (an OBSBOT), A takes a picture into ~/Pictures; SELECT has the bot say what it
                 sees, out loud with a voice (then holding START sets how fast one turns); Y
                 rotates a camera's picture 90° (one on its side: Y on it in the list, B, if Y
-                zooms it); ◀▶ on one in the list swaps left and right for one that turns the
-                wrong way
+                zooms it); START on one in the list has its settings: Flip left and right, Flip
+                up and down (one that turns the wrong way), Turn the picture
   Photos      - pictures in ~/Pictures as a thumbnail grid, with zoom and slideshow;
                 X adds a filter (saved as a copy), SELECT deletes
   Videos      - files in ~/Videos, resume where you left off; a video too big for the Pi to play
@@ -87,24 +93,32 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
                 START picks the model.
                 Your own games, in the Games folder: Game Boy, GBA, NES, SNES, Genesis, Master System, Game
                 Gear, PlayStation and (on a Pi 4 or 5) N64, PSP and DS play here (HOME is a game's menu: save
-                states, discs, players, quit). Two players (four on an N64) each have a controller: the
+                states, discs, players, the picture (Fill: the whole screen, an N64 game drawn wide on a TV),
+                quit). Two players (four on an N64) each have a controller: the
                 one that started the game is player 1, the next one pressed player 2. An N64
                 game takes the sticks as they are: the right one is its C buttons (or R2 held with A B X Y),
                 L2 is Z; on a controller with no stick, the d-pad is one. A PSP game's buttons go by where
                 they are (the bottom one is Cross), and the left stick is its own. A DS game (melonDS, on the
                 64-bit Raspberry Pi OS) shows both screens side by side (its menu's Screens: other ways);
                 the right stick moves a pointer on the touch screen and R2 touches it (or the d-pad and A,
-                with its menu's Touch screen), L2 blows on the microphone, the left stick is the d-pad
+                with its menu's Touch screen), L2 blows on the microphone, the left stick is the d-pad.
+                Any game: its menu's AI player has a decision model on your bot's computer play it,
+                looking at the screen and picking the next button (pitato/anygame.py), the game going on
+                at its own speed; Pokémon Emerald (the English cartridge) from the game's memory too
+                (pitato/emerald.py): battles, text, questions, walking to doors, roads, people and grass,
+                toward the next badge. Your buttons wait while it plays, and Games/Saves/<game>.ai.log
+                has what it saw and picked. START on the list finds a game by name (or console), B all again
   Weather     - like PiE-ink's: now, the next hours, the week, and the US Weather
-                Service's own words; the place is set in Settings
+                Service's own words; START has its settings: where you are, and °F or °C
   Finance     - stock and coin prices with charts, laid out like PiE-ink's crypto screen (yours
                 in static/finance.txt); Y looks stocks up on Yahoo Finance and coins on CoinGecko
                 to add, or removes them
   Bot         - like PiE-ink's bot: a model on another computer running Ollama (Settings >
                 Bot, or static/bot.txt) that knows the time, the weather, your stocks and coins,
                 and what's playing, and now and then says something by itself; its face follows
-                the tone of what it says. With a model that can see, it looks through your camera
-                and says what it sees, and looks at a picture you send it from Photos (X); ask it
+                the tone of what it says. It looks through your camera and says what it sees, and
+                looks at a picture you send it from Photos (X), with the same model (if it turns out
+                that model can't see pictures, it says so and answers without them); ask it
                 to take a picture and your camera takes one, into Photos and the conversation.
                 With a voice (Piper, on the Pi) it says its replies out loud; SELECT says the
                 last one again. Left and right switch it between chat and work: at work it sits
@@ -132,20 +146,26 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
     nyancat     - Linux's own nyancat, on the whole screen: the rainbow cat; B (or HOME) stops it
     cacafire    - libcaca's fire, made of letters, on the whole screen (setup.sh builds it, without
                 "Powered by libcaca"); A pauses it, B (or HOME) stops it
+    htop        - Linux's own htop, on the whole screen: what's running on the Pi; up and down through
+                it (held: on and on), left and right along it, A pauses it, X sorts by CPU, Y by
+                memory, SELECT shows it as a tree, and B (or HOME) stops it
   Files       - browse everything; opens photos, PDFs, documents, text, video, music; Other computers
                 opens another computer's files by its address (Windows and Mac shared folders, or
                 Linux over SSH), read-only
   System      - CPU temperature, WiFi, storage and more; reboot and shut down; Update software at
-                the top while there's a newer version (git pull, setup.sh --update, then a restart)
+                the top, always (New version on it when there's one): git pull, and if that brought a
+                newer version, setup.sh --update, then a restart; nothing newer: it says it's up to date
   Settings    - WiFi (scan, connect, forget), Bluetooth (look, pair, connect, forget: a keyboard shows
-                its code to type), the home screen's style (Bright, Glass, Minimal or Cards),
-                background and colours, clock, location, units, video size, sound (Auto: Bluetooth
-                headphones or a speaker while they're connected, else a TV on HDMI, else the Pi's own;
-                or HDMI, headphones...),
+                its code to type), the home screen's style (Bright, Glass or Cards: the weather on it
+                once Weather knows where you are), background and colours, clock, full screen apps (just the
+                app's name along the top, no bars or buttons), video size, sound (Auto: Bluetooth
+                headphones or a speaker while they're connected, else a USB speaker while it's plugged
+                in, else a TV on HDMI (a monitor that says it has no sound: the headphone jack), else
+                the Pi's own; or HDMI, headphones, a USB speaker...; a microphone isn't listed),
                 controller, swap A and B, start-up, and a random song at start-up. Bluetooth headphones
                 gone while something plays: it pauses (A plays on through the Pi), a game's menu comes up
 
-Your settings files (radio.txt, bot.txt...) are in the static folder of the pitato folder.
+Your settings files (radio.txt, bot.txt...) are in the static folder of the Pie-tato folder.
 setup.sh tells the service where that is; run by hand, it's the static folder next to this script.
 
 The code is in the pitato folder inside it, a file for each part (pitato/__init__.py says
@@ -164,7 +184,7 @@ If a button does the wrong thing, set it up in Settings > Controller (or fix COD
 import os
 import sys
 
-# the rest of it is the pitato package: next to this file (in the pitato folder), or where
+# the rest of it is the pitato package: next to this file (in the Pie-tato folder), or where
 # setup.sh puts it
 for _where in (os.path.dirname(os.path.realpath(__file__)), "/usr/local/share/pitato"):
     if os.path.isfile(os.path.join(_where, "pitato", "__init__.py")):

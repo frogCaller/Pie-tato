@@ -28,6 +28,8 @@ class WebScreen:
             return "Home"
         if self.view == "learn":
             return "Settings › Controller"
+        if self.view == "sketch":
+            return "Your drawing"
         names = []
         p = self.parent_of(self.tab)
         if p is not None:
@@ -81,6 +83,7 @@ class WebScreen:
                                  "path": p.path} for p in pads],
                 "learning": self.learn_status(),
                 "size": list(self.screen_dims() if self.fb else screen_size()),
+                "canvas": [self.fb.w, self.fb.h] if self.fb else None,   # (what the menus, and drawings, are drawn at)
                 "plex": self.plex.signed_in, "msg": self.msg}
 
     def web_screen(self):
@@ -297,6 +300,8 @@ class WebScreen:
             return self.web_camera(cmd)
         if c == "friend":
             return self.web_friend_do(cmd)
+        if c == "sketch":                              # (opened already, by the control server)
+            return self.web_sketch(cmd.get("image"))
         return {"error": "Unknown request"}
 
     # -- the web page's Bluetooth: looked at while it asks (its own threads; not the screen's) -------
@@ -322,8 +327,8 @@ class WebScreen:
             got = cam.known.get(k) or cam.found.get(k) or {}
             th, miss = cam.thumbs.get(k), cam.missing.get(k, 0)
             return {"addr": addr, "name": name or got.get("name") or cam_host(addr) or addr,
-                    "kind": got.get("server", ""), "turn": cam.turn_of(addr),
-                    "steers": cam.may_steer(addr), "flip": cam.flipped(addr),
+                    "kind": cam.kind_shown(addr, got.get("server", "")), "turn": cam.turn_of(addr),
+                    "steers": cam.may_steer(addr), "flip": cam.flipped(addr), "flipv": cam.flipped(addr, "y"),
                     "reach": "no" if miss and (not th or miss > th[2]) else "yes" if th else ""}
         found = [row(f["addr"], f["name"]) for f in list(cam.found.values())
                  if time.time() - f["seen"] <= CAM_FOUND_FOR and cam_host(f["addr"]) not in hosts]
@@ -373,9 +378,9 @@ class WebScreen:
                 return {"error": "That camera isn't in your list"}
             return {"ok": True, "turn": self.camera_turn(addr)}
         if do == "flip":                              # one that turns the wrong way: left and right swapped, or back
-            if not cam.mine(addr):
+            if not cam.mine(addr):                    # (axis "y": up and down)
                 return {"error": "That camera isn't in your list"}
-            on = self.camera_flip(addr)
+            on = self.camera_flip(addr, "y" if cmd.get("axis") == "y" else "x")
             return {"error": "This camera doesn't turn"} if on is None else {"ok": True, "flip": on}
         if do == "show":
             if not cam.mine(addr) and cam_key(addr) not in cam.found:
@@ -409,7 +414,7 @@ class WebScreen:
             real = os.path.realpath(path) if isinstance(path, str) and path else ""
             return {"folder": "pictures", "path": os.path.relpath(real, pics)} \
                 if real.startswith(pics + os.sep) else None
-        return {"ready": fr.ready(), "server": fr.server, "model": fr.model, "eyes": fr.eyes, "name": fr.name,
+        return {"ready": fr.ready(), "server": fr.server, "model": fr.model, "name": fr.name,
                 "chatter": fr.chatter(), "busy": fr.busy, "doing": fr.doing, "face": face, "mood": mood,
                 "camera": self.camera.name_of(addr) if addr else "", "sees": fr.sees(),
                 "log": [{"who": x["who"], "text": x["text"], "t": x["t"], "kind": x.get("kind", ""),
@@ -450,9 +455,10 @@ class WebScreen:
                 return {"error": "That picture can't be sent"}
             if not text and pic is None:
                 return {"error": "Say something first"}
+            since = time.time()                        # (its answer comes after this: the Draw tab waits for it)
             if not fr.say(text, picture=pic):
                 return {"error": "It's still thinking about the last one"}
-            return {"ok": True}
+            return {"ok": True, "since": since}
         if do == "photo":
             if not self.friend_camera():
                 return {"error": "There's no camera. Add one on the Camera tab"}
@@ -485,7 +491,7 @@ class WebScreen:
                 ok, what = self.voice_pick(clean_name(cmd.get("voice"), 80))
                 return {"ok": True, "said": what} if ok else {"error": what}
             updates = {k: " ".join(str(cmd.get(k) or "").split())[:120]
-                       for k in ("server", "model", "eyes", "name") if k in cmd}
+                       for k in ("server", "model", "name") if k in cmd}
             if "speak" in cmd:
                 updates["speak"] = "on" if cmd.get("speak") in (True, "on", "yes", 1, "1") else "off"
             if "chatter" in cmd:

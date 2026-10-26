@@ -7,7 +7,7 @@ from evdev import ecodes as e, UInput
 from .config import move_old_places
 from .library import MENU_RATE, MENU_REPEAT, SCREEN_KINDS
 from .inputs import (
-    BUTTONS, CHORD_WAIT, MEDIA_TOGGLE, NAME, Pads, PowerKey, REPEAT, REPEAT_DELAY, REPEAT_RATE, STAR, STAR_TAP,
+    BUTTONS, CHORD_WAIT, Keys, MEDIA_TOGGLE, NAME, Pads, PowerKey, REPEAT, REPEAT_DELAY, REPEAT_RATE, STAR, STAR_TAP,
     TERMINAL)
 from .control import Control, control_key, serve_control
 from .media import Media
@@ -25,7 +25,7 @@ def run(ui, media, control=None, stop=None):
     pending = {}     # (pad, "select" or "start") -> when it goes out, unless the other comes first
     chorded = set()  # (pad, button) pressed as SELECT + START: its release goes nowhere
     star = {}        # pad -> [when its star went down, whether another button went with it]
-    was = {"learning": False}
+    was = {"learning": False, "keys": False}
 
     def key_down(name):
         keys = TERMINAL[name]
@@ -160,12 +160,52 @@ def run(ui, media, control=None, stop=None):
                     continue                           # (the d-pad, as the stick)
             pad_button(pad, name, down)
 
+    def typing():
+        """A text box is up, or the TV remote's number pad: a keyboard types into it (KeyReader has it)."""
+        return media.view == "keys" or getattr(media, "remote_pad", None) is not None
+
+    def keyboard_event(kb, ev):
+        """A keyboard's key: in media mode, a button (W A S D the d-pad...). In the terminal, and while cmatrix or
+        the others, a text box or Settings > Controller has it, its keys are its own. Its trackpad (or a mouse):
+        media mode's, cmatrix's and a text box's too (it types nothing of its own), but not Settings > Controller's."""
+        pointer = kb.pointer(ev)
+        if not media.active or media.learning or (not pointer and (media.prog is not None or typing())):
+            for name in kb.let_go("pointer" if pointer else "keys"):   # (nothing stays held down)
+                button(name, False)
+            return
+        out = kb.translate(ev)
+        if out or not pointer:
+            media.web_guard = False                    # someone at the Pi has it
+        for name, down in out:
+            if down and time.monotonic() < media.halting:
+                continue                               # shutting down: let go of things, no more
+            button(name, down)                         # (in a game: player 1, as the web page's remote is)
+
+    def keys_check():
+        """A text box (or the number pad) just opened: the keyboards are its own while it's up (KeyReader; their keys
+        let go of there, a trackpad in with one too), so what they're holding down is let go of here now, not left
+        stuck."""
+        now_keys = media.active and typing()
+        if now_keys and not was["keys"]:
+            for kb in pads.keyboards.values():
+                if not kb.mouse:
+                    for name in kb.let_go():
+                        button(name, False)
+        was["keys"] = now_keys
+
+    def keyboard_gone(kb):
+        pads.drop(kb)
+        print(f"{'mouse' if kb.mouse else 'keyboard'} gone: {kb.dev.name}", flush=True)
+        for name in kb.let_go():
+            button(name, False)
+
     def found(new, quiet=False):
         media.keyreader.exclude = set(pads.by_path)
         if new:
             media.dirty = True
             if not quiet and media.active and not media.proc_owns_screen():
-                media.toast(f"{new[-1].dev.name} connected", 2)
+                named = [d for d in new if not getattr(d, "mouse", False)] or new   # (a keyboard and its trackpad:
+                media.toast(f"{named[-1].dev.name} connected", 2)                  # the keyboard's name)
 
     def lost(pad):
         pads.drop(pad)
@@ -227,6 +267,8 @@ def run(ui, media, control=None, stop=None):
     media.pads = pads
     if control is not None:
         sel.register(control.r, selectors.EVENT_READ, "control")
+    if getattr(media, "wake_r", None) is not None:
+        sel.register(media.wake_r, selectors.EVENT_READ, "wake")   # (a camera's new picture: drawn at once)
     found(pads.scan(time.monotonic(), force=True), quiet=True)
     if media.boot_media:                          # Settings: open on the home screen
         media.boot_media = False
@@ -241,6 +283,9 @@ def run(ui, media, control=None, stop=None):
                 timeout = min(timeout, media.tick_limit())
 
             for key, _ in sel.select(timeout):
+                if key.data == "wake":
+                    media.woken()
+                    continue
                 if key.data == "control":
                     for job in control.take():
                         out = {"error": "Something went wrong on the Pi"}
@@ -252,6 +297,20 @@ def run(ui, media, control=None, stop=None):
                             print(f"web page request {job['cmd'].get('cmd')}: {ex!r}", flush=True)
                         finally:
                             control.done(job, out)
+                    continue
+                if isinstance(key.data, Keys):
+                    kb = key.data
+                    if pads.keyboards.get(kb.path) is not kb:
+                        continue                       # gone a moment ago
+                    try:
+                        events = list(kb.dev.read())
+                    except BlockingIOError:
+                        continue
+                    except OSError:
+                        keyboard_gone(kb)
+                        continue
+                    for ev in events:
+                        keyboard_event(kb, ev)
                     continue
                 if isinstance(key.data, PowerKey):
                     switch = key.data
@@ -280,6 +339,7 @@ def run(ui, media, control=None, stop=None):
                 for ev in events:
                     pad_event(pad, ev)
 
+            keys_check()
             found(pads.scan(time.monotonic()))
             media.tick()
             learn_check()
@@ -304,7 +364,7 @@ def run(ui, media, control=None, stop=None):
 
             media.flush()
     finally:
-        for pad in list(pads.by_path.values()) + list(pads.power.values()):
+        for pad in list(pads.by_path.values()) + list(pads.power.values()) + list(pads.keyboards.values()):
             pads.drop(pad)
         sel.close()
 

@@ -7,7 +7,7 @@
 <meta name="referrer" content="no-referrer">
 <meta name="theme-color" content="#0b0d12" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f3f5f8" media="(prefers-color-scheme: light)">
-<title>Pitato</title>
+<title>Pie-tato</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%2360aae4'/%3E%3Crect x='7' y='9' width='18' height='12' rx='2.5' fill='none' stroke='white' stroke-width='2'/%3E%3Cpath d='m14 12.5 4 2.5-4 2.5z' fill='white'/%3E%3C/svg%3E">
 <style>
   /* Atkinson Hyperlegible (Braille Institute; SIL Open Font License, static/fonts/OFL.txt):
@@ -400,6 +400,54 @@
   .fr-setup .label { margin-bottom: 7px; }
   .linkbtn.armed { color: var(--bad); }
 
+  /* ---- draw: a picture for the Pi's screen, on paper its shape ---- */
+  .dr { container-type: inline-size; display: flex; flex-direction: column; gap: 14px; }
+  .dr-bar, .dr-opts, .dr-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; min-width: 0; }
+  .dr-tools { display: flex; flex-wrap: wrap; gap: 2px; padding: 3px; border-radius: 13px; background: var(--surface-2); border: 1px solid var(--line); }
+  .dr-tools button {
+    display: flex; align-items: center; gap: 7px; height: 36px; padding: 0 11px 0 9px; border: 0; border-radius: 10px;
+    background: none; color: var(--muted); font-size: 13.5px; font-weight: 600; white-space: nowrap;
+  }
+  .dr-tools button:hover { color: var(--text); background: var(--hover); }
+  .dr-tools button[aria-pressed="true"] { background: var(--raised); color: var(--text); box-shadow: 0 0 0 1px var(--line-2) inset; }
+  .dr-tools .sep { width: 1px; margin: 7px 3px; background: var(--line-2); }
+  @container (max-width: 800px) { .dr-tools button span { display: none; } .dr-tools button { padding: 0 9px; } }
+  .dr-acts { display: flex; gap: 2px; margin-left: auto; }
+  .dr-head > div { flex: none; }
+  .dr-head .src { min-width: 0; }
+  .ib:disabled, .ib:disabled:hover { opacity: .38; background: none; color: var(--muted); cursor: default; }
+  .dr-stage { display: grid; justify-items: center; min-width: 0; }
+  .dr-paper { position: relative; width: 100%; aspect-ratio: var(--ar, 4 / 3); max-width: var(--dr-max, none); }
+  .dr-paper canvas {
+    position: absolute; inset: 0; width: 100%; height: 100%; display: block; border-radius: 6px; background: #fff;
+    touch-action: none; cursor: crosshair; box-shadow: 0 0 0 1px var(--line-2), 0 22px 44px -28px rgba(0, 0, 0, .9);
+  }
+  .dr-paper[data-tool="select"] canvas { cursor: default; }
+  .dr-paper[data-tool="text"] canvas { cursor: text; }
+  .dr-text {
+    position: absolute; z-index: 2; margin: 0; padding: 0 6px; border: 1.5px dashed var(--accent); border-radius: 4px;
+    outline: none; line-height: 1.2; transform-origin: center; box-shadow: none;
+  }
+  .dr-sws { display: flex; flex-wrap: wrap; gap: 7px; }
+  .dr-sw { position: relative; width: 26px; height: 26px; flex: none; padding: 0; border: 0; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 1px rgba(128, 128, 128, .45) inset; cursor: pointer; }
+  .dr-sw[aria-pressed="true"] { box-shadow: 0 0 0 1px rgba(128, 128, 128, .45) inset, 0 0 0 2px var(--surface), 0 0 0 4px var(--text); }
+  .dr-sw.any { background: conic-gradient(#f44, #fc3, #4c6, #3cf, #55f, #d4d, #f44); }
+  .dr-sw.any i { position: absolute; inset: 7px; border-radius: 50%; background: var(--c, transparent); box-shadow: 0 0 0 1.5px var(--surface); pointer-events: none; }
+  .dr-sw.any input { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; opacity: 0; cursor: pointer; }
+  .dr-size { display: flex; align-items: center; gap: 10px; font-size: 13.5px; font-weight: 600; color: var(--muted); }
+  .dr-size input { width: 120px; accent-color: var(--accent); }
+  .dr-dot { width: 30px; height: 30px; display: grid; place-items: center; flex: none; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1px var(--line-2); }
+  .dr-dot i { border-radius: 50%; background: var(--c); box-shadow: 0 0 0 1px rgba(0, 0, 0, .12); }
+  .dr-font { width: 132px; flex: none; }
+  .dr-font select { height: 34px; font-size: 13.5px; }
+  .dr-opts .chip { padding: 5px 13px; font-size: 13.5px; }
+  .dr-said { display: flex; gap: 10px; align-items: flex-start; margin: 0; }
+  .dr-said .bub { max-width: 100%; font-size: 14.5px; }
+  .dr-said .x { margin-top: 6px; }
+  .dr-hint { flex: 1; min-width: 180px; margin: 0; font-size: 13.5px; color: var(--muted); }
+  .dr-go { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  .dr-go .chip { padding: 8px 14px; }
+
   /* ---- files ---- */
   .files { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 36px; align-items: start; }
   .add { position: sticky; top: calc(var(--top) + 28px); max-height: calc(100vh - var(--top) - 56px); display: flex; flex-direction: column; }
@@ -480,7 +528,7 @@
   .ib { height: 34px; min-width: 34px; padding: 0; border: 0; border-radius: 9px; background: none; color: var(--muted); display: grid; place-items: center; text-decoration: none; }
   .ib:hover { background: var(--press); color: var(--text); }
   .ib.confirm { padding: 0 10px; background: rgba(var(--bad-rgb), .15); color: var(--bad); font-size: 13.5px; font-weight: 650; }
-  .ib.cam-flip.on { color: var(--accent); }
+  .ib.cam-flip.on, .ib.cam-flipv.on { color: var(--accent); }
   .empty { display: grid; place-items: center; align-content: center; gap: 6px; min-height: 320px; text-align: center; color: var(--muted); }
   .add-pc { display: flex; flex-direction: column; gap: 10px; margin: 4px 0 10px; padding: 18px; border: 1.5px dashed var(--line-3); border-radius: 14px; }
   .add-pc b { font-size: 15px; font-weight: 650; }
@@ -545,6 +593,9 @@
     .fr-links { flex-direction: row; gap: 14px; }
     .face { font-size: 26px; }
     .fr-log { max-height: 56vh; min-height: 200px; }
+    .dr { gap: 12px; }
+    .dr-paper { max-width: max(300px, calc((100vh - 330px) * var(--ar, 1.3333))); }
+    .dr-where { display: none; }
     .app { padding: 12px 4px 10px; }
     .app img, .app .tile-i { width: 58px; height: 58px; border-radius: 15px; }
     .app .an { font-size: 13.5px; font-weight: 600; }
@@ -583,7 +634,7 @@
   <div class="brand">
     <span class="logo" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="12.5" rx="2.5"/><path d="M8.5 21h7"/><path d="m10.5 8.8 4 2.45-4 2.45z" fill="currentColor"/></svg></span>
     <div class="who">
-      <b id="name">Pitato</b>
+      <b id="name">Pie-tato</b>
       <div class="status"><i class="dot" id="dot"></i><span id="status">Connecting…</span></div>
     </div>
   </div>
@@ -775,6 +826,7 @@ const ICONS = {
   trash: I('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'),
   rotate: I('<path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4.5v4h-4"/>'),
   swapLR: I('<path d="M4 8.5h15m-3.5-3.5 3.5 3.5-3.5 3.5"/><path d="M20 15.5H5m3.5-3.5L5 15.5 8.5 19"/>'),
+  swapUD: I('<path d="M8.5 4v15M5 15.5 8.5 19l3.5-3.5"/><path d="M15.5 20V5M12 8.5 15.5 5 19 8.5"/>'),
   x: I('<path d="M6 6l12 12M18 6 6 18"/>', 14),
   cast: I('<rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 21h8M12 17v4"/><path d="m10.2 8.3 4 2.2-4 2.2z" fill="currentColor"/>'),
   play: I('<path d="M8 5.5v13l10.5-6.5z" fill="currentColor" stroke="none"/>', 16),
@@ -925,7 +977,7 @@ async function loadInfo() {
   }
 }
 function setTitle() {
-  document.title = (S.info ? S.info.name : "Pitato") + (S.view === "files" ? " · files" : " · screen");
+  document.title = (S.info ? S.info.name : "Pie-tato") + (S.view === "files" ? " · files" : " · screen");
 }
 function luminance(rgb) {
   const f = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
@@ -1082,7 +1134,7 @@ function drawOffline() {
   m.dataset.for = "offline";
   m.textContent = "";
   m.append(el("b", "", "The Pi's screen isn't answering"),
-    el("span", "", "Check that Pitato is running on the Pi: sudo systemctl status pitato"));
+    el("span", "", "Check that Pie-tato is running on the Pi: sudo systemctl status pitato"));
   m.hidden = false;
   $("#player").hidden = true;
 }
@@ -1333,8 +1385,9 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) btKi
 const TABS = [
   ["apps", "Apps"], ["cartoons", "Cartoons"], ["films", "Films"], ["news", "News"],
   ["sports", "Sports"], ["radio", "Radio"], ["streams", "Your streams"], ["cameras", "Cameras"], ["friend", "Bot"],
+  ["draw", "Draw"],
 ];
-const OWN = new Set(["apps", "cameras", "friend"]);       // tabs that draw a page of their own
+const OWN = new Set(["apps", "cameras", "friend", "draw"]);   // tabs that draw a page of their own
 const WHERE = { cartoons: "Cartoons", films: "Free Movies", news: "News", sports: "Sports", radio: "Radio", streams: "Streams" };
 const PLEX = {
   cartoons: [["plex:anime", "Anime"], ["plex:toons", "Cartoon channels"]],
@@ -1418,6 +1471,7 @@ function drawLibrary() {
   if (tab === "apps") return drawApps();
   if (tab === "cameras") return drawCameras();
   if (tab === "friend") return drawFriend();
+  if (tab === "draw") return drawDraw();
   drawRows();
 }
 
@@ -1658,7 +1712,7 @@ async function drawCameras() {
   }
   refreshCams(token, camSig(d));
 }
-const camSig = (d) => JSON.stringify([d.cameras.map((c) => [c.addr, c.name, c.turn, c.flip]), d.found.map((c) => c.addr), d.showing]);
+const camSig = (d) => JSON.stringify([d.cameras.map((c) => [c.addr, c.name, c.turn, c.flip, c.flipv]), d.found.map((c) => c.addr), d.showing]);
 const camWhat = (c) => [shortAddr(c.addr), c.kind].filter(Boolean).join(" · ");
 function camCard(c, showing, found) {
   const on = !!showing && showing === c.addr;
@@ -1694,12 +1748,14 @@ function camCard(c, showing, found) {
     turn.setAttribute("aria-label", turn.title);
     turn.onclick = () => camTurn(c, card, turn);
     meta.append(turn);
-    if (c.steers) {                                           // (one that turns the wrong way: left and right swapped)
-      const flip = button("ib cam-flip");
-      flip.innerHTML = ICONS.swapLR;
-      flipLook(flip, c);
-      flip.onclick = () => camFlip(c, flip);
-      meta.append(flip);
+    if (c.steers) {                                           // (one that turns the wrong way: left and right swapped,
+      for (const [cls, icon, axis] of [["cam-flip", ICONS.swapLR, "x"], ["cam-flipv", ICONS.swapUD, "y"]]) {   // up and down)
+        const flip = button("ib " + cls);
+        flip.innerHTML = icon;
+        flipLook(flip, c, axis);
+        flip.onclick = () => camFlip(c, flip, axis);
+        meta.append(flip);
+      }
     }
     const x = button("ib cam-rm");
     x.innerHTML = ICONS.trash; x.title = "Remove " + c.name; x.setAttribute("aria-label", x.title);
@@ -1772,7 +1828,7 @@ function addCamCard(typed) {
   const row = el("div", "in-row");
   row.append(input, add);
   f.append(el("b", "", "Add a camera"),
-    el("p", "", "A Pi running the camera server (sudo bash setup.sh --camera on it), or any MJPEG or JPEG link."), row);
+    el("p", "", "Any camera on your network: its address and port, or its link. A Pi can share its USB camera too (sudo bash setup.sh --camera on it)."), row);
   f.onsubmit = async (e) => {
     e.preventDefault();
     const addr = input.value.trim();
@@ -1806,21 +1862,27 @@ async function camTurn(c, card, b) {
   } catch (e) { toast(e.message); }
   b.disabled = false;
 }
-// Swap left and right: for a camera that turns the wrong way as it's steered (kept for next time, on the Pi)
-function flipLook(b, c) {
-  b.classList.toggle("on", !!c.flip);
-  b.setAttribute("aria-pressed", c.flip ? "true" : "false");
-  b.title = c.flip ? "Left and right are swapped as " + c.name + " turns. Press to put them back"
-    : "Swap left and right as " + c.name + " turns (if it goes right when you press left)";
+// Swap left and right (axis "y": up and down): for a camera that turns the wrong way as it's steered (kept for
+// next time, on the Pi)
+function flipLook(b, c, axis) {
+  const on = !!(axis === "y" ? c.flipv : c.flip);
+  b.classList.toggle("on", on);
+  b.setAttribute("aria-pressed", on ? "true" : "false");
+  b.title = axis === "y"
+    ? (on ? "Up and down are swapped as " + c.name + " turns. Press to put them back"
+      : "Swap up and down as " + c.name + " turns (if it goes down when you press up)")
+    : (on ? "Left and right are swapped as " + c.name + " turns. Press to put them back"
+      : "Swap left and right as " + c.name + " turns (if it goes right when you press left)");
   b.setAttribute("aria-label", b.title);
 }
-async function camFlip(c, b) {
+async function camFlip(c, b, axis) {
   b.disabled = true;
   try {
-    const r = await pi("camera", { do: "flip", addr: c.addr });
-    c.flip = r.flip;
-    flipLook(b, c);
-    toast(c.name + (r.flip ? ": left and right swapped" : ": left and right as normal"));
+    const r = await pi("camera", { do: "flip", addr: c.addr, axis });
+    if (axis === "y") c.flipv = r.flip; else c.flip = r.flip;
+    flipLook(b, c, axis);
+    const ways = axis === "y" ? "up and down" : "left and right";
+    toast(c.name + ": " + ways + (r.flip ? " swapped" : " as normal"));
   } catch (e) { toast(e.message); }
   b.disabled = false;
 }
@@ -1850,8 +1912,8 @@ async function refreshCams(token, was) {
           const card = $$("#content .cam[data-addr]").find((n) => n.dataset.addr === c.addr);
           if (!card) continue;
           card.querySelector(".cam-meta .s").textContent = camWhat(c);
-          const flip = card.querySelector(".cam-flip");
-          if (flip && !c.steers) flip.remove();                   // (a picture link, now that it's known: it doesn't turn)
+          if (!c.steers) for (const f of card.querySelectorAll(".cam-flip, .cam-flipv")) f.remove();   // (a picture link,
+                                                                  // now that it's known: it doesn't turn)
         }
       } catch (e) {}
     }
@@ -2124,7 +2186,7 @@ async function putPicture(f) {
 const CHATTER = [["30", "Every 30 minutes"], ["60", "Every hour"], ["0", "Never"]];
 function drawFriendSetup(box, d) {
   const v = d.voice || { list: [] };
-  const sig = JSON.stringify([d.server, d.model, d.eyes, d.name, d.chatter, d.models, d.ready, FR.setup,
+  const sig = JSON.stringify([d.server, d.model, d.name, d.chatter, d.models, d.ready, FR.setup,
     v.id, v.speak, v.getting, v.can, v.piper, v.list.map((x) => x.here)]);
   const status = box.querySelector(".fr-status");
   if (status) status.textContent = d.modelsStatus || "";
@@ -2163,8 +2225,6 @@ function drawFriendSetup(box, d) {
   box.append(f);
   const none = d.server ? "Check the computer first" : "Connect first";
   box.append(choose("Model", "frModel", d.models, d.model, none, (v) => friendSet({ model: v })));
-  box.append(choose("A model that can see (optional: for your camera, and pictures you send it)", "frEyes",
-    d.models.length ? [""].concat(d.models) : [], d.eyes, none, (v) => friendSet({ eyes: v }), { "": "None" }));
 
   const nf = el("form");
   const nl = el("label", "label", "What it calls you");
@@ -2272,6 +2332,733 @@ $("#search").addEventListener("keydown", async (e) => {
     const c = $("#content"); c.textContent = ""; noteInto(c, "Couldn't search", err.message);
   }
 });
+
+// ---- draw: a picture for the Pi's screen, drawn here (like PiE-ink's Draw) -----------------------------
+// The drawing is a stack of layers in the order they were made: ink (a see-through canvas), photos and
+// text. New ink goes on the top ink layer, or a new one when a photo or some text is on top, so what's
+// drawn later covers what came before. It goes to the Pi flattened onto white paper, at the size the Pi
+// draws its menus (its screen's shape), and is kept in Pictures › Drawings: sent again, the same picture.
+const DR_TOOLS = [
+  ["select", "Select", "Tap a photo or some words to pick them up. Drag to move; drag the corner to resize and turn."],
+  ["pen", "Pen", "Draw with a finger or the mouse."],
+  ["line", "Line", "Drag to draw a straight line."],
+  ["rect", "Box", "Drag out a box. Solid fills it."],
+  ["circle", "Circle", "Drag out a circle or an oval. Solid fills it."],
+  ["fill", "Fill", "Tap inside a shape to fill it with the colour."],
+  ["text", "Text", "Tap where the words go, then type. Tap them twice to change them."],
+  ["erase", "Eraser", "Drag to rub out what you drew."],
+];
+const DR_ICONS = {
+  select: I('<path d="M6.5 3.5 18 12l-5.4 1.2-3 5.3z"/>'),
+  pen: I('<path d="M4.5 19.5l1-4.2L15.8 5a2.1 2.1 0 0 1 3 3L8.6 18.4z"/><path d="m13.8 7 3 3"/>'),
+  line: I('<path d="M5 19 19 5"/>'),
+  rect: I('<rect x="4" y="6" width="16" height="12" rx="1.5"/>'),
+  circle: I('<circle cx="12" cy="12" r="7.5"/>'),
+  fill: I('<path d="M11 3.5 3.5 11l6.5 6.5L17.5 10z"/><path d="M3.5 11h14"/><path d="M19.5 14.5c1.3 2 1.3 3.8 0 3.8s-1.3-1.8 0-3.8z" fill="currentColor"/>'),
+  text: I('<path d="M5 6h14M12 6v13M9 19h6"/>'),
+  erase: I('<path d="m4.5 14.5 9-9 6 6-7.5 7.5H8.5z"/><path d="M12 19h7.5"/>'),
+  photo: I('<rect x="3" y="4.5" width="18" height="15" rx="2"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="m21 16-5-5-9 8.5"/>'),
+  undo: I('<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>'),
+  redo: I('<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>'),
+};
+const DR_COLOURS = [["#000000", "Black"], ["#ffffff", "White"], ["#8a8a8a", "Grey"], ["#e53935", "Red"], ["#fb8c00", "Orange"],
+  ["#fdd835", "Yellow"], ["#43a047", "Green"], ["#00acc1", "Cyan"], ["#1e88e5", "Blue"], ["#8e24aa", "Purple"],
+  ["#ec407a", "Pink"], ["#6d4c41", "Brown"]];
+const DR_FONTS = [["Sans", "700 {}px Hyperlegible, system-ui, sans-serif"], ["Serif", '700 {}px Georgia, "Times New Roman", serif'],
+  ["Mono", "700 {}px ui-monospace, Menlo, Consolas, monospace"], ["Hand", '{}px "Comic Sans MS", "Chalkboard SE", "Comic Neue", "Segoe Print", cursive']];
+const DR_SHAPES = new Set(["line", "rect", "circle"]);
+const DR_UNDO_BYTES = 160e6;          // undo keeps copies of the ink: this much at most (and five steps at least)
+const DR_LIVE_GAP = 150;              // Live: ms between pictures to the Pi while you draw (one on its way at a time)
+const DRAWINGS = "Drawings";          // in Pictures
+const DR = {
+  canvas: null, ctx: null, editor: null, w: 640, h: 480, k: 2, layers: [], seq: 0,
+  tool: "pen", brush: store.get("drawBrush", 4), colour: store.get("drawColour", "#000000"), filled: false, font: 0,
+  down: false, pid: null, start: null, last: null, snap: null, layer: null, drag: null, sel: null, editing: null,
+  tap: { o: null, at: 0 }, undo: [], redo: [], name: null, looked: false,
+  live: store.get("drawLive", false), busy: false, again: false, timer: 0, sent: 0, failed: false,
+  bot: false, asking: false, said: null,
+};
+const drAll = (sel) => document.querySelectorAll(sel);
+
+// the size the Pi draws its menus at (its screen's shape, 480 to 600 lines high): drawings are that size
+function piCanvas(st) {
+  if (st && st.canvas && st.canvas[0] > 0 && st.canvas[1] > 0) return st.canvas;
+  const [w, h] = st && st.size && st.size[0] > 0 && st.size[1] > 0 ? st.size : [640, 480];
+  return w * 480 > h * 640 * 1.05 ? [Math.min(1140, Math.round(480 * w / h)), 480] : [640, 480];
+}
+function drCanvas(size) {             // made once and kept between visits; drawn twice as fine as the Pi shows it
+  const [w, h] = size;
+  if (DR.canvas && ((DR.w === w && DR.h === h) || DR.layers.length)) return;   // (drawn on: it keeps its size)
+  if (!DR.canvas) {
+    DR.canvas = document.createElement("canvas");
+    DR.canvas.setAttribute("aria-label", "Your drawing");
+    DR.ctx = DR.canvas.getContext("2d");
+    for (const [ev, fn] of [["pointerdown", drStart], ["pointermove", drMove], ["pointerup", drEnd],
+                            ["pointercancel", drEnd], ["lostpointercapture", drEnd]]) DR.canvas.addEventListener(ev, fn);
+    const ed = DR.editor = el("input", "dr-text");
+    ed.type = "text"; ed.maxLength = 120; ed.hidden = true; ed.autocomplete = "off"; ed.spellcheck = false;
+    ed.setAttribute("aria-label", "The words");
+    ed.addEventListener("input", () => { if (DR.editing) { DR.editing.text = ed.value; drRedraw(); drTouched(); } });
+    ed.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === "Escape") { e.preventDefault(); drStopEditing(true); } });
+    ed.addEventListener("blur", () => drStopEditing(true));
+  }
+  DR.w = w; DR.h = h;
+  DR.k = Math.min(2, Math.sqrt(2.8e6 / (w * h)));
+  DR.canvas.width = Math.round(w * DR.k); DR.canvas.height = Math.round(h * DR.k);
+  DR.layers = []; DR.undo = []; DR.redo = []; DR.sel = null;
+}
+
+// -- drawing it ----------------------------------------------------------------------------
+const drFont = (o, size) => DR_FONTS[o.font || 0][1].replace("{}", Math.max(1, Math.round(size || o.size)));
+function drObjSize(o) {
+  if (o.kind === "image") return { w: o.img.naturalWidth * o.scale, h: o.img.naturalHeight * o.scale };
+  const c = DR.ctx;
+  c.save(); c.font = drFont(o);
+  const w = Math.max(c.measureText(o.text || " ").width, o.size * 0.6);
+  c.restore();
+  return { w, h: o.size * 1.25 };
+}
+function drObj(c, o) {
+  const { w, h } = drObjSize(o);
+  c.save();
+  c.translate(o.x, o.y); c.rotate(o.rot);
+  if (o.kind === "image") c.drawImage(o.img, -w / 2, -h / 2, w, h);
+  else { c.font = drFont(o); c.fillStyle = o.colour; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText(o.text, 0, 0); }
+  c.restore();
+}
+const drLayer = (c, l) => (l.kind === "ink" ? c.drawImage(l.c, 0, 0) : drObj(c, l));
+const drScale = () => DR.canvas.getBoundingClientRect().width / DR.canvas.width || 1;
+function drHandle(o) {
+  const { w, h } = drObjSize(o), lx = w / 2 + 6, ly = h / 2 + 6;
+  return { x: o.x + lx * Math.cos(o.rot) - ly * Math.sin(o.rot), y: o.y + lx * Math.sin(o.rot) + ly * Math.cos(o.rot) };
+}
+function drSelection(o) {
+  const c = DR.ctx, { w, h } = drObjSize(o), k = 1 / drScale();
+  const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#60aae4";
+  c.save();
+  c.translate(o.x, o.y); c.rotate(o.rot);
+  c.strokeStyle = accent; c.lineWidth = 1.5 * k; c.setLineDash([5 * k, 4 * k]);
+  c.strokeRect(-w / 2 - 6, -h / 2 - 6, w + 12, h + 12);
+  c.setLineDash([]);
+  c.fillStyle = accent; c.beginPath(); c.arc(w / 2 + 6, h / 2 + 6, 9 * k, 0, Math.PI * 2); c.fill();
+  c.fillStyle = "#fff"; c.beginPath(); c.arc(w / 2 + 6, h / 2 + 6, 3.5 * k, 0, Math.PI * 2); c.fill();
+  c.restore();
+}
+function drRedraw() {
+  const c = DR.ctx;
+  c.fillStyle = "#fff"; c.fillRect(0, 0, DR.canvas.width, DR.canvas.height);
+  for (const l of DR.layers) drLayer(c, l);
+  if (DR.sel && !DR.editing) drSelection(DR.sel);
+}
+function drHit(p, kind) {
+  for (let i = DR.layers.length - 1; i >= 0; i--) {
+    const o = DR.layers[i];
+    if (o.kind === "ink" || (kind && o.kind !== kind)) continue;
+    const { w, h } = drObjSize(o), dx = p.x - o.x, dy = p.y - o.y, c = Math.cos(-o.rot), s = Math.sin(-o.rot);
+    if (Math.abs(dx * c - dy * s) <= w / 2 + 8 && Math.abs(dx * s + dy * c) <= h / 2 + 8) return o;
+  }
+  return null;
+}
+function drOnHandle(o, p) { const h = drHandle(o); return Math.hypot(p.x - h.x, p.y - h.y) <= 16 / drScale(); }
+
+// -- undo: copies of the ink, and of the rest ------------------------------------------------------
+function drState() {
+  return { name: DR.name, layers: DR.layers.map((l) => (l.kind === "ink"
+    ? { kind: "ink", id: l.id, img: l.x.getImageData(0, 0, l.c.width, l.c.height) } : Object.assign({}, l))) };
+}
+const drBytes = (s) => s.layers.reduce((n, l) => n + (l.kind === "ink" ? l.img.data.length : 0), 0);
+function drPush() {
+  DR.undo.push(drState());
+  DR.redo.length = 0;
+  let total = DR.undo.reduce((n, s) => n + drBytes(s), 0);
+  while (DR.undo.length > 40 || (DR.undo.length > 5 && total > DR_UNDO_BYTES)) total -= drBytes(DR.undo.shift());
+  drButtons();
+}
+function drRestore(s) {          // (the picture it goes in only changes back with a new drawing undone, or done again)
+  DR.layers.length = 0;
+  for (const l of s.layers) {
+    if (l.kind !== "ink") { DR.layers.push(Object.assign({}, l)); continue; }
+    const n = drInk(); n.id = l.id; n.x.putImageData(l.img, 0, 0); DR.layers.push(n);
+  }
+  if (s.fresh) DR.name = s.name;
+  DR.sel = null;
+  drStopEditing(false); drRedraw(); drOptions(); drNamed();
+}
+function drUndo() {
+  if (DR.editing) drStopEditing(true);
+  if (!DR.undo.length) return;
+  const s = DR.undo.pop();
+  DR.redo.push(Object.assign(drState(), { fresh: s.fresh })); drRestore(s); drButtons(); drTouched(true);
+}
+function drRedo() {
+  if (!DR.redo.length) return;
+  const s = DR.redo.pop();
+  DR.undo.push(Object.assign(drState(), { fresh: s.fresh })); drRestore(s); drButtons(); drTouched(true);
+}
+function drClear() {              // a new drawing: the next one to the Pi is a new picture
+  drStopEditing(false);
+  if (!DR.layers.length && !DR.name) return;
+  drPush();
+  DR.undo[DR.undo.length - 1].fresh = true;                 // (undone: the picture it went in, again)
+  DR.layers.length = 0; DR.sel = null; DR.name = null; DR.said = null;
+  const size = piCanvas(SCR.state);
+  if (size[0] !== DR.w || size[1] !== DR.h) { drCanvas(size); $(".dr-paper") && $(".dr-paper").style.setProperty("--ar", DR.w / DR.h); }
+  drRedraw(); drOptions(); drNamed(); drSaid(); drButtons(); drTouched(true);
+}
+
+// -- ink ------------------------------------------------------------------------------------------------
+function drInk() {
+  const c = document.createElement("canvas");
+  c.width = DR.canvas.width; c.height = DR.canvas.height;
+  return { kind: "ink", id: ++DR.seq, c, x: c.getContext("2d", { willReadFrequently: true }) };
+}
+function drTopInk() {
+  const top = DR.layers[DR.layers.length - 1];
+  if (top && top.kind === "ink") return top;
+  const l = drInk(); DR.layers.push(l); return l;
+}
+const drInks = () => DR.layers.filter((l) => l.kind === "ink");
+function drPen(x, erase) {
+  x.lineCap = "round"; x.lineJoin = "round";
+  x.lineWidth = Math.max(1, DR.brush * DR.k);
+  x.globalCompositeOperation = erase ? "destination-out" : "source-over";
+  x.strokeStyle = x.fillStyle = DR.colour;
+}
+function drLine(x, a, b, erase) {
+  drPen(x, erase);
+  x.beginPath();
+  if (a.x === b.x && a.y === b.y) { x.arc(a.x, a.y, x.lineWidth / 2, 0, Math.PI * 2); x.fill(); }   // (a dot)
+  else { x.moveTo(a.x, a.y); x.lineTo(b.x, b.y); x.stroke(); }
+  x.globalCompositeOperation = "source-over";
+}
+function drStroke(a, b) {
+  if (DR.tool === "erase") { for (const l of drInks()) drLine(l.x, a, b, true); }   // (the eraser reaches all the ink)
+  else drLine(drTopInk().x, a, b);
+}
+function drShape(a, b) {
+  const x = DR.layer.x;
+  if (DR.tool === "line") { drLine(x, a, b); return; }
+  drPen(x);
+  const px = Math.min(a.x, b.x), py = Math.min(a.y, b.y), w = Math.abs(b.x - a.x), h = Math.abs(b.y - a.y);
+  x.beginPath();
+  if (DR.tool === "rect") x.rect(px, py, w, h);
+  else x.ellipse(px + w / 2, py + h / 2, Math.max(1, w / 2), Math.max(1, h / 2), 0, 0, Math.PI * 2);
+  if (DR.filled) x.fill(); else x.stroke();
+}
+// Fill: everything about the colour of the spot tapped (the ink on white paper; strokes are smooth, so
+// "about" allows some leeway) takes the colour, then the strokes' soft edges are blended over it so no
+// light seam is left
+function drFill(p) {
+  const W = DR.canvas.width, H = DR.canvas.height;
+  const all = document.createElement("canvas"); all.width = W; all.height = H;
+  const ax = all.getContext("2d", { willReadFrequently: true });
+  ax.fillStyle = "#fff"; ax.fillRect(0, 0, W, H);
+  for (const l of drInks()) ax.drawImage(l.c, 0, 0);
+  const d = ax.getImageData(0, 0, W, H).data;
+  const sx = Math.floor(p.x), sy = Math.floor(p.y);
+  if (sx < 0 || sy < 0 || sx >= W || sy >= H) return;
+  const si = (sy * W + sx) * 4, sr = d[si], sg = d[si + 1], sb = d[si + 2], TOL = 48;
+  const like = (i) => Math.abs(d[i] - sr) <= TOL && Math.abs(d[i + 1] - sg) <= TOL && Math.abs(d[i + 2] - sb) <= TOL;
+  const [cr, cg, cb] = rgbOf(DR.colour);
+  const filled = new Uint8Array(W * H), stack = [sx, sy];
+  while (stack.length) {
+    const y = stack.pop(), x0 = stack.pop();
+    let x = x0;
+    while (x >= 0 && !filled[y * W + x] && like((y * W + x) * 4)) x--;
+    x++;
+    let up = false, down = false;
+    while (x < W && !filled[y * W + x] && like((y * W + x) * 4)) {
+      filled[y * W + x] = 1;
+      if (y > 0) { const a = (y - 1) * W + x, ok = !filled[a] && like(a * 4); if (ok && !up) { stack.push(x, y - 1); up = true; } else if (!ok) up = false; }
+      if (y < H - 1) { const a = (y + 1) * W + x, ok = !filled[a] && like(a * 4); if (ok && !down) { stack.push(x, y + 1); down = true; } else if (!ok) down = false; }
+      x++;
+    }
+  }
+  const top = drTopInk();
+  top.x.globalCompositeOperation = "source-over";
+  const out = top.x.getImageData(0, 0, W, H), od = out.data;
+  for (let i = 0; i < W * H; i++) if (filled[i]) { od[i * 4] = cr; od[i * 4 + 1] = cg; od[i * 4 + 2] = cb; od[i * 4 + 3] = 255; }
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x, a = od[i * 4 + 3];
+    if (filled[i] || a === 0 || a === 255) continue;
+    if ((x > 0 && filled[i - 1]) || (x < W - 1 && filled[i + 1]) || (y > 0 && filled[i - W]) || (y < H - 1 && filled[i + W])) {
+      const k = a / 255;
+      od[i * 4] = Math.round(od[i * 4] * k + cr * (1 - k));
+      od[i * 4 + 1] = Math.round(od[i * 4 + 1] * k + cg * (1 - k));
+      od[i * 4 + 2] = Math.round(od[i * 4 + 2] * k + cb * (1 - k));
+      od[i * 4 + 3] = 255;
+    }
+  }
+  top.x.putImageData(out, 0, 0);
+}
+
+// -- words ------------------------------------------------------------------------------------------
+const drLight = (hex) => { const [r, g, b] = rgbOf(hex); return r * 0.3 + g * 0.59 + b * 0.11 > 200; };
+function drStartEditing(t) {
+  DR.editing = t; DR.sel = t;
+  const ed = DR.editor, k = drScale(), { w } = drObjSize(t), wide = Math.max(w, t.size * 5);
+  ed.hidden = false;
+  ed.value = t.text;
+  ed.style.font = drFont(t, t.size * k);
+  ed.style.color = t.colour;
+  ed.style.background = drLight(t.colour) ? "rgba(24, 22, 28, .92)" : "rgba(255, 255, 255, .94)";
+  ed.style.width = wide * k + 16 + "px";
+  ed.style.height = t.size * 1.4 * k + "px";
+  ed.style.left = (t.x - wide / 2) * k - 8 + "px";
+  ed.style.top = (t.y - t.size * 0.7) * k + "px";
+  ed.style.transform = "rotate(" + t.rot + "rad)";
+  ed.focus(); ed.select();
+  drRedraw(); drOptions();
+}
+function drStopEditing(commit) {
+  const t = DR.editing;
+  if (!t) return;
+  DR.editing = null;
+  DR.editor.hidden = true;
+  if (commit) {
+    t.text = DR.editor.value.trim();
+    if (!t.text) { const i = DR.layers.indexOf(t); if (i >= 0) DR.layers.splice(i, 1); DR.sel = null; }
+    drTouched(true);
+  }
+  drRedraw(); drOptions(); drButtons();
+}
+
+// -- the pointer: a finger, a pen or the mouse -----------------------------------------------------------
+function drPos(e) {
+  const r = DR.canvas.getBoundingClientRect();
+  return { x: (e.clientX - r.left) * DR.canvas.width / r.width, y: (e.clientY - r.top) * DR.canvas.height / r.height };
+}
+function drHold(e) {
+  DR.down = true; DR.pid = e.pointerId;
+  try { DR.canvas.setPointerCapture(e.pointerId); } catch (x) { /* (it goes on without) */ }
+}
+function drStart(e) {
+  if (DR.down || (e.pointerType === "mouse" && e.button !== 0)) return;
+  e.preventDefault();
+  const p = drPos(e);
+  if (DR.editing) drStopEditing(true);
+  // Select picks up anything; Text, only words (so words can go on top of a photo)
+  const grab = DR.tool === "select" || DR.tool === "text", sel = DR.sel;
+  if (grab && sel && (DR.tool === "select" || sel.kind === "text") && drOnHandle(sel, p)) {
+    drPush();
+    const { w, h } = drObjSize(sel);
+    DR.drag = { kind: "handle", o: sel, d0: Math.hypot(w / 2 + 6, h / 2 + 6), a0: Math.atan2(p.y - sel.y, p.x - sel.x) - sel.rot,
+                size0: sel.size, scale0: sel.scale };
+    drHold(e); return;
+  }
+  const hit = DR.tool === "select" ? drHit(p) : DR.tool === "text" ? drHit(p, "text") : null;
+  if (hit) {
+    if (hit === sel && hit.kind === "text" && Date.now() - DR.tap.at < 450 && DR.tap.o === hit) { drStartEditing(hit); return; }
+    DR.sel = hit; drPush();
+    DR.drag = { kind: "move", o: hit, dx: p.x - hit.x, dy: p.y - hit.y, moved: false };
+    DR.tap = { o: hit, at: Date.now() };
+    drRedraw(); drOptions(); drHold(e); return;
+  }
+  if (sel) { DR.sel = null; drRedraw(); drOptions(); }
+  if (DR.tool === "select") return;
+  if (DR.tool === "text") {
+    drPush();
+    const t = { kind: "text", id: ++DR.seq, text: "", x: p.x, y: p.y, size: 36 * DR.k, rot: 0, font: DR.font, colour: DR.colour };
+    DR.layers.push(t);
+    drStartEditing(t);                               // (in the press itself: a phone opens its keyboard)
+    return;
+  }
+  if (DR.tool === "fill") { drPush(); drFill(p); drRedraw(); drButtons(); drTouched(true); return; }
+  drPush();
+  DR.start = DR.last = p; DR.drag = null;
+  if (DR_SHAPES.has(DR.tool)) { const l = DR.layer = drTopInk(); DR.snap = l.x.getImageData(0, 0, l.c.width, l.c.height); }
+  else drStroke(p, p);
+  drHold(e);
+  drRedraw(); drTouched();
+}
+function drMove(e) {
+  if (!DR.down || e.pointerId !== DR.pid) return;
+  e.preventDefault();
+  const p = drPos(e), d = DR.drag;
+  if (d) {
+    const o = d.o;
+    if (d.kind === "move") { o.x = p.x - d.dx; o.y = p.y - d.dy; d.moved = true; }
+    else {
+      const f = Math.hypot(p.x - o.x, p.y - o.y) / d.d0;
+      if (o.kind === "image") o.scale = Math.max(0.02, d.scale0 * f);
+      else o.size = Math.max(8 * DR.k, Math.min(400 * DR.k, d.size0 * f));
+      o.rot = Math.atan2(p.y - o.y, p.x - o.x) - d.a0;
+    }
+    drRedraw(); drTouched(); return;
+  }
+  if (DR_SHAPES.has(DR.tool)) { DR.layer.x.putImageData(DR.snap, 0, 0); drShape(DR.start, p); }
+  else {
+    const more = e.getCoalescedEvents ? e.getCoalescedEvents() : [];   // (every point of a quick stroke)
+    for (const q of more.length ? more.map(drPos) : [p]) { drStroke(DR.last, q); DR.last = q; }
+  }
+  drRedraw(); drTouched();
+}
+function drEnd(e) {
+  if (!DR.down || (e && e.pointerId !== DR.pid)) return;
+  const d = DR.drag;
+  if (d && d.kind === "move" && !d.moved) DR.undo.pop();         // (just a tap: nothing to undo)
+  DR.down = false; DR.pid = null; DR.snap = null; DR.layer = null; DR.drag = null;
+  drRedraw(); drButtons();
+  drTouched(true);
+}
+window.addEventListener("keydown", (e) => {        // (before the remote's keys: these are the drawing's)
+  if (L.tab !== "draw" || S.view === "files" || !DR.canvas || !DR.canvas.isConnected) return;
+  const t = e.target;
+  if (t.closest && t.closest("input, textarea, select, [contenteditable]")) return;
+  const mod = (e.ctrlKey || e.metaKey) && !e.altKey, key = e.key.toLowerCase();
+  if (mod && key === "z") e.shiftKey ? drRedo() : drUndo();
+  else if (mod && key === "y") drRedo();
+  else if ((e.key === "Delete" || e.key === "Backspace") && DR.sel) drRemove();
+  else if (e.key === "Escape" && DR.sel) { DR.sel = null; drRedraw(); drOptions(); }
+  else return;
+  e.preventDefault(); e.stopPropagation();
+}, true);
+
+// -- the tools and their options ----------------------------------------------------------------------
+function drTool(k) {
+  if (k !== "select" && k !== "text" && DR.sel) { drStopEditing(true); DR.sel = null; drRedraw(); }
+  DR.tool = k;
+  for (const b of drAll(".dr-tools [data-tool]")) b.setAttribute("aria-pressed", String(b.dataset.tool === k));
+  const paper = $(".dr-paper");
+  if (paper) paper.dataset.tool = k;
+  const hint = $(".dr-hint");
+  if (hint) hint.textContent = (DR_TOOLS.find(([t]) => t === k) || [])[2] || "";
+  drOptions();
+}
+function drOptions() {            // what goes with the tool: Solid for shapes, the font for words, Remove for what's picked up
+  const show = (sel, on) => { const n = $(sel); if (n) n.hidden = !on; };
+  show(".dr-solid", DR.tool === "rect" || DR.tool === "circle");
+  const words = DR.tool === "text" || (DR.sel && DR.sel.kind === "text");
+  show(".dr-font", words);
+  show(".dr-remove", !!DR.sel);
+  const f = $(".dr-font select");
+  if (f) f.value = String(DR.sel && DR.sel.kind === "text" ? DR.sel.font || 0 : DR.font);
+  const solid = $(".dr-solid");
+  if (solid) solid.setAttribute("aria-pressed", String(DR.filled));
+}
+function drColour(hex, apply = true) {    // (apply: words picked up take it too)
+  DR.colour = hex;
+  store.set("drawColour", hex);
+  const mine = DR_COLOURS.some(([c]) => c === hex);
+  for (const b of drAll(".dr-sw")) {
+    const on = b.classList.contains("any") ? !mine : b.dataset.c === hex;
+    b.setAttribute("aria-pressed", String(on));
+    if (b.classList.contains("any")) b.style.setProperty("--c", mine ? "transparent" : hex);
+  }
+  drDot();
+  if (apply && DR.sel && DR.sel.kind === "text" && DR.sel.colour !== hex) {
+    drPush(); DR.sel.colour = hex;
+    if (DR.editing) DR.editor.style.color = hex;
+    drRedraw(); drTouched(true);
+  }
+}
+function drDot() {
+  const i = $(".dr-dot i");
+  if (!i) return;
+  const s = Math.max(3, Math.min(26, DR.brush)) + "px";
+  i.style.width = i.style.height = s;
+  i.style.setProperty("--c", DR.colour);
+}
+function drRemove() {
+  const o = DR.sel;
+  if (!o) return;
+  drPush(); drStopEditing(false);
+  const i = DR.layers.indexOf(o);
+  if (i >= 0) DR.layers.splice(i, 1);
+  DR.sel = null;
+  drRedraw(); drOptions(); drTouched(true);
+}
+function drButtons() {
+  const u = $(".dr-undo"), r = $(".dr-redo"), c = $(".dr-clear");
+  if (u) u.disabled = !DR.undo.length;
+  if (r) r.disabled = !DR.redo.length;
+  if (c) c.disabled = !DR.layers.length && !DR.name;
+}
+function drNamed() {              // the picture it goes in, at the top
+  const s = $("#content .dr-src");
+  if (!s) return;
+  s.textContent = DR.name ? "" : "A new drawing";
+  if (DR.name) s.append(el("span", "dr-where", "Pictures › " + DRAWINGS + " › "), DR.name);
+}
+const DR_NARROW = matchMedia("(max-width: 640px)"), DR_ONE = matchMedia("(max-width: 900px)");
+// The paper as big as the room left for it allows, so the whole tab fits without scrolling (a phone's
+// page scrolls: its paper is as wide as the phone)
+function drFit() {
+  const box = $("#content"), dr = $(".dr"), paper = $(".dr-paper"), top = $("#content .content-h");
+  if (!paper || !dr || !top || DR_ONE.matches) return;
+  const others = dr.offsetHeight - paper.offsetHeight;
+  const room = box.clientHeight - top.offsetHeight - others - parseFloat(getComputedStyle(box).paddingBottom || 0) - 2;
+  paper.style.setProperty("--dr-max", Math.max(300, room * DR.w / DR.h) + "px");
+}
+let drFitting = 0;
+const drSizes = new ResizeObserver(() => { cancelAnimationFrame(drFitting); drFitting = requestAnimationFrame(drFit); });
+function drPlace() {              // undo, redo and a new drawing: by the tools, or on a phone down by the colours
+  const acts = $(".dr-acts"), to = $(DR_NARROW.matches ? ".dr-opts" : ".dr-bar");
+  if (acts && to && acts.parentElement !== to) to.append(acts);
+}
+DR_NARROW.addEventListener("change", drPlace);
+function drSaid() {               // what the bot made of it
+  const box = $(".dr-said");
+  if (!box) return;
+  box.textContent = "";
+  box.hidden = !DR.said;
+  if (!DR.said) return;
+  const b = el("div", "bub bot" + (DR.said.error ? " error" : DR.said.typing ? " typing" : ""));
+  if (DR.said.typing) b.append(el("i"), el("i"), el("i"));
+  else b.textContent = DR.said.text;
+  b.setAttribute("aria-live", "polite");
+  const x = el("button", "x");
+  x.type = "button"; x.innerHTML = ICONS.x; x.title = "Hide it"; x.setAttribute("aria-label", "Hide what your bot said");
+  x.onclick = () => { DR.said = null; drSaid(); };
+  box.append(b);
+  if (!DR.said.typing) box.append(x);
+}
+function drPhoto(f) {             // a photo: on top of everything so far, to move, resize and turn
+  const img = new Image();
+  img.onload = () => {
+    drPush();
+    const fit = Math.min(DR.canvas.width / img.naturalWidth, DR.canvas.height / img.naturalHeight) * 0.8;
+    const o = { kind: "image", id: ++DR.seq, img, x: DR.canvas.width / 2, y: DR.canvas.height / 2, scale: fit, rot: 0 };
+    DR.layers.push(o); DR.sel = o;
+    drTool("select");
+    drRedraw(); drButtons(); drTouched(true);
+  };
+  img.onerror = () => toast("That picture can't be opened here. A JPEG or PNG works");
+  img.src = URL.createObjectURL(f);
+}
+
+// -- to the Pi ----------------------------------------------------------------------------------------
+function drFlat() {               // the drawing as the Pi shows it: on white paper, at its size
+  const big = document.createElement("canvas");
+  big.width = DR.canvas.width; big.height = DR.canvas.height;
+  const b = big.getContext("2d");
+  b.fillStyle = "#fff"; b.fillRect(0, 0, big.width, big.height);
+  for (const l of DR.layers) drLayer(b, l);
+  if (big.width === DR.w && big.height === DR.h) return big;
+  const out = document.createElement("canvas");
+  out.width = DR.w; out.height = DR.h;
+  const o = out.getContext("2d");
+  o.imageSmoothingEnabled = true; o.imageSmoothingQuality = "high";
+  o.drawImage(big, 0, 0, DR.w, DR.h);
+  return out;
+}
+const drBlob = () => new Promise((ok, no) => drFlat().toBlob((b) => (b ? ok(b) : no(new Error("The drawing couldn't be made"))), "image/png"));
+async function drPut(want) {      // want: {show: on the screen, keep: in Pictures › Drawings}
+  const blob = await drBlob();
+  const q = { show: want.show ? 1 : 0, keep: want.keep ? 1 : 0 };
+  if (want.keep && DR.name) q.name = DR.name;
+  const r = await fetch("/api/draw?" + qs(q), { method: "PUT", headers: { "Content-Type": "image/png", "X-Pitato-Page": "1" }, body: blob });
+  let j = {};
+  try { j = await r.json(); } catch (e) { /* (said below) */ }
+  if (j.name) { DR.name = j.name; drNamed(); drButtons(); }
+  if (!r.ok || j.error) throw new Error(j.error || "The drawing didn't get to the Pi (" + r.status + ")");
+  return j;
+}
+async function drShow(b) {
+  drStopEditing(true);
+  b.disabled = true;
+  try {
+    await drPut({ show: true, keep: true });
+    toast("On the Pi's screen, and in Pictures › " + DRAWINGS);
+  } catch (e) { toast(e.message); }
+  b.disabled = false;
+  kick(250);
+}
+// Live: each change goes to the Pi as you draw (not kept: Show on the Pi keeps it), one picture on its
+// way at a time, DR_LIVE_GAP apart at most, and the last one once your hand lifts
+function drTouched(final) {
+  if (!DR.live) return;
+  clearTimeout(DR.timer);
+  DR.timer = setTimeout(drLiveSend, final ? 0 : Math.max(0, DR_LIVE_GAP - (Date.now() - DR.sent)));
+}
+async function drLiveSend() {
+  if (DR.busy) { DR.again = true; return; }
+  DR.busy = true; DR.again = false; DR.sent = Date.now();
+  try { await drPut({ show: true }); DR.failed = false; }
+  catch (e) { if (!DR.failed) toast(e.message); DR.failed = true; }
+  DR.busy = false;
+  if (DR.again && DR.live) drLiveSend();
+}
+function drLive(on) {
+  DR.live = on;
+  store.set("drawLive", on);
+  const b = $(".dr-live");
+  if (b) b.setAttribute("aria-pressed", String(on));
+  if (on) { toast("Live: what you draw goes to the Pi's screen as you draw it"); drTouched(true); }
+}
+async function drAsk(b) {         // the bot has a look at it (kept, so it can be sent), and says what it sees
+  drStopEditing(true);
+  if (!DR.layers.length) { toast("Draw something first"); return; }
+  b.disabled = true; DR.asking = true;
+  DR.said = { typing: true }; drSaid();
+  try {
+    const j = await drPut({ keep: true });
+    const r = await pi("friend", { do: "say", text: "Here's something I drew. What do you think it is?",
+                                   picture: { folder: "pictures", path: j.path } });
+    const since = r.since || 0, until = Date.now() + 180000;
+    while (Date.now() < until) {
+      await new Promise((ok) => setTimeout(ok, 1500));
+      const d = await api("/api/pi/friend");
+      const said = d.log.find((x) => x.who === "friend" && x.t > since);
+      if (said && !d.busy) { DR.said = { text: said.text, error: said.kind === "error" }; break; }
+    }
+    if (DR.said && DR.said.typing) DR.said = { text: "It didn't answer. Have a look on the Bot tab", error: true };
+  } catch (e) { DR.said = { text: e.message, error: true }; }
+  DR.asking = false;
+  const now = $(".dr-ask");
+  if (now) now.disabled = false;
+  drSaid();
+}
+async function drBot(token) {     // Ask your bot: when one's set up
+  try {
+    const d = await api("/api/pi/friend");
+    DR.bot = !!d.ready;
+  } catch (e) { DR.bot = false; }
+  if (token !== libToken) return;
+  const b = $(".dr-ask");
+  if (b) b.hidden = !DR.bot;
+}
+async function drLast() {         // the last drawing you kept, to carry on with (once a visit to the page)
+  DR.looked = true;
+  let list;
+  try { list = await api("/api/list?" + qs({ folder: "pictures", path: DRAWINGS })); }
+  catch (e) { return; }                                    // (none yet)
+  const last = list.entries.filter((x) => !x.dir && /\.png$/i.test(x.name)).sort((a, b) => b.mtime - a.mtime)[0];
+  if (!last || DR.layers.length || DR.name) return;
+  const img = new Image();
+  img.onload = () => {
+    if (DR.layers.length || DR.name) return;            // (you started one meanwhile)
+    const l = drInk(), k = Math.min(l.c.width / img.naturalWidth, l.c.height / img.naturalHeight);
+    const w = img.naturalWidth * k, h = img.naturalHeight * k;
+    l.x.drawImage(img, (l.c.width - w) / 2, (l.c.height - h) / 2, w, h);
+    DR.layers.push(l); DR.name = last.name;
+    drRedraw(); drNamed(); drButtons();
+  };
+  img.src = "/api/file?" + qs({ folder: "pictures", path: DRAWINGS + "/" + last.name });
+}
+
+// -- the tab --------------------------------------------------------------------------------------------
+async function drawDraw() {
+  const box = $("#content"), token = ++libToken;
+  if (!DR.canvas && !SCR.state) {                          // (the Pi's screen's size, first)
+    box.textContent = ""; box.append(head("Draw", "Loading…"));
+    try { SCR.state = await api("/api/pi/state"); } catch (e) { /* (the usual size, then) */ }
+    if (token !== libToken) return;
+  }
+  drCanvas(piCanvas(SCR.state));
+  box.textContent = "";
+  const h = head("Draw", "");
+  h.classList.add("dr-head");
+  h.querySelector(".src").classList.add("dr-src");
+  box.append(h);
+  const dr = el("div", "dr");
+
+  const bar = el("div", "dr-bar");
+  const tools = el("div", "dr-tools");
+  tools.setAttribute("role", "toolbar"); tools.setAttribute("aria-label", "Tools");
+  for (const [k, label, hint] of DR_TOOLS) {
+    const b = button("");
+    b.dataset.tool = k; b.title = hint; b.setAttribute("aria-label", label);
+    b.innerHTML = DR_ICONS[k];
+    b.append(el("span", "", label));
+    b.onclick = () => drTool(k);
+    tools.append(b);
+  }
+  const file = el("input");
+  file.type = "file"; file.accept = "image/*"; file.hidden = true;
+  file.onchange = () => { const f = file.files && file.files[0]; file.value = ""; if (f) drPhoto(f); };
+  const photo = button("");
+  photo.innerHTML = DR_ICONS.photo; photo.append(el("span", "", "Photo"));
+  photo.title = "Add a photo from this device, then move, resize and turn it"; photo.setAttribute("aria-label", "Add a photo");
+  photo.onclick = () => file.click();
+  tools.append(el("i", "sep"), photo, file);
+  const acts = el("div", "dr-acts");
+  for (const [cls, icon, label, fn] of [["dr-undo", DR_ICONS.undo, "Undo", drUndo], ["dr-redo", DR_ICONS.redo, "Redo", drRedo],
+                                        ["dr-clear", ICONS.trash, "Start a new drawing", drClear]]) {
+    const b = button("ib " + cls);
+    b.innerHTML = icon; b.title = label; b.setAttribute("aria-label", label);
+    b.onclick = fn;
+    acts.append(b);
+  }
+  bar.append(tools, acts);
+
+  const stage = el("div", "dr-stage");
+  const paper = el("div", "dr-paper");
+  paper.style.setProperty("--ar", DR.w / DR.h);
+  paper.append(DR.canvas, DR.editor);
+  stage.append(paper);
+
+  const opts = el("div", "dr-opts");
+  const sws = el("div", "dr-sws");
+  sws.setAttribute("role", "group"); sws.setAttribute("aria-label", "Colour");
+  for (const [c, name] of DR_COLOURS) {
+    const b = button("dr-sw");
+    b.dataset.c = c; b.title = name; b.setAttribute("aria-label", name);
+    b.style.setProperty("--c", c);
+    b.onclick = () => drColour(c);
+    sws.append(b);
+  }
+  const any = el("label", "dr-sw any");
+  any.title = "Any colour";
+  const pick = el("input");
+  pick.type = "color"; pick.setAttribute("aria-label", "Any colour");
+  pick.value = DR_COLOURS.some(([c]) => c === DR.colour) ? "#ff6f00" : DR.colour;
+  pick.oninput = () => drColour(pick.value);
+  any.append(pick, el("i"));
+  sws.append(any);
+  const size = el("label", "dr-size");
+  const range = el("input");
+  range.type = "range"; range.min = "1"; range.max = "24"; range.value = String(DR.brush);
+  range.setAttribute("aria-label", "Size");
+  range.oninput = () => { DR.brush = Number(range.value); store.set("drawBrush", DR.brush); drDot(); };
+  const dot = el("span", "dr-dot");
+  dot.append(el("i"));
+  size.append(el("span", "", "Size"), range, dot);
+  const solid = button("chip dr-solid", "Solid");
+  solid.onclick = () => { DR.filled = !DR.filled; drOptions(); };
+  const fw = el("div", "select-wrap dr-font");
+  const fs = el("select");
+  fs.setAttribute("aria-label", "Font");
+  DR_FONTS.forEach(([name], i) => { const o = el("option", "", name); o.value = String(i); fs.append(o); });
+  fs.onchange = () => {
+    const i = Number(fs.value);
+    if (DR.sel && DR.sel.kind === "text") {
+      drPush(); DR.sel.font = i;
+      if (DR.editing) DR.editor.style.font = drFont(DR.sel, DR.sel.size * drScale());
+      drRedraw(); drTouched(true);
+    } else DR.font = i;
+  };
+  fw.append(fs);
+  const remove = button("chip dr-remove", "Remove");
+  remove.title = "Take the photo or the words you picked up off the drawing";
+  remove.onclick = drRemove;
+  opts.append(sws, size, solid, fw, remove);
+
+  const said = el("div", "dr-said");
+  const foot = el("div", "dr-foot");
+  const go = el("div", "dr-go");
+  const ask = button("chip dr-ask", "Ask your bot");
+  ask.title = "Your bot has a look at it and says what it sees";
+  ask.hidden = !DR.bot; ask.disabled = DR.asking;
+  ask.onclick = () => drAsk(ask);
+  const live = button("chip dr-live", "Live");
+  live.title = "What you draw goes to the Pi's screen as you draw it";
+  live.setAttribute("aria-pressed", String(DR.live));
+  live.onclick = () => drLive(!DR.live);
+  const show = button("btn dr-show", "Show on the Pi");
+  show.onclick = () => drShow(show);
+  go.append(ask, live, show);
+  foot.append(el("p", "dr-hint", ""), go);
+
+  dr.append(bar, stage, opts, said, foot);
+  box.append(dr);
+  drPlace(); drTool(DR.tool); drColour(DR.colour, false); drRedraw(); drButtons(); drNamed(); drSaid();
+  drSizes.disconnect();
+  for (const n of [box, bar, opts, said, foot]) drSizes.observe(n);
+  drFit();
+  if (!DR.looked) drLast();
+  drBot(token);
+}
 
 // ---- files: what's on the Pi --------------------------------------------------------------
 function drawDest() {

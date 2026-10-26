@@ -200,13 +200,13 @@ class CoderScreen:
         hints = self.coder_hints(s)
         quiet = self.setting("coder_sound") == "Off"
         key = (self.status_sig, self.msg, ACCENT, title, sub, tuple(hints), quiet, self.coder_help, self.tab_off,
-               fb.w)
+               fb.w, self.full_app())
         ox = max(0, (fb.w - 640) // 2)                # a wide screen: the coder in the middle, the desk all along
         oy = max(0, fb.h - 480)                       # ...a taller one: the room above it
         if key != self.coder_base[0]:                 # what doesn't move: drawn when it changes
             img, d = self.canvas()
             self.header(img, d)
-            coder_desk(img, ox, oy)
+            coder_desk(img, ox, oy, bottom=fb.h if self.full_app() else None)   # (no buttons: to the bottom)
             self.bot_label(d)
             y = (CO_TOP + oy + 8 + fb.h - self.FOOTER) / 2
             d.text((24, y), title, font=F["head"], fill=TEXT, anchor="lm")

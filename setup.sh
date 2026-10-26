@@ -12,12 +12,13 @@
 #     --camera below) with OBSBOT steering and pictures, a bot (Ollama on another
 #     computer, a Piper voice on the Pi; at work it acts out your coding agent and sends
 #     it your prompts), a Simulator (rock paper scissors, the game of life, forest fire, the
-#     Mandelbrot set to tour or explore, cmatrix, hollywood, nyancat, cacafire), Snake and your own Game Boy, Game Boy
-#     Advance, NES, SNES, Genesis, Master System, Game Gear, PlayStation and (on a Pi 4 or
+#     Mandelbrot set to tour or explore, cmatrix, hollywood, nyancat, cacafire, htop), Snake
+#     and your own Game Boy, Game Boy Advance, NES, SNES, Genesis, Master System, Game Gear,
+#     PlayStation and (on a Pi 4 or
 #     5) N64, PSP and DS games, two players on two controllers (mGBA, Nestopia, Snes9x,
 #     Genesis Plus GX, and PCSX ReARMed, Mupen64Plus-Next, PPSSPP and melonDS built here),
 #     system info, and settings (WiFi, Bluetooth and its headphones, background, colours,
-#     location, sound, controller, bot...)  (pitato.py and the pitato folder, run at boot)
+#     location, sound, controller, bot...)  (pitato.py and the Pie-tato folder, run at boot)
 #   - a web page for your phone or computer (webui.py, port 5432): see the screen, work
 #     it with a remote, put cartoons, films, news or radio on it, and drag in files
 #     that land in Music, Videos, Pictures or Documents
@@ -32,7 +33,7 @@
 #   --gpi       it's in a GPi Case 2W (don't ask)
 #   --no-gpi    it isn't (don't ask)
 #   --login     keep asking for your password at start-up (instead of signing you in by itself)
-#   --camera    only share this Pi's USB camera on the network, for Pitato's Camera tab on
+#   --camera    only share this Pi's USB camera on the network, for Pie-tato's Camera tab on
 #               another Pi (camera.py, port 5433); nothing else is installed
 #   --update    no questions: it's set up as it was before (System > Update software runs it
 #               after git pull, then restarts the Pi itself)
@@ -69,17 +70,17 @@ USER_NAME="${SUDO_USER:-$(logname 2>/dev/null || echo pi)}"
 USER_HOME="$(getent passwd "$USER_NAME" | cut -d: -f6)"
 STATIC="$HERE/static"                  # your settings files
 case "$HERE" in
-  *[\"\\]*) echo "Move the pitato folder somewhere without quotes or backslashes in its path."; exit 1 ;;
+  *[\"\\]*) echo "Move the Pie-tato folder somewhere without quotes or backslashes in its path."; exit 1 ;;
 esac
 if [ "$HERE" = "$USER_HOME" ] || [ "$HERE" = / ]; then
-  echo "Keep pitato in a folder of its own (git clone makes one), not in $HERE itself."
+  echo "Keep Pie-tato in a folder of its own (git clone makes one), not in $HERE itself."
   exit 1
 fi
 UNIT_STATIC="${STATIC//%/%%}"          # (as a systemd unit writes it)
 if id "$USER_NAME" >/dev/null 2>&1 && command -v runuser >/dev/null \
    && ! runuser -u "$USER_NAME" -- test -r "$HERE" -a -x "$HERE"; then
   echo "$USER_NAME can't open $HERE, so the web page couldn't reach your settings in it."
-  echo "Clone pitato into $USER_HOME and run setup.sh from there."
+  echo "Clone Pie-tato into $USER_HOME and run setup.sh from there."
   exit 1
 fi
 
@@ -156,7 +157,7 @@ settings_folder() {
 }
 
 # --------------------------------------------------------------------------
-# the camera server (camera.py, port 5433): this Pi's USB camera, for Pitato's Camera tab on another Pi
+# the camera server (camera.py, port 5433): this Pi's USB camera, for Pie-tato's Camera tab on another Pi
 install_camera() {
   step "Installing the camera server (this Pi's USB camera, port 5433)"
   apt-get update
@@ -165,14 +166,14 @@ install_camera() {
   install -m 644 "$HERE/pitato/camera.py" /usr/local/share/pitato/camera.py
   settings_folder camera-server.txt
   usermod -aG video "$USER_NAME" || true
-  if [ -f /etc/systemd/system/gpi-camera.service ]; then     # (by the name it had before Pitato's)
+  if [ -f /etc/systemd/system/gpi-camera.service ]; then     # (by the name it had before Pie-tato's)
     systemctl disable --now gpi-camera 2>/dev/null || true
     rm -f /etc/systemd/system/gpi-camera.service /usr/local/share/gpi-media/camera.py
     rmdir /usr/local/share/gpi-media 2>/dev/null || true
   fi
   cat > /etc/systemd/system/pitato-camera.service <<CAMSVC
 [Unit]
-Description=Pitato camera server: this Pi's USB camera on the network (port 5433)
+Description=Pie-tato camera server: this Pi's USB camera on the network (port 5433)
 After=network-online.target
 Wants=network-online.target
 
@@ -196,12 +197,12 @@ CAMSVC
 # --camera: this Pi only shares its USB camera
 if [ "$CAMERA" = yes ]; then
   if [ ! -f "$HERE/pitato/camera.py" ]; then
-    echo "pitato/camera.py isn't here. Run this from the pitato folder."
+    echo "pitato/camera.py isn't here. Run this from the Pie-tato folder."
     exit 1
   fi
   install_camera
   echo
-  echo "Done. On Pitato's Camera tab, add this Pi:  $(hostname -I 2>/dev/null | awk '{print $1}')"
+  echo "Done. On Pie-tato's Camera tab, add this Pi:  $(hostname -I 2>/dev/null | awk '{print $1}')"
   echo "It also shows up there by itself, under On your network."
   echo "To see the picture in a browser:  http://$(hostname).local:5433"
   exit 0
@@ -209,7 +210,7 @@ fi
 
 for f in pitato.py pitato/app.py pitato/webui.py pitato/coder_hooks.py templates/index.html; do
   if [ ! -f "$HERE/$f" ]; then
-    echo "$f isn't here. Run this from the pitato folder."
+    echo "$f isn't here. Run this from the Pie-tato folder."
     exit 1
   fi
 done
@@ -221,8 +222,8 @@ FINISHED=no
 BUILDING=""        # (that emulator's folder in /var/tmp)
 HOLD=""
 if command -v systemd-inhibit > /dev/null 2>&1; then
-  systemd-inhibit --what=shutdown:sleep:handle-power-key --mode=block --who="Pitato setup" \
-    --why="Setting up Pitato: leave the Pi on until it says All set" \
+  systemd-inhibit --what=shutdown:sleep:handle-power-key --mode=block --who="Pie-tato setup" \
+    --why="Setting up Pie-tato: leave the Pi on until it says All set" \
     bash -c 'while kill -0 "$1" 2> /dev/null; do sleep 2; done' _ "$$" > /dev/null 2>&1 &   # (ends with setup.sh)
   HOLD=$!
 fi
@@ -290,10 +291,11 @@ step "Installing packages"
 apt-get update
 apt-get install -y python3-evdev python3-pil python3-numpy fonts-dejavu-core \
   mplayer poppler-utils iw evtest device-tree-compiler python3-flask alsa-utils ffmpeg bluez
-# the Simulator's cmatrix, nyancat and hollywood: Linux's own. hollywood with what its panes show, but not atop or
-# plocate, which would keep running in the background
+# the Simulator's cmatrix, nyancat, htop and hollywood: Linux's own. hollywood with what its panes show, but not
+# atop or plocate, which would keep running in the background
 apt-get install -y cmatrix || echo "(Couldn't install cmatrix: the Simulator's cmatrix won't start.)"
 apt-get install -y nyancat || echo "(Couldn't install nyancat: the Simulator's nyancat won't start.)"
+apt-get install -y htop || echo "(Couldn't install htop: the Simulator's htop won't start.)"
 apt-get install -y --no-install-recommends hollywood \
   || echo "(Couldn't install hollywood: the Simulator's hollywood won't start.)"
 apt-get install -y --no-install-recommends apg bmon bsdextrautils ccze htop jp2a moreutils speedometer tree \
@@ -605,8 +607,8 @@ EOF
 
 # RetroFlag's own safe-shutdown script would fight over the same pins
 if [ -f /etc/rc.local ] && grep -qE '^[^#]*RetroFlag/SafeShutdown\.py' /etc/rc.local; then
-  sed -i -E 's|^([^#]*RetroFlag/SafeShutdown\.py.*)$|# \1   # (Pitato looks after the power switch)|' /etc/rc.local
-  echo "Turned off RetroFlag's SafeShutdown.py in /etc/rc.local: Pitato looks after the power switch."
+  sed -i -E 's|^([^#]*RetroFlag/SafeShutdown\.py.*)$|# \1   # (Pie-tato looks after the power switch)|' /etc/rc.local
+  echo "Turned off RetroFlag's SafeShutdown.py in /etc/rc.local: Pie-tato looks after the power switch."
 fi
 
 else
@@ -636,7 +638,7 @@ fi
 
 # --------------------------------------------------------------------------
 step "Installing the controller and media script"
-install -m 755 "$HERE/pitato.py" /usr/local/bin/pitato.py        # (it starts the rest: the pitato folder)
+install -m 755 "$HERE/pitato.py" /usr/local/bin/pitato.py        # (it starts the rest: the Pie-tato folder)
 rm -rf /usr/local/share/pitato/pitato                          # (a fresh copy: no old files left in it)
 install -d /usr/local/share/pitato/pitato/screens
 install -m 644 "$HERE"/pitato/*.py /usr/local/share/pitato/pitato/
@@ -648,7 +650,7 @@ modprobe uinput || true
 
 cat > /etc/systemd/system/pitato.service <<EOF
 [Unit]
-Description=Pitato: controller buttons as keys, and media mode
+Description=Pie-tato: controller buttons as keys, and media mode
 After=multi-user.target
 
 [Service]
@@ -663,7 +665,7 @@ EOF
 systemctl daemon-reload
 systemctl enable pitato            # (started at the end: media mode would cover these questions)
 if [ -f /etc/systemd/system/gpi-keys.service ]; then
-  systemctl disable gpi-keys 2>/dev/null || true   # (Pitato by the name it had before: it goes at the end)
+  systemctl disable gpi-keys 2>/dev/null || true   # (Pie-tato by the name it had before: it goes at the end)
 fi
 
 # --------------------------------------------------------------------------
@@ -706,7 +708,7 @@ rm -rf /usr/local/share/pitato/index.html /usr/local/share/pitato/fonts    # (wh
 
 cat > /etc/systemd/system/pitato-web.service <<WEBUI
 [Unit]
-Description=Pitato web page: the screen and your files (port 5432)
+Description=Pie-tato web page: the screen and your files (port 5432)
 After=network-online.target
 Wants=network-online.target
 
@@ -727,7 +729,7 @@ systemctl enable pitato-web
 # settings files an earlier version kept in your home folder go in the static folder now: with the
 # web page stopped meanwhile, as until it restarts it would look for its password in the old place
 systemctl stop pitato-web 2>/dev/null || true
-if [ -f /etc/systemd/system/gpi-webui.service ]; then  # (the web page by the name it had before Pitato's)
+if [ -f /etc/systemd/system/gpi-webui.service ]; then  # (the web page by the name it had before Pie-tato's)
   systemctl disable --now gpi-webui 2>/dev/null || true
   rm -f /etc/systemd/system/gpi-webui.service
   systemctl daemon-reload
@@ -837,7 +839,7 @@ if command -v wireplumber >/dev/null 2>&1 || command -v pulseaudio >/dev/null 2>
 elif apt-get install -y bluez-alsa-utils libasound2-plugin-bluez && command -v bluealsa >/dev/null 2>&1; then
   install -d /etc/systemd/system/bluealsa.service.d
   cat > /etc/systemd/system/bluealsa.service.d/pitato.conf <<BLUEALSA
-# Pitato (setup.sh): sound to Bluetooth headphones and speakers, the Pi as the player
+# Pie-tato (setup.sh): sound to Bluetooth headphones and speakers, the Pi as the player
 [Service]
 ExecStart=
 ExecStart=$(command -v bluealsa) -p a2dp-source
@@ -882,12 +884,12 @@ HA
 fi
 
 # --------------------------------------------------------------------------
-# a camera server from before Pitato had its name: under the new one
+# a camera server from before Pie-tato had its name: under the new one
 if [ -f /etc/systemd/system/gpi-camera.service ] && [ -f "$HERE/pitato/camera.py" ]; then
   install_camera
 fi
 
-# Pitato by the name it had before (gpi-media): its service stops (it answered the questions above),
+# Pie-tato by the name it had before (gpi-media): its service stops (it answered the questions above),
 # its old files go, and what it kept (your settings, sign-ins, voices) moves across
 retire_old() {
   if [ -f /etc/systemd/system/gpi-keys.service ]; then

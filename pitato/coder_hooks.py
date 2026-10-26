@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-coder_hooks.py - shows what Claude Code is doing on Pitato's Bot, at work, and hands Claude Code
+coder_hooks.py - shows what Claude Code is doing on Pie-tato's Bot, at work, and hands Claude Code
 the prompts you type there.
 
 Run it on the computer Claude Code runs on, with your Pi's name or address:
@@ -51,7 +51,7 @@ START = f"claude --dangerously-load-development-channels server:{CHANNEL}"
 PROTOCOLS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")   # the MCP versions the channel speaks
 WAIT = 20                              # seconds each request for prompts waits on the Pi for one
 INSTRUCTIONS = (
-    f'Messages in <channel source="{CHANNEL}"> are prompts the user typed on their Pitato handheld '
+    f'Messages in <channel source="{CHANNEL}"> are prompts the user typed on their Pie-tato handheld '
     "(a Raspberry Pi with a small screen and game buttons). Act on each one as if they had typed it here. "
     "The handheld shows that you're working and when you're done, but not what you say, so answer here as usual.")
 EMPTY = {"tools/list": "tools", "prompts/list": "prompts", "resources/list": "resources",
@@ -92,7 +92,7 @@ def say_hello(url, password=""):
     except urllib.error.HTTPError as ex:
         if ex.code == 401:
             return False, "the Pi's web page has a password: run this again with --password and the password"
-        return False, f"the Pi answered with an error ({ex.code}). Is Pitato running?"
+        return False, f"the Pi answered with an error ({ex.code}). Is Pie-tato running?"
     except (OSError, ValueError) as ex:
         return False, f"couldn't reach {url} ({getattr(ex, 'reason', ex)})"
 
@@ -295,7 +295,7 @@ def hand_on(url, password, send, ready):
         except urllib.error.HTTPError as ex:
             pause = 60.0 if ex.code in (401, 404) else 10.0
             say("the Pi's web page has a password: run coder_hooks.py again with --password" if ex.code == 401
-                else f"the Pi answered with an error ({ex.code}): does it have the newest Pitato?")
+                else f"the Pi answered with an error ({ex.code}): does it have the newest Pie-tato?")
         except (OSError, ValueError) as ex:
             pause = min(30.0, pause * 2 or 2.0)
             say(f"can't reach the Pi ({getattr(ex, 'reason', ex)}): trying again")
@@ -358,7 +358,7 @@ def channel(url, password):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Shows what Claude Code is doing on Pitato's Bot, at work, "
+    ap = argparse.ArgumentParser(description="Shows what Claude Code is doing on Pie-tato's Bot, at work, "
                                              "and hands Claude Code the prompts you type there.")
     ap.add_argument("pi", nargs="?", help="your Pi's name or address, like gpi.local or 192.168.1.23")
     ap.add_argument("--password", default="", help="your Pi's web page password, if it has one")
@@ -383,9 +383,9 @@ def main():
         else:
             settings.pop("hooks", None)
         save(path, settings)
-        print(f"Took Pitato's hooks out of {path}.")
+        print(f"Took Pie-tato's hooks out of {path}.")
         if remove_channel(a.here):
-            print("Took the Pitato channel out of Claude Code.")
+            print("Took the Pie-tato channel out of Claude Code.")
         return
     url = base_url(a.pi)
     ok, why = say_hello(url, a.password)
@@ -397,7 +397,7 @@ def main():
         hooks.setdefault(event, []).append(dict({"matcher": which}, **group) if which else group)
     settings["hooks"] = hooks
     save(path, settings)
-    print(f"Added Pitato's hooks to {path}" + (" (with your password in them)." if a.password else "."))
+    print(f"Added Pie-tato's hooks to {path}" + (" (with your password in them)." if a.password else "."))
     print("Your Pi's bot waved hello: it's listening." if ok else
           f"Couldn't say hello just now: {why}. The hooks will work once it can be reached.")
     if os.name == "nt":
@@ -407,7 +407,7 @@ def main():
         return
     added, why = add_channel(url, a.password, a.here)
     if added:
-        print(f"Added the Pitato channel to Claude Code. For prompts from the Pi, start Claude Code with:\n"
+        print(f"Added the Pie-tato channel to Claude Code. For prompts from the Pi, start Claude Code with:\n"
               f"    {START}\n(It asks you to confirm each time: channels are a research preview.)")
     else:
         print(f"Couldn't add the channel for prompts from the Pi: {why}")

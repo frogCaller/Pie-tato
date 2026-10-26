@@ -197,7 +197,7 @@ class Voice:
 
     @staticmethod
     def tidy():
-        """What a Pitato stopped part way left behind (each is named after the process it was
+        """What a Pie-tato stopped part way left behind (each is named after the process it was
         for): half-fetched voices, Piper half unpacked, WAVs in memory."""
         for pattern in (os.path.join(VOICES_DIR, "*.part"), os.path.join(os.path.dirname(PIPER_DIR), ".piper-*"),
                         "/dev/shm/pitato-voice-*"):

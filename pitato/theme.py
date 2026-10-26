@@ -26,8 +26,8 @@ FONT_MONO_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
 
 
 def bundled_font(name, instead):
-    """A typeface that comes with Pitato, in its static/fonts folder (where setup.sh puts the code, or the
-    pitato folder itself); the system's `instead` if it isn't there."""
+    """A typeface that comes with Pie-tato, in its static/fonts folder (where setup.sh puts the code, or the
+    Pie-tato folder itself); the system's `instead` if it isn't there."""
     for static in (os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static"),
                    os.environ.get("PITATO_STATIC", "").strip()):
         path = os.path.join(static, "fonts", name) if static else ""
@@ -36,10 +36,9 @@ def bundled_font(name, instead):
     return instead
 
 
-# the home screen's: Inter (thin, and thinner, for the time and the temperature). Its OpenType (CFF) files, laid out
-# simply (draw.py), draw several times quicker than its TrueType ones on a Pi.
+# the home screen's: Inter (thin, for the time and the temperature). Its OpenType (CFF) files, laid out simply
+# (draw.py), draw several times quicker than its TrueType ones on a Pi.
 FONT_THIN = bundled_font("InterDisplay-Light.otf", FONT)
-FONT_THINNER = bundled_font("InterDisplay-ExtraLight.otf", FONT_THIN)
 FONT_UI = bundled_font("Inter-Regular.otf", FONT)
 FONT_UI_BOLD = bundled_font("Inter-SemiBold.otf", FONT_BOLD)
 

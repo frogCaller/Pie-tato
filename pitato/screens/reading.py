@@ -38,7 +38,7 @@ class ReadingScreen:
         from PIL import Image
         v = self.v
         page = page or v["page"]
-        key = (page, v["fit"], v["zoom"])
+        key = (page, v["fit"], v["zoom"], self.FOOTER)   # (Full screen apps: the page a little bigger)
         if key not in v["cache"]:
             W, H = self.fb.w, self.fb.h - self.FOOTER
             size = (["-scale-to-x", str(int(W * v["zoom"])), "-scale-to-y", "-1"]

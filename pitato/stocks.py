@@ -14,7 +14,7 @@ from .config import CACHE_DIR, clean_name, read_config
 from .util import _num
 
 YAHOO = ("https://query1.finance.yahoo.com", "https://query2.finance.yahoo.com")   # (the other if one won't answer)
-YAHOO_UA = {"User-Agent": "Mozilla/5.0 (X11; Linux aarch64) pitato/1.0", "Accept": "application/json"}
+YAHOO_UA = {"User-Agent": "Mozilla/5.0 (X11; Linux aarch64) pie-tato/1.0", "Accept": "application/json"}
 STOCKS = [("AAPL", "Apple Inc."), ("AMZN", "Amazon.com, Inc."), ("TSLA", "Tesla, Inc.")]   # when finance.txt
 STOCK_CHARTS = {1: ("5d", "5m"), 7: ("5d", "15m"), 30: ("1mo", "60m"), 365: ("1y", "1d")}  # hasn't a stocks = line
 STOCK_GAP = 0.6           # seconds between calls to Yahoo

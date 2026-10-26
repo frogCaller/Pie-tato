@@ -3,18 +3,12 @@ import time
 
 from ..theme import ACCENT, BG, BODY, co_mix, LINE, MUTED, ROW, TEXT
 from ..library import LIBRARY, LISTEN_KINDS, NOW_POP_SECS
-from ..home import (CARD, CARD_LINE, draw_bright_icon, draw_glyph, draw_icon, draw_line_icon, draw_line_weather,
-                    home_cols, HOME_ICONS, HOME_LABELS, home_layout, LINE_EDGE, LINE_INK_LIT, LINE_TILE, mix,
-                    tile_tint, TILE_BOTTOM, TILE_TOP, wallpaper)
+from ..home import (CARD, CARD_LINE, draw_bright_icon, draw_glyph, draw_icon, home_cols, HOME_ICONS, HOME_LABELS,
+                    home_layout, mix, tile_tint, TILE_BOTTOM, TILE_TOP, wallpaper)
 from ..weather import wx_icon_name, wx_words
 
 LABEL = (214, 219, 226)      # Glass: an app's name under its tile
 DATE = (222, 226, 232)       # ...the date, and the weather in words
-LINE_LABEL = (206, 211, 218)  # Minimal: an app's name
-LINE_SOFT = (196, 201, 209)  # ...the date, the weather in words, the buttons' names
-LINE_DIM = (150, 156, 166)   # ...what's playing's heading
-LINE_NOTE = (186, 192, 201)  # ...the app's line, bottom right
-LINE_RULE = (34, 39, 48)     # ...the line under the time
 CARD_PICKED = (36, 42, 52)   # Cards: the picked card
 KEY_RING = (150, 158, 170)   # ...a button's ring, along the bottom
 
@@ -90,6 +84,9 @@ class HomeScreen:
         self.coder_help = False
         self.sim_close()
         self.set_page = "root"
+        self.wx_menu = None
+        self.cam_menu = None
+        self.games_q = None                            # (finding a game: not any more)
         if ttype == "radio" and self.radio_stack:
             self.radio_stack = []
             self.status[self.tab] = None
@@ -100,12 +97,10 @@ class HomeScreen:
         self.view = "home"
         self.dirty = True
 
-    # -- its four looks (Settings > Home screen style) -------------------------
+    # -- its three looks (Settings > Home screen style) -------------------------
     #   Bright: bold, the time and the weather big, bright tiles with white glyphs, an accent ring round the app
     #           picked
     #   Glass: thin type, tiles of tinted glass with grey glyphs, the app picked lit and glowing
-    #   Minimal: thinner still, a line under the time, big outline glyphs on nothing (a thin ring round the
-    #            app picked), the buttons' names under them
     #   Cards: dark cards, each with a coloured glyph and its name, an accent line by the time, the weather
     #          between thin lines
     HOME_X = 36                                      # Glass's margins, left and right
@@ -115,12 +110,10 @@ class HomeScreen:
     HOME_GEOMETRY = {    # a tile; the first row's top; a row (a tile and its name); its name's middle under it
         "Bright": (72, 116, 104, 14),
         "Glass": (74, 116, 105, 15),
-        "Minimal": (56, 112, 104, 18),
         "Cards": (92, 112, 104, -16),            # (a card 92 high, as wide as fits; its name inside it, at the foot)
     }
     CARD_X, CARD_GAP, CARD_R, GLYPH = 22, 14, 20, 52   # Cards: its margins, the gap between cards, their corners'
                                                       # roundness, a glyph's size
-    MINIMAL_NAMES = {"Home Assistant": "Home"}
 
     def home_style(self):
         style = self.setting("home_style")
@@ -138,8 +131,7 @@ class HomeScreen:
         key = (style, name, lit)
         if key not in self.icons:
             size = self.home_geometry()[0]
-            self.icons[key] = (draw_line_icon(name, size, lit) if style == "Minimal" else
-                               draw_glyph(name, self.GLYPH) if style == "Cards" else
+            self.icons[key] = (draw_glyph(name, self.GLYPH) if style == "Cards" else
                                draw_bright_icon(name, size) if style == "Bright" else draw_icon(name, size, lit=lit))
         return self.icons[key]
 
@@ -161,8 +153,6 @@ class HomeScreen:
         W, style = self.fb.w, self.home_style()
         if style == "Bright":
             return (W - 20) / cols
-        if style == "Minimal":
-            return min(114, (W - 40) / cols)
         if style == "Cards":
             return (W - 2 * self.CARD_X + self.CARD_GAP) / cols
         return (W - 2 * self.HOME_X - self.TILE) / max(cols - 1, 1)   # (the first tile on the left margin, the last
@@ -170,14 +160,12 @@ class HomeScreen:
 
     def card_box(self, k, slots, cols, first):
         """Where app k's tile is: (x0, y0, x1, y1)."""
-        W, style = self.fb.w, self.home_style()
+        style = self.home_style()
         tile, top, row, _ = self.home_geometry()
         r, c = slots[k]
         pitch = self.home_pitch(cols)
         if style == "Bright":
             cx = 10 + (c + 0.5) * pitch
-        elif style == "Minimal":
-            cx = W / 2 + (c - (cols - 1) / 2) * pitch
         else:
             cx = self.HOME_X + tile / 2 + c * pitch
         if style == "Cards":                          # (cards: as wide as fits)
@@ -201,17 +189,6 @@ class HomeScreen:
             ImageDraw.Draw(im).rounded_rectangle((pad, pad, pad + self.TILE, pad + self.TILE),
                                                  radius=int(self.TILE * 0.23), fill=colour)
             self.icons[key] = (im.filter(ImageFilter.GaussianBlur(7 if kind == "glow" else 5)), pad)
-        return self.icons[key]
-
-    def home_ring(self, size):
-        """Minimal: the ring round the app picked, drawn four times bigger so its corners come out smooth."""
-        from PIL import Image, ImageDraw
-        key = ("ring", size)
-        if key not in self.icons:
-            im = Image.new("RGBA", (size * 4, size * 4), (0, 0, 0, 0))
-            ImageDraw.Draw(im).rounded_rectangle((2, 2, size * 4 - 3, size * 4 - 3), radius=56,
-                                                 outline=LINE_EDGE + (255,), width=7)
-            self.icons[key] = im.resize((size, size), Image.LANCZOS)
         return self.icons[key]
 
     def home_card(self, d, img, name, box, picked, pitch):
@@ -246,18 +223,9 @@ class HomeScreen:
         if picked and style == "Glass":
             glow, pad = self.home_glow(name, "glow")
             img.paste(glow, (int(x0) - pad, int(y0) - pad), glow)
-        if picked and style == "Minimal":              # a thin ring round it, its glyph white
-            spot = tuple(int(v) for v in (x0, y0, x1, y1))
-            img.paste(self.wall[1].crop(spot), spot[:2])
-            ring = self.home_ring(int(x1 - x0) + 14)
-            img.paste(ring, (int(x0) - 7, int(y0) - 7), ring)
         tile = self.home_icon(name, picked)
         img.paste(tile, (int(x0), int(y0)), tile)
-        if style == "Minimal":
-            font, fill = F["home3_label"], (TEXT if picked else LINE_LABEL)
-            name = self.MINIMAL_NAMES.get(name, name)
-        else:
-            font, fill = F["home_label"], (TEXT if picked else LABEL)
+        font, fill = F["home_label"], (TEXT if picked else LABEL)
         label = name if d.textlength(name, font=font) <= room else HOME_LABELS.get(name, name)
         d.text(((x0 + x1) / 2, y1 + dy), self.fit(d, label, font, room), font=font, fill=fill, anchor="mm")
 
@@ -288,8 +256,6 @@ class HomeScreen:
                 if style == "Glass":
                     base.paste(shade, (int(box[0]) - pad, int(box[1]) - pad + 3), shade)
                 self.home_card(bd, base, name, box, False, self.home_pitch(cols))
-            if style == "Minimal":                     # a line under the time and the weather
-                bd.line((20, 96, self.fb.w - 20, 96), fill=LINE_RULE)
             self.home_base = (key, base)
         img = self.home_base[1].copy()
         return img, ImageDraw.Draw(img)
@@ -326,16 +292,6 @@ class HomeScreen:
             d.text((W - 24 - 64 - 10, 14), temp, font=F["clock"], fill=TEXT, anchor="ra")
             line = f"{words}  ·  {hi} / {lo}"
             d.text((W - 24, 76), self.fit(d, line, F["row"], 300), font=F["row"], fill=BODY, anchor="ra")
-        elif style == "Minimal":
-            key = ("line_wx", sky)
-            if key not in self.icons:
-                self.icons[key] = draw_line_weather(sky, 40)
-            icon = self.icons[key]
-            img.paste(icon, (W - 26 - 40, 17), icon)
-            d.text((W - 26 - 40 - 10, 54), temp, font=F["home3_clock"], fill=TEXT, anchor="rs")
-            tail = f"  ·  {hi}/{lo}"
-            words = self.fit(d, words, F["home3_small"], 280 - d.textlength(tail, font=F["home3_small"]))
-            d.text((W - 26, 78), words + tail, font=F["home3_small"], fill=LINE_SOFT, anchor="rs")
         else:
             x1 = W - self.HOME_X
             icon = self.wx_icon(sky, 52)
@@ -378,10 +334,6 @@ class HomeScreen:
                 d.text((24 + d.textlength(hm, font=F["clock"]) + 8, 26), time.strftime("%p", t), font=F["head"],
                        fill=BODY, anchor="la")
             d.text((26, 76), date, font=F["row"], fill=BODY, anchor="la")
-        elif style == "Minimal":
-            d.text((26, 54), hm + (time.strftime(" %p", t) if twelve else ""), font=F["home3_clock"], fill=TEXT,
-                   anchor="ls")
-            d.text((28, 78), date, font=F["home3_small"], fill=LINE_SOFT, anchor="ls")
         else:
             x = self.HOME_X - 2                        # (the figures' own margin)
             d.text((x, 66), hm, font=F["home_clock"], fill=TEXT, anchor="ls")
@@ -412,17 +364,6 @@ class HomeScreen:
                 d.text((x0 + 18, y0 + 63), self.fit(d, sub, F["small"], x1 - x0 - 36), font=F["small"], fill=BODY,
                        anchor="lm")
             return
-        if style == "Minimal":                         # a quiet panel, like its tiles
-            x0, y0, x1, y1 = W - 26 - 262, 12, W - 26, 86
-            d.rounded_rectangle((x0, y0, x1, y1), radius=10, fill=LINE_TILE)
-            room = x1 - x0 - 32
-            d.text((x0 + 16, y0 + 16), head, font=F["home_pop_head"], fill=LINE_DIM, anchor="lm")
-            d.text((x0 + 16, y0 + 38), self.fit(d, title, F["home3_title"], room), font=F["home3_title"], fill=TEXT,
-                   anchor="lm")
-            if sub:
-                d.text((x0 + 16, y0 + 58), self.fit(d, sub, F["home3_small"], room), font=F["home3_small"],
-                       fill=LINE_SOFT, anchor="lm")
-            return
         x0, y0, x1, y1 = W - self.HOME_X - 280, 20, W - self.HOME_X, 98   # a panel like the tiles, in Music's or
         tint = tile_tint("Radio" if radio else "Music")                    # Radio's colour
         key = ("panel", tint, x1 - x0, y1 - y0)
@@ -446,49 +387,6 @@ class HomeScreen:
         if sub:
             d.text((x0 + 18, y0 + 62), self.fit(d, sub, F["home_pop_sub"], room), font=F["home_pop_sub"],
                    fill=DATE, anchor="lm")
-
-    def home_outline_key(self, w):
-        """Minimal: a button's ring (a word's, a pill w wide), like Cards' but drawn four times bigger for smooth
-        edges."""
-        from PIL import Image, ImageDraw
-        key = ("keyring", int(w))
-        if key not in self.icons:
-            w4, h4 = int(w) * 4, 24 * 4
-            im = Image.new("RGBA", (w4, h4), (0, 0, 0, 0))
-            ImageDraw.Draw(im).rounded_rectangle((3, 3, w4 - 4, h4 - 4), radius=h4 // 2 - 3,
-                                                 outline=KEY_RING + (255,), width=8)
-            self.icons[key] = im.resize((int(w), 24), Image.LANCZOS)
-        return self.icons[key]
-
-    def home_footer3(self, img, d, hints, note):
-        """Minimal's buttons along the bottom: rings round their letters (as Cards has them), each with its name
-        under it, and the app's line on the right, slanted."""
-        from PIL import Image, ImageDraw
-        F, W, H = self.fonts, self.fb.w, self.fb.h
-        x, cy = 28, H - 40
-        for k, label in hints:
-            lw = d.textlength(label, font=F["home3_keylabel"])
-            kw = 24 if len(k) == 1 else d.textlength(k, font=F["home3_key"]) + 16
-            mid = x + max(lw, kw) / 2
-            ring = self.home_outline_key(kw)
-            img.paste(ring, (int(mid - ring.width / 2), cy - 12), ring)
-            d.text((mid, cy), k, font=F["home3_key"], fill=TEXT, anchor="mm")
-            d.text((mid, cy + 26), label, font=F["home3_keylabel"], fill=LINE_SOFT, anchor="mm")
-            x += max(lw, kw) + 22
-        if note:
-            font = F["home3_note"]
-            key = ("slant", note)
-            if key not in self.icons:                  # (a typeface leaning right, made from the upright one)
-                w, h = int(d.textlength(note, font=font)) + 4, font.size + 10
-                m = Image.new("L", (w, h), 0)
-                ImageDraw.Draw(m).text((2, h / 2), note, font=font, fill=255, anchor="lm")
-                lean = 0.2
-                self.icons[key] = m.transform((w + int(h * lean), h), Image.AFFINE, (1, lean, -h * lean, 0, 1, 0),
-                                              Image.BICUBIC)
-            m = self.icons[key]
-            if x + 8 + m.width < W - 26:
-                img.paste(LINE_NOTE, (int(W - 26 - m.width), int(cy + 10 - m.height / 2)), m)
-        self.msg_pill(d)
 
     def home_footer4(self, d, hints, note):
         """Cards's buttons along the bottom: rings round the letters, thin lines between them, and the app's line on
@@ -532,7 +430,7 @@ class HomeScreen:
         self.home_clock(d)
         if self.now_popped():                          # what's playing, top right, for a few seconds
             self.home_playing(img, d)
-        elif self.setting("widget") == "Weather":
+        else:                                          # (the weather, once there's a place for it)
             self.home_widget(img, d)
 
         # the picked app, marked; a dot on what's playing
@@ -545,8 +443,6 @@ class HomeScreen:
                 if style == "Bright":
                     d.ellipse((x1 - 13, y0 - 3, x1 + 5, y0 + 15), fill=BG)
                     d.ellipse((x1 - 10, y0, x1 + 2, y0 + 12), fill=ACCENT)
-                elif style == "Minimal":
-                    d.ellipse((x1 - 1, y0 - 1, x1 + 5, y0 + 5), fill=LINE_INK_LIT)
                 elif style == "Cards":
                     d.ellipse((x1 - 22, y0 + 10, x1 - 10, y0 + 22), fill=ACCENT)
                 else:
@@ -562,9 +458,7 @@ class HomeScreen:
         about = HOME_ICONS.get(name_sel, (None, ""))[1]
         if not about and tab_sel is not None:
             about = LIBRARY[tab_sel].get("about", "")
-        if style == "Minimal":
-            self.home_footer3(img, d, hints, about)
-        elif style == "Cards":
+        if style == "Cards":
             self.home_footer4(d, hints, about)
         else:
             self.footer(d, hints, right=about, plain=style == "Glass")

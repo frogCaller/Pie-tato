@@ -314,7 +314,7 @@ class FinanceScreen:
         img, d = self.canvas()
         W, H = self.fb.w, self.fb.h
         self.header(img, d)
-        top, bottom = self.HEADER + 1, H - self.FOOTER
+        top, bottom = self.HEADER + 1, H if self.full_app() else H - self.FOOTER   # (no buttons: down to the bottom)
         d.rectangle((0, top, W, bottom), fill=PI_BG)          # PiE-ink's black card
         cards = self.fin_cards()
         card = cards[self.fin_card % len(cards)] if cards else None

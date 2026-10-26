@@ -1,5 +1,5 @@
-"""The Simulator's cmatrix, hollywood, nyancat and cacafire: Linux's own, on the whole screen, with the controller's
-buttons as keys."""
+"""The Simulator's cmatrix, hollywood, nyancat, cacafire and htop: Linux's own, on the whole screen, with the
+controller's buttons as keys."""
 import fcntl
 import os
 import shutil
@@ -17,6 +17,9 @@ CM_COLOURS = "@!#$%^&"   # cmatrix's keys for its colours: its own green, then r
 CM_BOLD = "nbB"          # ...for no bold characters (its own), some, all
 CM_SPEED = 4             # its delay between frames, 0 (quickest) to 9: its own to start with
 CM_KEYS = {"a": "p", "y": "a", "select": "r"}   # A pauses, Y mixed speeds (each column its own), SELECT rainbow
+HTOP_KEYS = {"up": "\x1b[A", "down": "\x1b[B", "left": "\x1b[D", "right": "\x1b[C",   # through the list, along it
+             "a": "Z", "x": "P", "y": "M", "select": "t"}   # A pauses it, X sorts by CPU, Y by memory, SELECT a tree
+HTOP_HELD = ("up", "down", "left", "right")   # (held: on through the list, as a keyboard's arrows)
 PROG_GO = "\x11"         # Ctrl+Q: the console's output going again, if a keyboard's Ctrl+S or Scroll Lock held it
 PROG_TTY = None          # (the console they run on: media mode's own. The tests give them a pretend one)
 HW_DIR = "/run/pitato-hollywood"   # hollywood's own tmux and byobu, apart from anyone else's (gone at start-up)
@@ -29,6 +32,21 @@ KDSETMODE, VT_GETSTATE, VT_ACTIVATE = 0x4B3A, 0x5603, 0x5606
 
 def prog_tty():
     return PROG_TTY or f"/dev/tty{MEDIA_VT}"
+
+
+_readonly = {}
+
+
+def htop_args(path):
+    """htop read-only where it can be (3.1 on): nothing that ends or changes a process, whatever's pressed (a
+    keyboard's keys too). An older one, as it is (it wouldn't start, told to)."""
+    if path not in _readonly:
+        try:
+            out = subprocess.run([path, "--help"], capture_output=True, text=True, timeout=3).stdout
+        except (OSError, subprocess.SubprocessError):
+            out = ""
+        _readonly[path] = ["--readonly"] if "--readonly" in out else []
+    return _readonly[path]
 
 
 def hw_env():
@@ -61,11 +79,13 @@ def hw_kill():
 
 
 class ProgScreen:
-    """The Simulator's cmatrix, hollywood, nyancat and cacafire: Linux's own, run on media mode's console (in text mode
-    while one's on, so the console draws it, just as in the terminal). cmatrix takes the controller's buttons as its
-    keys: ◀▶ its colour, ▲▼ its speed, A pauses, X bold, Y mixed speeds, SELECT rainbow; cacafire A, to pause. B (or
-    HOME) stops any of them, back to the Simulator. A keyboard works too, as in the terminal. Media mode keeps the screen while one's on: a keyboard's
-    switch to another console (Alt+F1...) is switched straight back."""
+    """The Simulator's cmatrix, hollywood, nyancat, cacafire and htop: Linux's own, run on media mode's console (in
+    text mode while one's on, so the console draws it, just as in the terminal). cmatrix takes the controller's buttons
+    as its keys: ◀▶ its colour, ▲▼ its speed, A pauses, X bold, Y mixed speeds, SELECT rainbow; cacafire A, to pause;
+    htop ▲▼ through what's running (held: on and on), ◀▶ along it, A pauses it, X sorts by CPU, Y by memory, SELECT a
+    tree (never a key that ends a process). B (or HOME) stops any of them, back to the Simulator. A keyboard works
+    too, as in the terminal. Media mode keeps the screen while one's on: a keyboard's switch to another console
+    (Alt+F1...) is switched straight back."""
 
     def prog_start(self, name):
         if self.prog is not None:
@@ -98,9 +118,10 @@ class ProgScreen:
                 pass
             self.prog_key(PROG_GO)                     # (a Ctrl+S in the menus would have it stuck from the start)
             self.prog_mode(KD_TEXT)                    # the console draws it, as in the terminal
-            # (in Pitato's session, so the console never becomes its own: when it ends, the console carries on;
-            # and it goes if Pitato goes)
-            self.prog = subprocess.Popen([path] + PROG_ARGS.get(name, []), stdin=fd, stdout=fd, stderr=fd,
+            # (in Pie-tato's session, so the console never becomes its own: when it ends, the console carries on;
+            # and it goes if Pie-tato goes)
+            args = PROG_ARGS.get(name, []) + (htop_args(path) if name == "htop" else [])
+            self.prog = subprocess.Popen([path] + args, stdin=fd, stdout=fd, stderr=fd,
                                          close_fds=True, env=env, preexec_fn=quiet_child)
         except OSError as ex:
             self.prog = None
@@ -156,7 +177,7 @@ class ProgScreen:
                     except OSError:
                         break
         finally:
-            if p.poll() is None:                       # (cut short: Pitato itself stopping. It goes too)
+            if p.poll() is None:                       # (cut short: Pie-tato itself stopping. It goes too)
                 try:
                     p.kill()
                 except OSError:
@@ -189,12 +210,16 @@ class ProgScreen:
             self.prog_front()
 
     def press_prog(self, name, repeat):
-        """A button while one's on: B stops it; for cmatrix, the rest are its keys, typed into it (cacafire's: A)."""
-        if repeat:
+        """A button while one's on: B stops it; for cmatrix and htop, the rest are its keys, typed into it (cacafire's:
+        A)."""
+        if repeat and not (self.prog_name == "htop" and name in HTOP_HELD):
             return None
         self.prog_unblank()                            # (a key wakes a blanked screen, as a keyboard's does)
         if name == "b":
             self.prog_stop()
+        elif self.prog_name == "htop":
+            if name in HTOP_KEYS:
+                self.prog_key(HTOP_KEYS[name])
         elif self.prog_name == "cacafire":
             if name == "a":
                 self.prog_key(" ")                     # (its space bar: it pauses, or goes on)

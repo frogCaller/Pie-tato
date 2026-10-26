@@ -10,8 +10,8 @@ import time
 from ..theme import ACCENT, BODY, LINE, MUTED, ROW, TEXT
 from ..config import SCREEN_MODES
 from ..util import clock, probe_length
-from ..screen import (aplay_device, bt_output_name, bt_outputs, slow_pi, sound_cards, sound_device, sound_name,
-                      sound_place)
+from ..screen import (aplay_device, bt_output_name, bt_outputs, slow_pi, sound_cards, sound_device, sound_moves,
+                      sound_name, sound_place, usb_name)
 from ..radio import rb_get
 from ..tv import hls_pick, is_hls
 from ..library import (
@@ -105,25 +105,29 @@ class PlayerScreen:
             self.dirty = True
         self.save_state()
 
-    # -- Bluetooth headphones: the sound goes where they are ------------------------------------------------
+    # -- Bluetooth headphones, a USB speaker: the sound goes where they are ------------------------------------
     def sound_tick(self, now):
-        """Bluetooth headphones (or a speaker) connected while something plays, with Settings > Sound on Auto: its
-        sound moves to them, and it plays on. The ones it played through gone: back to the Pi's own, paused, as a
-        phone does (A plays on); a game brings up its menu; music in the terminal, where nothing shows it's
-        paused, stops."""
+        """Bluetooth headphones (or a speaker), or a USB speaker, connected while something plays, with Settings >
+        Sound on Auto: its sound moves to them, and it plays on. The ones it played through gone: back to the Pi's
+        own, paused, as a phone does (A plays on); a game brings up its menu; music in the terminal, where nothing
+        shows it's paused, stops."""
         run, p = self.game, self.proc
         was = self.game_sound if run is not None else self.sound_used if p is not None else None
         if not was or (run is None and self.kind is None):
             return
         ended = run is None and p.poll() is not None
-        if now < self.sound_look and not (ended and was[0] == "bluetooth"):   # (it may have stopped for that)
+        if now < self.sound_look and not (ended and sound_moves(was[0])):   # (it may have stopped for that)
             return
         self.sound_look = now + SOUND_LOOK
         place = sound_place(self.setting("sound"))
-        if place == was or "bluetooth" not in (place[0], was[0]):
+        if place == was or not (sound_moves(place[0]) or sound_moves(was[0])):
             return                                     # (as it was: a TV unplugged, say, changes nothing)
-        gone = was[0] == "bluetooth" and was[1] not in [dev for dev, _ in bt_outputs()]
-        lost = (bt_output_name(was[1]) or "Bluetooth") if gone else ""
+        if was[0] == "bluetooth":
+            gone = was[1] not in [dev for dev, _ in bt_outputs()]
+            lost = (bt_output_name(was[1]) or "Bluetooth") if gone else ""
+        else:
+            gone = sound_moves(was[0]) and was[0] not in [c for c, _ in sound_cards()]
+            lost = usb_name(was[0]) if gone else ""
         to = (bt_output_name(place[1]) or "Bluetooth") if place[0] == "bluetooth" else sound_name(place[0])
         if run is not None:
             self.game_sound = place
@@ -490,7 +494,9 @@ class PlayerScreen:
         self.title_row(d, "Now playing", "Shuffle" if self.shuffle and not radio else
                        ("LIVE" if radio else None), ACCENT)
 
-        cx, cy, cs = 24, self.LIST_TOP + 20 + max(0, self.fb.h - 480) // 3, 160   # (a taller screen: lower down)
+        cx, cy, cs = 24, self.LIST_TOP + 20 + self.spare() // 3, 160   # (a taller screen: lower down)
+        if self.full_app():                                       # (no bars: in the middle, under its title)
+            cy = max(cy, self.HEADER + (self.fb.h - self.HEADER - cs - (0 if radio else 116)) // 2)
         d.rounded_rectangle((cx, cy, cx + cs, cy + cs), radius=16, fill=ROW)
         if radio:   # a little broadcast symbol
             ox, oy = cx + cs / 2, cy + cs / 2 + 18

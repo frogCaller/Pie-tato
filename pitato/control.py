@@ -10,6 +10,7 @@ import urllib.parse
 from .config import CONTROL_KEY, CONTROL_PORT, home_dir
 from .bot import Friend
 from .coder import CODER_CLIP_MAX
+from .screens.sketch import sketch_image, SKETCH_BYTES
 
 
 # ---- the web page's requests ----------------------------------------------------------
@@ -159,12 +160,28 @@ def serve_control(media, control, port=CONTROL_PORT, key=None):
                 code, out = 500, {"ok": False, "error": "Something went wrong on the Pi"}
             self.reply(code, out)
 
+        def sketch(self):
+            """A drawing from the web page's Draw tab (a PNG): opened here, then put on the screen."""
+            try:
+                n = int(self.headers.get("Content-Length") or -1)
+            except ValueError:
+                n = -1
+            if not 0 < n <= SKETCH_BYTES:
+                return self.reply(413, {"error": "That drawing is too big"})
+            try:
+                im = sketch_image(self.rfile.read(n))
+            except ValueError as ex:
+                return self.reply(400, {"error": str(ex)})
+            self.reply(200, control.ask({"cmd": "sketch", "image": im}))
+
         def do_POST(self):
             if not self.allowed():
                 return
             u = urllib.parse.urlsplit(self.path)
             if u.path == "/coder/say":
                 return self.coder_say(dict(urllib.parse.parse_qsl(u.query)))
+            if u.path == "/sketch":
+                return self.sketch()
             if u.path == "/coder/prompts":               # your agent asks for prompts: waits a while for one
                 q = dict(urllib.parse.parse_qsl(u.query))
                 try:

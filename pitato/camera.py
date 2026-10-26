@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""camera.py - this Pi's USB camera, shared on your network for Pitato's Camera tab.
+"""camera.py - this Pi's USB camera, shared on your network for Pie-tato's Camera tab.
 
 It answers the same calls as PiE-ink's camera (/api/camera.jpg, /api/ptz/..., /api/photos),
-so Pitato treats this Pi like a PiE-ink one: the live picture, pictures into ~/Pictures,
+so Pie-tato treats this Pi like a PiE-ink one: the live picture, pictures into ~/Pictures,
 and steering and zoom for a camera that turns (an OBSBOT, a PTZ webcam). Following you, and
 waking an OBSBOT that has fallen asleep, need PiE-ink.
 
-Put it on the Pi with the camera (from the pitato folder):
+Put it on the Pi with the camera (from the Pie-tato folder):
     sudo bash setup.sh --camera
-then add that Pi's address on Pitato's Camera tab (it also shows up there by itself, under
+then add that Pi's address on Pie-tato's Camera tab (it also shows up there by itself, under
 "On your network"). Opening http://<this Pi>:5433 in a browser shows the picture too.
 
-Settings, all optional, in static/camera-server.txt (the static folder of the pitato folder:
+Settings, all optional, in static/camera-server.txt (the static folder of the Pie-tato folder:
 setup.sh tells the service where that is; run by hand, it's the one beside the folder this script is in):
-    name =             what Pitato calls it (this Pi's name if blank)
+    name =             what Pie-tato calls it (this Pi's name if blank)
     size = 640x480     the live picture (the camera's biggest is used for pictures you take)
     fps = 15
     device =           /dev/video0 and so on (blank: the first USB camera)
@@ -38,7 +38,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 PORT = 5433
 BEACON_PORT, BEACON_EVERY = 5151, 5.0   # where PiE-inks announce themselves too
 HERE = os.path.dirname(os.path.abspath(__file__))
-TOP = HERE if os.path.isdir(os.path.join(HERE, "static")) else os.path.dirname(HERE)   # (in the pitato folder:
+TOP = HERE if os.path.isdir(os.path.join(HERE, "static")) else os.path.dirname(HERE)   # (in the Pie-tato folder:
 STATIC = os.path.abspath(os.environ.get("PITATO_STATIC", "").strip()                  # one folder up)
                          or os.path.join(TOP, "static"))
 CONF_FILE = os.path.join(STATIC, "camera-server.txt")
@@ -555,7 +555,7 @@ class Shutter:
             return name
 
 
-# ---- telling Pitato this camera is here ----------------------------------------------------
+# ---- telling Pie-tato this camera is here ----------------------------------------------------
 def beacon_loop(ptz, port=PORT):
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
@@ -581,7 +581,7 @@ img {{ display: block; width: 100%; border-radius: 10px; background: #1a1f27; }}
 p {{ color: #8b95a3; margin: 10px 2px; }}
 </style></head><body><main>
 <img src="/api/camera/stream" alt="The live picture from {name}">
-<p>{name} &middot; add this Pi's address on Pitato's Camera tab</p>
+<p>{name} &middot; add this Pi's address on Pie-tato's Camera tab</p>
 </main></body></html>"""
 
 
@@ -710,7 +710,8 @@ def serve(feed, ptz, shutter, port=PORT):
             self.reply(404, {"ok": False, "error": "Not found"})
 
     def about():
-        return {"server": "Pitato camera", "name": settings().get("name") or socket.gethostname(),
+        return {"server": "Pitato camera",             # (its name from before Pie-tato's: what other Pis look for)
+                "name": settings().get("name") or socket.gethostname(),
                 "hostname": socket.gethostname()}
 
     server = ThreadingHTTPServer(("", port), Handler)

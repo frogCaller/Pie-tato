@@ -64,6 +64,7 @@ from .screens.weather import WeatherScreen
 from .screens.web import WebScreen
 from .screens.computers import ComputersScreen, NET
 from .screens.progs import ProgScreen
+from .screens.sketch import SketchScreen
 
 _SAVING = threading.Lock()     # (state.json written one at a time: the shrinker's and radio's threads save too)
 
@@ -72,7 +73,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             PhotoScreen, ReadingScreen, ChannelScreen, RadioScreen, FinanceScreen,
             RemoteScreen, LightsScreen, CameraScreen, BotScreen, CoderScreen, SimScreen,
             SnakeScreen, GameScreen, SettingsScreen, BluetoothScreen, ControllerScreen, WeatherScreen, WebScreen,
-            ComputersScreen, ProgScreen, PiholeScreen):
+            ComputersScreen, ProgScreen, PiholeScreen, SketchScreen):
     """Media mode: what the screen shows and what the buttons do there. Its state is all here; each
     app's buttons and drawing come from its part (pitato/screens/)."""
 
@@ -86,8 +87,11 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.items = {}             # tab index -> list of items
         self.status = {}            # tab index -> "loading" / "error"
         self.sels, self.tops = {}, {}
-        self.view = "list"          # list, help, now, photo, pdf, text, wait
+        self.view = "list"          # list, help, now, photo, pdf, text, wait, sketch...
         self.help_from = "list"
+        self.sketch = None          # a drawing from the web page's Draw tab, on the screen (view "sketch")
+        self.sketch_from = "home"   # ...where B goes back to
+        self.sketch_fit = None      # ...it at the screen's size: (it, the size, that picture)
         self.v = {}                 # state of the open photo / pdf / text viewer
         self.proc = None
         self.kind = None            # playing: video, audio, live, radio, plex (Plex or Jellyfin)
@@ -107,11 +111,16 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.halting = 0.0          # shutting down: the screen says so until then (monotonic)
         self.halt_note = ""         # ...and says this if it's still here after that
         self.dirty = False
+        self.cam_fresh = False      # a new picture from the camera on screen: just the picture's drawn again
+        self.cam_base = None        # (the Camera tab as drawn without its picture, when, its tag): pictures go on it
+        self.wake_r, self.wake_w = os.pipe()   # (written as a picture comes: the main loop's woken to draw it)
+        os.set_blocking(self.wake_r, False)
+        os.set_blocking(self.wake_w, False)
         self.msg, self.msg_until = None, 0.0
         self.fb = None
         self.ttyfd = None
         self.prev_vt = "1"
-        self.prog = self.prog_name = None   # the Simulator's cmatrix, hollywood, nyancat or cacafire, while on
+        self.prog = self.prog_name = None   # the Simulator's cmatrix, hollywood, nyancat, cacafire or htop, while on
         self.cm_colour, self.cm_bold, self.cm_speed = 0, 0, 4
         self.prober = self.thumber = self.sysloop = None
         self.thumbs = {}            # path -> small PIL image (most recent ~300)
@@ -131,6 +140,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.camera.on_select = self.camera_select
         self.cam_list = False        # the Camera tab shows your cameras rather than one's picture
         self.cam_sel = 0
+        self.cam_menu = None         # a camera's settings (START on your cameras): {"addr", "sel"}
         self.cam_bot = None          # what the bot said it sees (SELECT): {"addr", "busy", "text", ...}
         self.friend = Friend()
         self.friend.facts = self.friend_facts
@@ -173,6 +183,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.ds_dirs = set()         # ...a DS game's: the directions its left stick has pressed (its d-pad)
         self.art_finder = None       # finding the games' pictures (Y on the Games tab), once asked
         self.game_pics = {}          # the games' pictures, ready to draw
+        self.games_q = None          # what you typed to find a game (START on the Games tab), while it's finding it
         self.sim_opts = None         # a sim's START card: the row picked on it, or None
         self.sim_t = None            # when the sim on screen last moved on
         self.sim_next = 0.0          # when its next frame is due
@@ -233,8 +244,9 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.settle_ask = 0.0        # ...told again then
         self.pause_said = None       # (the player, "yes" or "no"): whether it said it's paused, last it was asked
         self.set_sel = 0             # Settings: the row picked
-        self.set_page = "root"       # Settings: "root" or "location"
-        self.loc_results, self.loc_status = [], None
+        self.set_page = "root"       # Settings: "root", or one of its pages ("wifi", "friend"...)
+        self.wx_menu, self.wx_sel = None, 0   # Weather's settings (START): None, "menu", or "location"
+        self.loc_results, self.loc_status = [], None   # ...where you are: the towns found, and how it's going
         self.wifi = {"nets": [], "saved": {}, "status": None, "busy": False, "radio": True, "ssid": "",
                      "ssid_t": 0.0}
         self.bt = Bluetooth()        # Settings > Bluetooth, and the web page's: pitato/bluetooth.py
@@ -292,11 +304,13 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.web_icons = {}
         self.web_guard = False      # the web page is at the controls: your home folder only
         self.lock = threading.Lock()
-        self.state = {"pos": {}, "dur": {}, "settings": {}, "radio": {}, "cam_turn": {}, "cam_flip": {}}
+        self.state = {"pos": {}, "dur": {}, "settings": {}, "radio": {}, "cam_turn": {}, "cam_flip": {},
+                      "cam_flip_v": {}}
         self.fonts = None
         self.load_state()
         self.camera.turns = self.state["cam_turn"]   # (a camera's picture turned: kept with the rest)
         self.camera.flips = self.state["cam_flip"]   # (...one steered with left and right swapped, too)
+        self.camera.flips_v = self.state["cam_flip_v"]   # (...or up and down)
         self.boot_media = self.setting("start") == "Home screen"
         self.res_boot()                                # (just restarted at a new resolution: it asks if you'll keep it)
         self.boot_song = time.monotonic() + BOOT_SONG_WAIT if self.setting("start_song") == "On" else 0.0
@@ -525,6 +539,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.friend.load(self.friend_files())     # (SELECT: the bot, if there's one)
             self.camera.load(tab["files"], last=self.state.get("camera"))
             self.camera.on_change = self.camera_changed
+            self.camera.on_frame = self.camera_frame
             self.camera.on_saved = self.picture_saved
             if not self.camera.addr:
                 self.cam_list = True
@@ -571,6 +586,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.picking = None                            # (picking a picture: not any more)
         self.friend_more = None
         self.coder_help = False
+        self.games_q = None                            # (finding a game: not any more)
         self.sim_close()
         vis = self.visible_tabs()
         self.tab = vis[(vis.index(self.strip_tab()) + d) % len(vis)]
@@ -867,10 +883,10 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.toast("Can't open this kind of file")
 
     def system_rows(self):
-        """System: Update software at the top, while there's a newer version; then this Pi's numbers, and its
-        buttons."""
+        """System: Update software at the top (it says when there's a newer version); then this Pi's numbers, and
+        its buttons."""
         rows = []
-        if self.updater.available():
+        if self.updater.shown():
             rows.append(item("act:update", "Update software", "action", "update", sub=self.updater.words()))
         return rows + system_info()
 
@@ -896,7 +912,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             return
         self.update_polled = now
         state, words = self.updater.progress()
-        if state == "failed":
+        if state in ("failed", "uptodate"):           # (nothing newer: no restart, back to System)
             print(f"update: {words}", flush=True)
             self.updater.done()
             self.view = "list"
@@ -904,7 +920,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             if si is not None and self.tab != si:
                 self.tab = si
             self.load_tab(self.tab)
-            self.toast(words, 8)
+            self.toast(words, 8 if state == "failed" else 4)
         self.update_view = (state, words)
         self.dirty = True                              # (its clock, too)
 
@@ -914,7 +930,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         if waiting != act or time.monotonic() > until:
             self.confirm = (act, time.monotonic() + 4)
             if act == "update":
-                self.toast("Press A again to update. The Pi restarts when it's done", 4)
+                self.toast("Press A again to update. The Pi restarts when it's done" if self.updater.available()
+                           else "Press A again to get the newest version. If there is one, the Pi restarts", 4)
             self.dirty = True
             return
         self.confirm = (None, 0.0)
@@ -1050,7 +1067,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
                 fr.remark(self.friend_topic())
                 self.friend_jitter = random.uniform(0.7, 1.3)
         if self.on_camera_page():
-            if self.camera.check_hold():
+            if self.camera.check_hold() or self.camera.stale_changed():
                 self.dirty = True
             told = self.cam_bot
             if told and not told["busy"]:
@@ -1191,7 +1208,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         """Returns 'exit' when media mode should close."""
         if self.view == "update":                      # (updating: nothing to press till the Pi restarts)
             return None
-        if self.prog is not None:                      # the buttons are cmatrix's keys (the others': B)
+        if self.prog is not None:                      # the buttons are cmatrix's and htop's keys (the others': B)
             return self.press_prog(name, repeat)
         if self.view == "keepres":                     # a new resolution: keep it, or go back
             return self.press_keep_res(name, repeat)
@@ -1203,6 +1220,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             return self.press_game(name, repeat)
         if self.view == "gamemenu":
             return self.press_game_menu(name, repeat)
+        if self.view == "sketch":                      # a drawing from the web page: B goes back
+            return self.press_sketch(name, repeat)
         if self.proc and self.kind == "plex":
             length = (self.cur or {}).get("dur") or 0
             if name == "a":
@@ -1324,6 +1343,10 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             r = self.press_settings(name, repeat)
             if r != "pass":
                 return r
+        if ttype == "weather" and self.wx_menu:
+            r = self.press_wx_menu(name, repeat)
+            if r != "pass":
+                return r
         if ttype == "camera":
             r = self.press_cameras(name, repeat)
             if r != "pass":
@@ -1339,6 +1362,14 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         if ttype == "games" and name == "y":
             if not repeat:
                 self.games_find_art()
+            return None
+        if ttype == "games" and name == "start":       # (not Now playing, here: a box to find a game in)
+            if not repeat:
+                self.games_find()
+            return None
+        if ttype == "games" and name == "b" and self.games_q:
+            if not repeat:
+                self.games_search("")                  # (all of them again)
             return None
         if ttype == "finance" and self.fin_list:
             r = self.press_fin_list(name, repeat)
@@ -1485,18 +1516,38 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.dirty = True
         return None
 
+    def wake(self):
+        """The main loop, woken now (from another thread: something to draw), not at its next tick."""
+        try:
+            os.write(self.wake_w, b".")
+        except OSError:
+            pass                                       # (the pipe's full: it's awake already)
+
+    def woken(self):
+        try:
+            while os.read(self.wake_r, 4096):
+                pass
+        except OSError:
+            pass
+
     def flush(self):
-        """Redraw the screen if something changed (never over a video, or 'Shutting down')."""
-        if not (self.active and self.dirty and self.fb) or time.monotonic() < self.halting:
+        """Redraw the screen if something changed (never over a video, or 'Shutting down'): just the camera's
+        picture, if that's all that did."""
+        if not (self.active and (self.dirty or self.cam_fresh) and self.fb) or time.monotonic() < self.halting:
             return
         if self.proc_owns_screen():
             return
-        self.dirty = False
+        if not self.dirty:
+            self.cam_fresh = False
+            if self.view == "list" and self.on_camera_page():
+                self.render_camera(picture_only=True)
+            return
+        self.dirty = self.cam_fresh = False
         draw = {"home": self.render_home, "keys": self.render_keys, "help": self.render_help,
                 "learn": self.render_learn, "gamemenu": self.render_game_menu,
                 "photo": self.render_photo, "keepres": self.render_keep_res,
                 "pdf": self.render_pdf, "update": self.render_update,
-                "text": self.render_text, "wait": lambda: self.render_wait(
+                "text": self.render_text, "sketch": self.render_sketch, "wait": lambda: self.render_wait(
                     self.v.get("title", ""), self.v.get("status", ""))}.get(self.view)
         if draw:
             draw()

@@ -17,7 +17,7 @@ from .screen import video_target
 
 
 JELLYFIN_FILE = "/var/lib/pitato/jellyfin.json"   # the server and the sign-in (readable by root only)
-JF_CLIENT, JF_VERSION = "Pitato", "1.0"     # what Jellyfin's list of devices calls it
+JF_CLIENT, JF_VERSION = "Pie-tato", "1.0"     # what Jellyfin's list of devices calls it
 JF_BROADCAST, JF_DISCOVERY = "255.255.255.255", 7359  # where Jellyfin servers answer "who is JellyfinServer?"
 JF_PORT = 8096                  # a server's own port, when its address doesn't say
 TICKS = 10_000_000              # Jellyfin counts time in ticks of 100 nanoseconds

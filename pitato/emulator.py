@@ -10,12 +10,18 @@ Media mode starts it (pitato/games.py) and tells it what to do, a line at a time
     reset                the game from the start
     keep                 in-game saves written now
     volume 80            how loud (0 to 100)
-    picture Fit          as big as fits (Fit), or whole pixels only (Sharp)
+    picture Fit          as big as fits (Fit), whole pixels only (Sharp), or the whole screen (Fill: stretched to it)
     disc 2               another disc in (a game on more than one): the tray opens, then shuts a moment later
+    peek 7 2037590:24    the game's memory, for an AI player (pitato/gameai.py): bytes at those addresses (hex,
+                         as the game sees them), as many as asked (16 at most)
+    mem /dev/shm/x       ...or all of its working memory (a Game Boy Advance's 32 KB and 256 KB), into that file
+    shot /dev/shm/x      ...or its picture as it is on the screen now, about the size the game made it, into that
+                         file (a PPM: an AI player shows it to its model)
     quit                 in-game saves and where you are kept, then it ends
 It answers on a channel of its own (cores print what they like on its output): ready new|resumed,
 disc 1 3 (the disc in, of how many), paused, resumed, saved, loaded, nostate, reset, error <why>, failed <why>
-(the game ended itself as it started: a PSP game that won't boot), bye.
+(the game ended itself as it started: a PSP game that won't boot), peek 7 <hex>... (- for memory it hasn't),
+mem ok|none, shot ok|none, bye.
 
 Run as: python3 -m pitato.emulator --core CORE --game GAME --saves FOLDER [--resume] ..."""
 import argparse
@@ -87,6 +93,11 @@ SLOW_WINDOW, SLOW_SHARE = 300, 0.2   # frames looked back on, and the share undr
 BIG_SCREEN_MOST = 640 * 480 * 2   # pixels of picture, at most, on a big screen (a Pi Zero keeps up)
 EARLY_END = 600          # frames: a game that ends itself sooner than this didn't really start (PPSSPP finds out
                          # a PSP game won't boot only once it's running)
+PEEK_MOST = 16384        # bytes one peek reads, at most (an AI player's small look: where you are, a menu's cursor)
+PEEK_RANGES = 16         # ...and places in one go, at most
+SHOT_MOST = 640          # pixels across an AI player's picture of the game, at most (a 3D game's can be bigger)
+PICTURES = ("Fit", "Sharp", "Fill")   # the picture's size: as big as fits, whole pixels only, the whole screen
+MEM_REGIONS = ((0x03000000, 0x8000), (0x02000000, 0x40000))   # what mem writes: a GBA's working RAM (IWRAM, EWRAM)
 
 
 def log_text(fmt, args):
@@ -172,6 +183,16 @@ class DiskControl(C.Structure):
                 ("get_num_images", C.CFUNCTYPE(C.c_uint)),
                 ("replace_image_index", C.CFUNCTYPE(C.c_bool, C.c_uint, C.c_void_p)),
                 ("add_image_index", C.CFUNCTYPE(C.c_bool))]
+
+
+class MemoryDescriptor(C.Structure):
+    """Where a piece of the game's memory is (libretro's retro_memory_descriptor)."""
+    _fields_ = [("flags", C.c_uint64), ("ptr", C.c_void_p), ("offset", C.c_size_t), ("start", C.c_size_t),
+                ("select", C.c_size_t), ("disconnect", C.c_size_t), ("len", C.c_size_t), ("addrspace", C.c_char_p)]
+
+
+class MemoryMap(C.Structure):
+    _fields_ = [("descriptors", C.POINTER(MemoryDescriptor)), ("num_descriptors", C.c_uint)]
 
 
 class DiskControlExt(C.Structure):
@@ -286,10 +307,13 @@ def write_file(path, data):
 
 def picture_size(sw, sh, w, h, aspect, mode, most=None, whole=True):
     """(width, height) of a w x h picture on a sw x sh screen: as big as fits in its proper shape,
-    whole pixels when that's nearly as big (crisper); or (Sharp) whole pixels only. `most` caps the
-    pixels drawn (a Pi Zero on a TV). whole=False: as big as fits, always, in Fit (a picture the graphics
-    chip smooths as it scales, an N64's or a PSP's, is no crisper in whole pixels: just smaller, with a
-    black border round it on a TV)."""
+    whole pixels when that's nearly as big (crisper); or (Sharp) whole pixels only; or (Fill) the whole
+    screen, stretched to it. `most` caps the pixels drawn (a Pi Zero on a TV). whole=False: as big as fits,
+    always, in Fit (a picture the graphics chip smooths as it scales, an N64's or a PSP's, is no crisper in
+    whole pixels: just smaller, with a black border round it on a TV)."""
+    if mode == "Fill":
+        k = math.sqrt(most / (sw * sh)) if most and sw * sh > most else 1.0
+        return max(1, int(sw * k)), max(1, int(sh * k))
     if mode == "Sharp":
         k = max(1, min(sw // w, sh // h))
         while most and k > 1 and w * k * h * k > most:
@@ -404,6 +428,26 @@ class Screen:
 
     def clear(self):
         os.pwrite(self.f.fileno(), bytes(self.stride * self.h), self.yo * self.stride)
+
+    def shot(self, path, most=SHOT_MOST):
+        """The game's last picture, as it is on the screen (not the black either side), one of the screen's
+        pixels for each of the game's own (smaller if it's still more than `most` across), into a PPM file.
+        False before it's drawn one. (A quick copy out of the rows the screen was given, between frames.)"""
+        if self.plan is None:
+            return False
+        key, ys, xs, _, view, _, _ = self.plan
+        w, h = key[0], key[1]
+        rows = np.unique(np.searchsorted(ys, np.arange(h)).clip(0, len(ys) - 1))
+        cols = np.unique(np.searchsorted(xs, np.arange(w)).clip(0, len(xs) - 1))
+        step = max(1, -(-len(cols) // most))
+        a = view[rows[::step]][:, cols[::step]].astype(np.uint32)
+        rgb = np.stack([((a >> off) & ((1 << ln) - 1)) << (8 - ln) for off, ln in self.fields[:3]], -1)
+        tmp = path + ".tmp"
+        with open(tmp, "wb") as f:
+            f.write(b"P6\n%d %d\n255\n" % (a.shape[1], a.shape[0]))
+            f.write(rgb.astype(np.uint8).tobytes())
+        os.replace(tmp, path)
+        return True
 
     def snapshot(self, max_w=640):
         """What's on the screen now, as a picture at most max_w wide (a game's menu goes over it)."""
@@ -539,6 +583,7 @@ class Core:
         self.log_cb = LOG(self.log)
         self.logged = 0                                # (lines it's put in the log)
         self.disk, self.disk_ext = None, False         # (a game on discs: changing them)
+        self.regions = []                              # its memory, where the game sees it: (start, length, pointer)
         self.saves, self.name = saves, name
         self.system_dir = system_dir.encode()
         self.saves_b = saves.encode()
@@ -732,7 +777,12 @@ class Core:
             if m.msg:
                 print(f"game: the emulator says {m.msg.decode(errors='replace')!r}", file=sys.stderr, flush=True)
             return True
-        if cmd in (8, 11, 34, 35, 36 | EXP, 42 | EXP, 44, 55, 60, 63):
+        if cmd == (36 | EXP):                         # SET_MEMORY_MAPS: where its memory is (an AI player reads it)
+            m = C.cast(data, C.POINTER(MemoryMap))[0]
+            self.regions = [(d.start, d.len, d.ptr + d.offset)
+                            for d in (m.descriptors[i] for i in range(m.num_descriptors)) if d.ptr and d.len]
+            return True
+        if cmd in (8, 11, 34, 35, 42 | EXP, 44, 55, 60, 63):
             return True                               # (told, and nothing to do about it)
         return False
 
@@ -823,6 +873,25 @@ class Core:
     def read_memory(self, kind):
         ptr, size = self.memory(kind)
         return C.string_at(ptr, size) if ptr else b""
+
+    def peek(self, addr, n):
+        """n bytes of the game's memory at addr, as the game sees it (None: it hasn't that memory)."""
+        for start, length, ptr in self.regions:
+            if start <= addr and addr + n <= start + length:
+                return C.string_at(ptr + addr - start, n)
+        return None
+
+    def dump(self, path):
+        """Its working memory (MEM_REGIONS, one after the other) into a file, whole: False if it hasn't it."""
+        parts = [self.peek(start, n) for start, n in MEM_REGIONS]
+        if any(p is None for p in parts):
+            return False
+        tmp = path + ".tmp"
+        with open(tmp, "wb") as f:
+            for p in parts:
+                f.write(p)
+        os.replace(tmp, path)
+        return True
 
     def put_memory(self, kind, data):
         ptr, size = self.memory(kind)
@@ -1117,11 +1186,33 @@ class Session:
             self.sound = Sound(self.args.sound, self.sound.rate, self.sound.volume)
             if not self.paused:
                 self.sound.start()
-        elif what == "picture" and arg in ("Fit", "Sharp"):
+        elif what == "picture" and arg in PICTURES:
             self.screen.mode = arg
         elif what == "option" and len(words) >= 3:     # an emulator's setting, while it plays (a DS's screens)
             self.core.options[arg] = " ".join(words[2:])
             self.core.options_changed = True
+        elif what == "peek":                           # an AI player's look at the game's memory
+            out = []
+            for spec in words[2:2 + PEEK_RANGES]:
+                try:
+                    addr, n = (int(v, 16) for v in spec.split(":"))
+                except ValueError:
+                    addr, n = 0, 0
+                data = self.core.peek(addr, n) if 0 < n <= PEEK_MOST else None
+                out.append(data.hex() if data is not None else "-")
+            self.say("peek", arg, *out)
+        elif what == "mem":
+            try:
+                ok = len(words) > 1 and self.core.dump(" ".join(words[1:]))
+            except OSError:
+                ok = False
+            self.say("mem", "ok" if ok else "none")
+        elif what == "shot":                           # ...and its look at the game's picture
+            try:
+                ok = len(words) > 1 and self.screen.shot(" ".join(words[1:]))
+            except (OSError, ValueError):
+                ok = False
+            self.say("shot", "ok" if ok else "none")
         elif what == "disc":
             try:
                 want = int(arg) - 1
@@ -1237,7 +1328,7 @@ class Session:
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="A game, for Pitato's Games tab.")
+    ap = argparse.ArgumentParser(description="A game, for Pie-tato's Games tab.")
     ap.add_argument("--core", required=True)
     ap.add_argument("--game", required=True)
     ap.add_argument("--exts", default=".gb,.gbc,.gba,.nes,.sfc,.smc")
@@ -1247,7 +1338,7 @@ def main(argv=None):
     ap.add_argument("--fb", default="/dev/fb0")
     ap.add_argument("--sound", default="")
     ap.add_argument("--volume", type=int, default=80)
-    ap.add_argument("--picture", default="Fit", choices=("Fit", "Sharp"))
+    ap.add_argument("--picture", default="Fit", choices=PICTURES)
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--option", action="append", default=[], help="an emulator's setting: key=value")
     args = ap.parse_args(argv)

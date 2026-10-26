@@ -42,7 +42,9 @@ FRIEND_PERSONA = ("You are a friendly little bot who lives on a small handheld s
 FRIEND_LOOK = ("see", "look", "looking", "camera", "in front of you", "around you", "wearing", "holding",
                "room", "what is this", "what's this", "colour", "color")
 FRIEND_TOPICS = ["weather", "weather", "time", "time", "anything", "anything", "markets", "playing"]
-FRIEND_SIGHT = 4                 # ...and with a camera and a model that can see, this many of what it sees
+FRIEND_SIGHT = 4                 # ...and with a camera, this many of what it sees (its model can see, unless it
+                                 # turned out it can't)
+FRIEND_BLIND = "{model} can't see pictures"   # (what it says when its model was shown one and couldn't look)
 # asked for a picture: "take a picture", "snap a quick pic of the garage", "grab a couple of photos",
 # "get me a picture of the door", "send me a photo", "selfie!", and "another one" just after one
 # (not "take a look at this picture", "did you take my picture down", "I'll send you a photo",
@@ -75,7 +77,7 @@ FRIEND_ASKS = {
                  "say it out loud: who or what is there and what's going on. No lists."),
 }
 FRIEND_CHATTER = [("Every 30 min", "30"), ("Every hour", "60"), ("Never", "0")]
-FRIEND_PAGES = ("friend", "f_models", "f_eyes", "f_voices")   # Settings > Bot and its lists
+FRIEND_PAGES = ("friend", "f_models", "f_voices")   # Settings > Bot and its lists
 # its face follows the tone of what it said: PiE-ink's faces and words
 FRIEND_FACES = {"happy": "(◕‿◕)", "pleased": "(•‿‿•)", "cool": "(⌐■_■)", "curious": "(☉_☉)",
                 "sorry": "(╥_╥)", "worried": "(°▃▃°)", "sleepy": "(⇀‿‿↼)", "thinking": "(•_•)",
@@ -216,8 +218,14 @@ class CantSee(ValueError):
     """The model was shown a picture, and can't look at pictures."""
 
     def __init__(self, model):
-        super().__init__(f"{model} can't look at pictures. Choose a model that can see in Settings > Bot")
+        super().__init__(FRIEND_BLIND.format(model=model))
         self.model = model
+
+
+def cant_see(error, images):
+    """Ollama's answer to a model shown a picture says it can't look at pictures."""
+    low = (getattr(error, "detail", "") or str(error)).lower()
+    return bool(images) and any(w in low for w in ("image", "vision", "multimodal", "picture"))
 
 
 def ollama_call(server, path, body=None, timeout=FRIEND_TIMEOUT):
@@ -246,14 +254,6 @@ def ollama_call(server, path, body=None, timeout=FRIEND_TIMEOUT):
         raise ValueError(f"Can't reach {where}. Is Ollama on there, and listening on the network?")
 
 
-def ollama_sees(server, model, timeout=6):
-    """True when Ollama says the model can see, False when it says it can't, None when it doesn't
-    say (an older Ollama)."""
-    got = ollama_call(server, "/api/show", {"model": model, "name": model}, timeout=timeout)
-    caps = got.get("capabilities")
-    return ("vision" in caps) if isinstance(caps, list) else None
-
-
 def ollama_models(server, timeout=6):
     got = ollama_call(server, "/api/tags", timeout=timeout)
     return sorted({m.get("name", "") for m in got.get("models", []) if isinstance(m, dict) and m.get("name")})
@@ -273,11 +273,14 @@ def ollama_deciders(server, timeout=6):
     return found
 
 
-def ollama_decide(server, model, state, instructions, choices, timeout):
+def ollama_decide(server, model, state, instructions, choices, timeout, images=None):
     """A decision model's pick of choices ({key: what it means}), given state (text, or an object it
-    reads as JSON): (key, how sure it is, 0 to 1)."""
+    reads as JSON) and pictures it looks at (base64 PNG or JPEG: a game's screen): (key, how sure it is,
+    0 to 1). CantSee: it was shown pictures and can't look at them (ask again without)."""
     body = {"model": model, "state": state, "keep_alive": "30m",
             "questions": {"pick": {"type": "choice", "instructions": instructions, "criteria": choices}}}
+    if images:
+        body["images"] = list(images)
     try:
         got = ollama_call(server, "/v1/systemone", body, timeout)
     except OllamaError as e:
@@ -285,6 +288,8 @@ def ollama_decide(server, model, state, instructions, choices, timeout):
             raise ValueError("That computer's Ollama is too old for decision models (0.35 or newer)")
         if e.code == 404:
             raise ValueError(f"That computer doesn't have {model}")
+        if cant_see(e, images):
+            raise CantSee(model)
         raise ValueError(f"{model} couldn't decide: {e.detail}")
     answer = (got.get("answers") or {}).get("pick") or {}
     pick = answer.get("choice")
@@ -310,7 +315,7 @@ def ollama_generate(server, model, system, prompt, images=None, timeout=FRIEND_T
                 raise                                 # (asked again, below)
             if e.code == 404:
                 raise ValueError(f"That computer doesn't have {model}. Pick another in Settings > Bot")
-            if images and any(w in low for w in ("image", "vision", "multimodal")):
+            if cant_see(e, images):
                 raise CantSee(model)
             raise
     try:
@@ -349,8 +354,7 @@ class Friend:
         self.snap = self.no_camera   # a picture taken: (where it's saved, its bytes, whose) or ValueError
         self.on_reply = lambda text: None
         self.doing = ""              # what it's busy with: "Taking a picture…", "Looking…"
-        self.vision = {}             # model -> it can see (True / False), as Ollama said, or as it went
-        self.vision_asked = {}       # model -> when Ollama was last asked
+        self.vision = {}             # model -> it looked at a picture (True), or was shown one and couldn't (False)
         self.lock = threading.Lock()
         self.load_log()
 
@@ -366,10 +370,6 @@ class Friend:
     @property
     def model(self):
         return (self.conf.get("model") or "").strip()
-
-    @property
-    def eyes(self):
-        return (self.conf.get("eyes") or "").strip()
 
     @property
     def name(self):
@@ -470,30 +470,8 @@ class Friend:
         return base64.b64encode(buf.getvalue()).decode()
 
     def sees(self):
-        """It can look at pictures: a model for its eyes, or one Ollama says can see (and neither
-        found it can't)."""
-        model = self.eyes or self.model
-        if self.vision.get(model) is False:
-            return False
-        return bool(self.eyes) or self.vision.get(model) is True
-
-    def check_vision(self):
-        """Whether the model it looks with can see, asked of Ollama in the background (once in a while)."""
-        model, server = self.eyes or self.model, self.server
-        if not (model and server) or model in self.vision \
-                or time.time() - self.vision_asked.get(model, 0) < 600:
-            return
-        self.vision_asked[model] = time.time()
-
-        def job():
-            try:
-                got = ollama_sees(server, model)
-            except Exception:
-                return                                  # (not now: asked again in a while)
-            if got is not None:
-                self.vision[model] = got
-                self.on_change()
-        threading.Thread(target=job, daemon=True, name="friend-vision").start()
+        """It can look at pictures: its model can see, unless it was shown one and couldn't."""
+        return self.vision.get(self.model) is not False
 
     def clear(self):
         with self.lock:
@@ -554,9 +532,7 @@ class Friend:
                 raise ValueError("I'm not set up yet. Put your Ollama computer in Settings > Bot")
             if not self.model:
                 raise ValueError("Pick a model for me in Settings > Bot")
-            model = self.eyes or self.model
-            if self.vision.get(model) is False:
-                raise CantSee(model)
+            model = self.model                         # (asked to look: it tries, even if it couldn't before)
             got, note = look()
             if not got:
                 raise ValueError(f"I can't see anything: {note}")
@@ -573,11 +549,11 @@ class Friend:
             lines.append(f"The attached picture is what the camera ({note}) sees right now.")
             text = ollama_generate(self.server, model, self.system(),
                                    "\n".join(lines) + "\n\n" + FRIEND_ASKS["describe"], [self.for_model(im)])
-            self.vision.setdefault(model, True)
+            self.vision[model] = True
             self.add("friend", text, "remark", pic=pid, seen=note)
         except CantSee as ex:
             self.vision[ex.model] = False
-            text, error = None, str(ex)[:200]
+            text, error = None, f"I can't see: {ex}"[:200]
             self.add("friend", error, "error")
         except Exception as ex:
             text, error = None, str(ex)[:200] or "That didn't work"
@@ -612,17 +588,22 @@ class Friend:
             if message and picture is None and (friend_wants_photo(message) or
                                                  self.after_photo() and FRIEND_SNAP_AGAIN.search(message)):
                 return self.photo(message)
-            prompt, images, seen = self.prompt(message, topic, sent)
-            model = self.eyes if images and self.eyes else self.model
+            prompt, images, seen = self.prompt(message, topic, sent, blind=not self.sees())
+            model = self.model
             self.doing = "Thinking…"
             self.on_change()
-            text = ollama_generate(self.server, model, self.system(), prompt, images)
+            try:
+                text = ollama_generate(self.server, model, self.system(), prompt, images)
+                if images:
+                    self.vision[model] = True
+            except CantSee:                            # it can't see after all: it answers without the picture
+                self.vision[model] = False
+                prompt, images, seen = self.prompt(message, "anything" if topic == "sight" else topic, sent,
+                                                   blind=True)
+                text = ollama_generate(self.server, model, self.system(), prompt)
             self.add("friend", text, "chat" if message or sent else "remark",
                      pic=seen[0] if seen else None, seen=seen[1] if seen else None)
             self.on_reply(text)
-        except CantSee as ex:
-            self.vision[ex.model] = False
-            self.add("friend", str(ex)[:200], "error")
         except Exception as ex:
             self.add("friend", str(ex)[:200] or "That didn't work", "error")
         finally:
@@ -639,7 +620,7 @@ class Friend:
 
     def photo(self, message):
         """They asked for a picture: the camera takes one (into Photos too), and it's shown here,
-        with a word on it from a model that can see."""
+        with a word on it from the model (unless it turned out it can't see)."""
         self.doing = "Taking a picture…"
         self.on_change()
         try:
@@ -650,8 +631,8 @@ class Friend:
             return
         pid = self.keep_picture(im)
         text = f"Here's the picture from {cam}. It's in Photos too."
-        model = self.eyes or self.model
-        if self.vision.get(model) is not False:
+        model = self.model
+        if self.sees():
             self.doing = "Looking…"
             self.on_change()
             lines = self.context(message)
@@ -661,7 +642,7 @@ class Friend:
                 text = ollama_generate(self.server, model, self.system(), "\n".join(lines) + "\n\nTell them you "
                                        "took it, and say something about what's in it, answering what they asked.",
                                        [self.for_model(im)])
-                self.vision.setdefault(model, True)
+                self.vision[model] = True
             except CantSee:
                 self.vision[model] = False
             except Exception as ex:
@@ -705,13 +686,20 @@ class Friend:
             return None, "the camera's picture was broken"
         return ((self.keep_picture(im), note), self.for_model(im)), note
 
-    def prompt(self, message, topic, sent=None):
+    def prompt(self, message, topic, sent=None, blind=False):
         """What's true right now, the last few lines said, and what to answer; the pictures it's
-        shown; and the one it looked at (its id, the camera), if it did."""
+        shown; and the one it looked at (its id, the camera), if it did. blind: its model can't see
+        (it was shown a picture and couldn't look), so it's told that instead."""
         lines = self.context(message if message or sent else None)
         images, seen = None, None
         who = self.name or "They"
-        if sent:
+        if sent and blind:
+            lines.append(f"{who} sent you a picture, but you can't see pictures.")
+            lines.append(f"{who} now say{'s' if self.name else ''}: {message}" if message else
+                         "They didn't say anything with it.")
+            ask = ("Reply to them, carrying on from what was already said, and tell them you can't see the "
+                   "picture." if message else "Tell them you can't see pictures.")
+        elif sent:
             images = [sent]
             lines.append(f"{who} sent you the attached picture.")
             lines.append(f"{who} now say{'s' if self.name else ''}: {message}" if message else
@@ -719,7 +707,9 @@ class Friend:
             ask = ("Reply to them about the picture, carrying on from what was already said." if message
                    else "Say something about the picture.")
         elif message:
-            if friend_wants_eyes(message):
+            if friend_wants_eyes(message) and blind:
+                lines.append("You can't see: you can't look at pictures. Say so if they asked what you see.")
+            elif friend_wants_eyes(message):
                 got, note = self.look_now(message)
                 if got:
                     seen, images = got[0], [got[1]]
@@ -729,6 +719,8 @@ class Friend:
             lines.append(f"{self.name} now says: {message}" if self.name else f"They now say: {message}")
             ask = "Reply to them, carrying on from what was already said."
         else:
+            if topic == "sight" and blind:
+                topic = "anything"                     # (it can't see: something else)
             if topic == "sight":
                 got, note = self.look_now()
                 if got:

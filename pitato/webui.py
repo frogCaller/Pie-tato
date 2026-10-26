@@ -3,7 +3,8 @@
 webui.py - the Pi's screen and files, from any browser on your WiFi.
 
 Screen: what's on the Pi's screen right now, a remote for it, and cartoons, films, news, sports,
-radio and the apps to put on it (through pitato.py, which listens on this Pi only).
+radio and the apps to put on it (through pitato.py, which listens on this Pi only). Its Draw tab
+draws a picture for the screen: PUT /api/draw puts it there and keeps it in ~/Pictures/Drawings.
 
 Files: drag files or whole folders onto the page and they land in ~/Music, ~/Videos, ~/Pictures,
 ~/Documents or ~/Games (picked by file type), ready for media mode, and media mode's settings files
@@ -15,7 +16,7 @@ setup.sh installs it as the pitato-web service, running as your user. Then open
     http://<your Pi's name>.local:5432
 
 The page is templates/index.html, and its typeface is in static/fonts: the only part of the static
-folder handed out as it is. Your settings files go in the static folder of the pitato folder
+folder handed out as it is. Your settings files go in the static folder of the Pie-tato folder
 (setup.sh tells the service where that is; run by hand, it's the one beside the folder this script
 is in).
 
@@ -52,7 +53,7 @@ from flask import Flask, Response, abort, jsonify, request, send_file
 PORT = 5432
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOP = HERE if os.path.isdir(os.path.join(HERE, "templates")) else os.path.dirname(HERE)   # installed: the page
-HOME = os.path.expanduser("~")                            # beside this; in the pitato folder: one folder up
+HOME = os.path.expanduser("~")                            # beside this; in the Pie-tato folder: one folder up
 TOLD = os.environ.get("PITATO_STATIC", "").strip()        # where setup.sh says the static folder is
 STATIC = os.path.abspath(TOLD or os.path.join(TOP, "static"))
 KNOWS = bool(TOLD) or os.path.isfile(os.path.join(TOP, "setup.sh"))   # told, or run from the folder
@@ -100,6 +101,9 @@ HOOK_MAX = 32 << 20                                     # bytes of a hook's repo
 HOOK_READS = {"Read", "Grep", "Glob", "LS", "WebFetch", "WebSearch", "NotebookRead"}   # Claude Code's tools that read
 HOOK_HELPERS = {"Task", "Agent"}                        # ...and that hand work to a helper
 THUMBS = os.path.join(HOME, ".cache", "pitato", "thumbs")   # small copies of your pictures
+DRAWINGS = "Drawings"                                   # the Draw tab's drawings: a folder in Pictures
+DRAWING_MAX = 8 << 20                                   # bytes of one (a PNG of a 1080p screen is far less)
+PNG = b"\x89PNG\r\n\x1a\n"
 
 app = Flask(__name__, static_folder=None)     # static/ holds your settings: only its fonts go out
 
@@ -115,7 +119,7 @@ def settings():
     home folder, where it used to go, counts until setup.sh moves it). Unreadable when it can't
     tell whether there's a password."""
     if not KNOWS or not os.path.isdir(STATIC):
-        raise Unreadable("Run sudo bash setup.sh again from the pitato folder: the page can't "
+        raise Unreadable("Run sudo bash setup.sh again from the Pie-tato folder: the page can't "
                          "find its static folder")
     cfg = {}
     for path in (os.path.join(STATIC, "webui.txt"), os.path.join(HOME, "webui.txt")):
@@ -193,7 +197,7 @@ def inside(root, path):
 
 
 def in_app_folder(path):
-    """True inside the pitato folder (the static folder's), unless that's your home folder
+    """True inside the Pie-tato folder (the static folder's), unless that's your home folder
     itself: the page leaves it as it is. setup.sh runs from there, and settings go in through
     Settings."""
     folder = os.path.realpath(os.path.dirname(STATIC))
@@ -201,12 +205,12 @@ def in_app_folder(path):
 
 
 def holds_app_folder(path):
-    """True for a folder with the pitato folder in it, somewhere: it can't be deleted."""
+    """True for a folder with the Pie-tato folder in it, somewhere: it can't be deleted."""
     return inside(os.path.realpath(path), os.path.realpath(STATIC))
 
 
 def shown_path(key):
-    """A folder as the page shows it: ~/Music, ~/pitato/static..."""
+    """A folder as the page shows it: ~/Music, ~/pie-tato/static..."""
     if key == "computers":
         return "Other computers"
     if key != "settings":
@@ -313,7 +317,7 @@ def check_password():
         return None
     if coder_path():
         return jsonify(ok=False, error="The web page's password is needed"), 401
-    return Response("Password needed", 401, {"WWW-Authenticate": 'Basic realm="Pitato"'})
+    return Response("Password needed", 401, {"WWW-Authenticate": 'Basic realm="Pie-tato"'})
 
 
 @app.after_request
@@ -395,7 +399,7 @@ def list_folder():
                 # folders in your home folder (your projects) and the media folders stay put
                 entry["locked"] = key == "home" or os.path.realpath(e.path) in keep
             elif key != "settings" and in_app_folder(e.path):
-                entry["locked"] = True                   # the pitato folder stays as it is
+                entry["locked"] = True                   # the Pie-tato folder stays as it is
             entries.append(entry)
     entries.sort(key=lambda x: (not x["dir"], natural(x["name"])))
     return jsonify(folder=key, path="/".join(parts), entries=entries)
@@ -406,7 +410,7 @@ def from_pi(method, path, body=None, timeout=60):
     """Media mode's answer as (JSON, None), or (None, an error response)."""
     got = ask_pi(method, path, body, timeout=timeout)
     if got is None or got[0] == 401:
-        return None, (jsonify(error="The Pi's screen isn't answering. Is Pitato running?"), 503)
+        return None, (jsonify(error="The Pi's screen isn't answering. Is Pie-tato running?"), 503)
     try:
         data = json.loads(got[1] or b"{}")
     except ValueError:
@@ -509,7 +513,7 @@ def upload():
     if not inside(root, folder):
         return jsonify(error="Not allowed there"), 403
     if key != "settings" and in_app_folder(os.path.join(folder, parts[-1])):
-        return jsonify(error="The pitato folder stays as it is. Settings files go in Settings."), 403
+        return jsonify(error="The Pie-tato folder stays as it is. Settings files go in Settings."), 403
     size = request.content_length
     if size is not None and size > shutil.disk_usage(root).free - SPARE:
         return jsonify(error="Not enough space on the Pi"), 507
@@ -636,7 +640,7 @@ def ask_pi(method, path, body=None, timeout=10, ctype="application/json"):
 
 def pi_reply(got, cache="no-store"):
     if got is None or got[0] == 401:
-        return jsonify(error="The Pi's screen isn't answering. Is Pitato running?"), 503
+        return jsonify(error="The Pi's screen isn't answering. Is Pie-tato running?"), 503
     status, data, ctype = got
     resp = Response(data, status, content_type=ctype)
     resp.headers["Cache-Control"] = cache if status == 200 else "no-store"
@@ -684,11 +688,86 @@ def pi_post(what):
     return pi_reply(ask_pi("POST", "/" + what, data, timeout=60))
 
 
+# ---- the Draw tab: a drawing for the screen ---------------------------------------------
+def keep_drawing(data, name):
+    """The drawing as ~/Pictures/Drawings/<name> (one already there: replaced, so a drawing sent again is
+    still one picture), or under a new name when there's none: (its name, None) or (None, why not)."""
+    root = root_of("pictures")
+    folder = os.path.realpath(os.path.join(root, DRAWINGS))
+    if not inside(root, folder):
+        return None, "Not allowed there"
+    name = name or ""
+    if not (name == clean_name(name) and name.lower().endswith(".png") and len(name) > 4):
+        name = time.strftime("drawing-%Y-%m-%d-%H%M%S.png")
+        if os.path.lexists(os.path.join(folder, name)):
+            name = os.path.basename(free_name(os.path.join(folder, name)))
+    target = os.path.join(folder, name)
+    if os.path.isdir(target):
+        return None, "There's a folder with that name"
+    if len(data) > shutil.disk_usage(root).free - SPARE:
+        return None, "Not enough space on the Pi"
+    tmp = os.path.join(folder, f".{name}.{uuid.uuid4().hex[:8]}.part")
+    try:
+        os.makedirs(folder, exist_ok=True)
+        with open(tmp, "wb") as f:
+            f.write(data)
+        os.replace(tmp, target)
+    except OSError:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        return None, "Couldn't keep it in Pictures"
+    return name, None
+
+
+@app.put("/api/draw")
+def draw():
+    """The Draw tab's drawing, a PNG (the request's body): ?show=1 puts it on the Pi's screen (media mode
+    shows it till B), ?keep=1 keeps it in Pictures/Drawings (&name=: the one it went in last time)."""
+    show, keep = request.args.get("show") == "1", request.args.get("keep") == "1"
+    if not (show or keep):
+        return jsonify(error="Nothing to do"), 400
+    size = request.content_length
+    if size is None or not 0 < size <= DRAWING_MAX:
+        return jsonify(error="That drawing is too big"), 413
+    parts, got = [], 0
+    while got < size:
+        part = request.stream.read(min(CHUNK, size - got))
+        if not part:
+            break
+        parts.append(part)
+        got += len(part)
+    data = b"".join(parts)
+    if len(data) != size or not data.startswith(PNG):
+        return jsonify(error="That isn't a drawing"), 400
+    out = {"ok": True}
+    if keep:
+        name, why = keep_drawing(data, request.args.get("name"))
+        if not name:
+            return jsonify(error=why), 507 if why.startswith("Not enough") else 500
+        out.update(name=name, path=DRAWINGS + "/" + name)
+    if show:
+        answer = ask_pi("POST", "/sketch", data, timeout=30, ctype="image/png")
+        if answer is None or answer[0] == 401:
+            out.update(ok=False, error="The Pi's screen isn't answering. Is Pie-tato running?")
+            return jsonify(out), 503
+        try:
+            said = json.loads(answer[1])
+        except ValueError:
+            said = None
+        if answer[0] != 200 or not isinstance(said, dict) or said.get("error"):
+            why = said.get("error") if isinstance(said, dict) else None
+            out.update(ok=False, error=why or "The Pi couldn't show it")
+            return jsonify(out), answer[0] if answer[0] != 200 else 409
+    return jsonify(out)
+
+
 # ---- the Bot at work: your coding agent, acted out --------------------------------------
 def coder_reply(got):
     """Media mode's answer, passed on."""
     if got is None or got[0] == 401:
-        return jsonify(ok=False, error="Pitato isn't answering"), 503
+        return jsonify(ok=False, error="Pie-tato isn't answering"), 503
     status, data, _ = got
     return Response(data, status, content_type="application/json")
 

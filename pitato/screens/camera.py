@@ -4,8 +4,10 @@ import time
 from ..theme import ACCENT, BG, BODY, MUTED, ROW, TEXT, WARN
 from ..net import cam_address, cam_host, cam_key
 from ..library import LIBRARY
-from ..cameras import CAM_SHOT_SHOW, edit_cameras, read_cameras, turn_picture
+from ..cameras import CAM_SHOT_SHOW, edit_cameras, fit_size, read_cameras, turn_picture
 from ..bot import friend_face
+
+CAM_PAGE_FOR = 1.0           # seconds the page's top and buttons are kept, as new pictures come: then drawn afresh
 
 
 class CameraScreen:
@@ -22,8 +24,16 @@ class CameraScreen:
         """A new picture or camera state arrived (from the camera's threads)."""
         if self.on_camera_page() or self.on_camera_list():
             self.dirty = True
+            self.wake()
         if self.on_camera_list() and not self.camera.scanning and self.camera.unseen():
             self.camera.scan()                       # one just heard on the network, say
+
+    def camera_frame(self):
+        """A new picture, and nothing else changed (from the camera's thread): just the picture's drawn again,
+        at once."""
+        if self.on_camera_page():
+            self.cam_fresh = True
+            self.wake()
 
     def pie_cameras(self):
         """(cameras that answered as PiE-ink, the addresses in camera.txt: a PiE-ink's camera is at the
@@ -59,6 +69,8 @@ class CameraScreen:
                 cam.press(name)
                 self.dirty = True
             return None
+        if self.cam_menu:                             # a camera's settings
+            return self.press_cam_menu(name, repeat)
         rows = self.cam_rows()
         n = len(rows)
         sel = max(0, min(self.cam_sel, n - 1))
@@ -80,8 +92,10 @@ class CameraScreen:
                 self.camera_open(entry["addr"])
         elif name == "y" and not repeat and rows[sel][0] == "cam":
             self.camera_turn(rows[sel][1]["addr"])
+        elif name == "start" and not repeat and rows[sel][0] == "cam":
+            self.cam_menu = {"addr": rows[sel][1]["addr"], "sel": 0}
         elif name in ("left", "right") and not repeat and rows[sel][0] == "cam":
-            self.camera_flip(rows[sel][1]["addr"])
+            self.camera_flip(rows[sel][1]["addr"])        # (what its settings' first row does)
         elif name == "x" and not repeat and rows[sel][0] == "cam":
             entry = rows[sel][1]
             key = "camdel:" + cam_key(entry["addr"])
@@ -145,31 +159,112 @@ class CameraScreen:
         got = cam.snapshot(addr, max_age=2)
         return (cam.turned_file(addr, got[0], got[2]), name) if got else (None, f"the camera {name} didn't answer")
 
-    def camera_turn(self, addr):
-        """A camera's picture turned a quarter clockwise (a camera on its side), kept for next time: on
-        the screen, its photos, what the bot sees, and on the web page. How far it's turned now."""
+    def camera_turn(self, addr, step=90, quiet=False):
+        """A camera's picture turned a quarter clockwise (a camera on its side; step -90: anticlockwise), kept
+        for next time: on the screen, its photos, what the bot sees, and on the web page. How far it's turned
+        now. (quiet: its settings show it.)"""
         cam = self.camera
-        deg = (cam.turn_of(addr) + 90) % 360
+        deg = (cam.turn_of(addr) + step) % 360
         cam.set_turn(addr, deg)
         self.save_state()
-        self.toast(f"{cam.name_of(addr)}: turned {deg}°" if deg else f"{cam.name_of(addr)}: not turned", 2)
+        if not quiet:
+            self.toast(f"{cam.name_of(addr)}: turned {deg}°" if deg else f"{cam.name_of(addr)}: not turned", 2)
         self.dirty = True
         return deg
 
-    def camera_flip(self, addr):
-        """One that turns the wrong way (right when ◀ is pressed): left and right swapped as it's steered, kept
-        for next time; or back as they were. Whether they're swapped now (None: it doesn't turn)."""
+    def camera_flip(self, addr, axis="x", quiet=False):
+        """One that turns the wrong way (right when ◀ is pressed; axis "y": down when ▲ is): left and right (up
+        and down) swapped as it's steered, kept for next time; or back as they were. Whether they're swapped now
+        (None: it doesn't turn). (quiet: its settings show it.)"""
         cam = self.camera
         if not cam.may_steer(addr):
             self.toast("This camera doesn't turn", 2)
             return None
-        on = not cam.flipped(addr)
-        cam.set_flip(addr, on)
+        on = not cam.flipped(addr, axis)
+        cam.set_flip(addr, on, axis)
         self.save_state()
-        self.toast(f"{cam.name_of(addr)}: left and right swapped" if on
-                   else f"{cam.name_of(addr)}: left and right as normal", 2)
+        ways = "up and down" if axis == "y" else "left and right"
+        if not quiet:
+            self.toast(f"{cam.name_of(addr)}: {ways} swapped" if on else f"{cam.name_of(addr)}: {ways} as normal", 2)
         self.dirty = True
         return on
+
+    # -- a camera's settings (START on it in your list) -----------------------------------------------------
+    CAM_MENU_NOTES = {"flip_x": "For a camera that turns right when you press ◀",
+                      "flip_y": "For a camera that turns down when you press ▲",
+                      "turn": "For a camera on its side, or upside down"}
+
+    def cam_menu_rows(self):
+        """(key, label, what it is now): the d-pad's ways for one that turns, and its picture turned."""
+        cam, addr = self.camera, self.cam_menu["addr"]
+        rows = []
+        if cam.may_steer(addr):
+            rows += [("flip_x", "Flip left and right", "On" if cam.flipped(addr) else "Off"),
+                     ("flip_y", "Flip up and down", "On" if cam.flipped(addr, "y") else "Off")]
+        return rows + [("turn", "Turn the picture", f"{cam.turn_of(addr)}°")]
+
+    def press_cam_menu(self, name, repeat):
+        """A camera's settings: up and down, ◀▶ or A to change one, B or START back to your cameras. L and R: on
+        to the next tab, as ever."""
+        menu = self.cam_menu
+        if name in ("l", "r"):
+            self.cam_menu = None
+            return "pass"
+        if not self.camera.mine(menu["addr"]):        # (taken out meanwhile, on the web page)
+            self.cam_menu = None
+            self.dirty = True
+            return None
+        rows = self.cam_menu_rows()
+        menu["sel"] %= len(rows)
+        key = rows[menu["sel"]][0]
+        if name in ("up", "down"):
+            menu["sel"] = (menu["sel"] + (1 if name == "down" else -1)) % len(rows)
+        elif repeat:
+            pass
+        elif name in ("b", "start"):
+            self.cam_menu = None
+        elif name in ("left", "right", "a"):
+            if key in ("flip_x", "flip_y"):
+                self.camera_flip(menu["addr"], "y" if key == "flip_y" else "x", quiet=True)
+            else:
+                self.camera_turn(menu["addr"], -90 if name == "left" else 90, quiet=True)
+        self.dirty = True
+        return None
+
+    def render_cam_menu(self):
+        """A camera's settings, as Settings' pages look."""
+        F = self.fonts
+        cam, menu = self.camera, self.cam_menu
+        img, d = self.canvas()
+        W, H = self.fb.w, self.fb.h
+        self.header(img, d)
+        rows = self.cam_menu_rows()
+        sel = menu["sel"] % len(rows)
+        d.text((20, self.LIST_TOP + 10), self.fit(d, f"Camera  ›  {cam.name_of(menu['addr'])}", F["small"], W - 200),
+               font=F["small"], fill=MUTED, anchor="lm")
+        d.text((W - 20, self.LIST_TOP + 10), cam_host(menu["addr"]) or "", font=F["small"], fill=MUTED, anchor="rm")
+        top, rh = self.LIST_TOP + 26, 46
+        for r, (key, label, value) in enumerate(rows):
+            y = top + r * rh
+            on = r == sel
+            if on:
+                d.rounded_rectangle((12, y + 2, W - 12, y + rh - 4), radius=10, fill=ROW)
+                d.rectangle((12, y + 10, 15, y + rh - 12), fill=ACCENT)
+            mid = y + rh / 2 - 1
+            d.text((30, mid), label, font=F["row"], fill=TEXT if on else BODY, anchor="lm")
+            x1 = W - 28
+            if on:                                    # ◀ value ▶
+                d.text((x1, mid), "▶", font=F["small"], fill=ACCENT, anchor="rm")
+                x1 -= 22
+            d.text((x1, mid), value, font=F["row"], fill=ACCENT if on else MUTED, anchor="rm")
+            if on:
+                d.text((x1 - d.textlength(value, font=F["row"]) - 10, mid), "◀", font=F["small"], fill=ACCENT,
+                       anchor="rm")
+        note = self.CAM_MENU_NOTES.get(rows[sel][0], "")
+        d.text((30, top + len(rows) * rh + 18), note, font=F["small"], fill=MUTED, anchor="lm")
+        self.footer(d, [("◀▶", "Change"), ("B", "Back")])
+        self.msg_pill(d)
+        self.fb.show(img)
 
     def camera_described(self, token, text, error):
         """It said what it sees (on its own thread): out loud too, and over the picture for a while."""
@@ -190,6 +285,7 @@ class CameraScreen:
         cam = self.camera
         cam.stop()
         self.cam_list = True
+        self.cam_menu = None
         rows = self.cam_rows()
         self.cam_sel = next((i for i, (k, e) in enumerate(rows)
                              if k == "cam" and cam_key(e["addr"]) == cam_key(cam.addr)), 0)
@@ -203,6 +299,7 @@ class CameraScreen:
         self.state["camera"] = addr
         self.save_state()
         self.cam_list = False
+        self.cam_menu = None
         if self.on_camera_page():
             cam.start()
         self.dirty = True
@@ -246,9 +343,10 @@ class CameraScreen:
             return
         was = cam_key(addr) == cam_key(cam.addr)
         cam.cams = read_cameras(cam.patterns or LIBRARY[self.tab_index("camera")]["files"])
-        if cam.turn_of(addr) or cam.flipped(addr):    # (added again later: the right way up, steered as it is)
-            cam.set_turn(addr, 0)
+        if cam.turn_of(addr) or cam.flipped(addr) or cam.flipped(addr, "y"):   # (added again later: the right
+            cam.set_turn(addr, 0)                                              # way up, steered as it is)
             cam.set_flip(addr, False)
+            cam.set_flip(addr, False, "y")
             self.save_state()
         if was:
             cam.select(cam.cams[0]["addr"] if cam.cams else "")
@@ -268,27 +366,53 @@ class CameraScreen:
         if self.on_camera_page():
             self.toast("Saved to Pictures", 3)
 
-    def render_camera(self):
-        from PIL import Image
+    def render_camera(self, picture_only=False):
+        """The camera's picture, as big as it fits, with what's going on over it. picture_only: a new picture
+        and nothing else: it goes on the page as last drawn (its top and its buttons, kept a moment), and just
+        that part of the screen is written."""
+        from PIL import Image, ImageDraw
         F = self.fonts
         cam = self.camera
-        img, d = self.canvas()
         W, H = self.fb.w, self.fb.h
-        self.header(img, d)
-        top, bottom = self.HEADER + 1, H - self.FOOTER
+        top, bottom = self.HEADER + 1, H if self.full_app() else H - self.FOOTER   # (no buttons: down to the bottom)
         AW, AH = W, bottom - top
-        if not cam.addr:
-            self.empty_state(d, "No camera chosen", "Press B to pick one or add one")
-            self.footer(d, [("B", "Cameras")])
-            self.fb.show(img)
-            return
+        cam.fit_to = (AW, AH)                       # (the picture's made this size as it comes)
+        base = self.cam_base
+        if picture_only and cam.addr and base is not None and base[0].size == (W, H) \
+                and time.monotonic() - base[1] < CAM_PAGE_FOR:
+            img = base[0].copy()
+            d = ImageDraw.Draw(img)
+            tag = base[2]
+        else:
+            picture_only = False
+            img, d = self.canvas()
+            self.header(img, d)
+            if not cam.addr:
+                self.cam_base = None
+                self.empty_state(d, "No camera chosen", "Press B to pick one or add one")
+                self.footer(d, [("B", "Cameras")])
+                self.fb.show(img)
+                return
+            place = cam.place()
+            tag = f"{place[0]} of {place[1]}" if place and place[1] > 1 else ""
+            self.footer(d, self.camera_hints(tag), pill=False)
+            self.cam_base = (img.copy(), time.monotonic(), tag)
 
         frame = cam.frame
         if frame is not None:                       # the live picture, as big as it fits
-            s = min(AW / frame.width, AH / frame.height)
-            size = (max(int(frame.width * s), 1), max(int(frame.height * s), 1))
-            pic = frame if size == frame.size else frame.resize(size, Image.BILINEAR)
+            size = fit_size(frame.width, frame.height, (AW, AH))
+            fitted = cam.fitted
+            if fitted and fitted[0] is frame and fitted[1] is not None and fitted[1].size == size:
+                pic = fitted[1]                     # (made that size on the camera's thread)
+            else:
+                pic = frame if size == frame.size else frame.resize(size, Image.BILINEAR)
             img.paste(pic, ((AW - size[0]) // 2, top + (AH - size[1]) // 2))
+            if cam.stale:                           # nothing new for a while: the last picture stays, and says why
+                label = "Reconnecting…"
+                tw = d.textlength(label, font=F["small"])
+                d.rounded_rectangle((W / 2 - tw / 2 - 14, top + 12, W / 2 + tw / 2 + 14, top + 42), radius=15,
+                                    fill=ROW)
+                d.text((W / 2, top + 27), label, font=F["small"], fill=TEXT, anchor="mm")
         else:
             mid = top + AH / 2
             cx, cy = W / 2, mid - 40
@@ -352,8 +476,6 @@ class CameraScreen:
 
         # which camera this is, bottom left, with L R between yours when there are more
         # (out of the way while a notice is up there)
-        place = cam.place()
-        tag = f"{place[0]} of {place[1]}" if place and place[1] > 1 else ""
         if not self.msg:
             name = self.fit(d, cam.title, F["small_b"], W // 2)
             y = bottom - 26
@@ -368,9 +490,16 @@ class CameraScreen:
                 d.text((x, y), tag, font=F["small"], fill=MUTED, anchor="lm")
                 x += d.textlength(tag, font=F["small"]) + 8
                 self.key(d, x, y, "R")
+        self.msg_pill(d)
+        if picture_only and hasattr(self.fb, "show_part"):
+            self.fb.show_part(img, (0, top, W, bottom))
+        else:
+            self.fb.show(img)
 
-        # SELECT: the bot says what it sees, when there's one (on one that turns, holding START
-        # then sets the speed, which SELECT did before); a lit key: on
+    def camera_hints(self, tag):
+        """The Camera tab's buttons, along the bottom. SELECT: the bot says what it sees, when there's one (on
+        one that turns, holding START then sets the speed, which SELECT did before); a lit key: on."""
+        cam = self.camera
         bot = ("SEL", "Stop" if self.voice.speaking else "Describe") if self.friend.ready() else None
         if cam.steers:
             hints = [("X Y", "Zoom"), ("A", "Taking…" if cam.shooting else "Photo"),
@@ -384,8 +513,7 @@ class CameraScreen:
                 + [("B", "Cameras")]
             if not tag:
                 hints.append(("L R", "Tabs"))
-        self.footer(d, hints)
-        self.fb.show(img)
+        return hints
 
     def camera_told(self, d, told, bottom):
         """What the bot said it sees, across the foot of the picture, with its face; or that it's
@@ -419,6 +547,10 @@ class CameraScreen:
         return rows
 
     def render_cameras(self):
+        if self.cam_menu:
+            if self.camera.mine(self.cam_menu["addr"]):
+                return self.render_cam_menu()
+            self.cam_menu = None                      # (taken out meanwhile, on the web page)
         F = self.fonts
         cam = self.camera
         img, d = self.canvas()
@@ -484,25 +616,21 @@ class CameraScreen:
                    fill=TEXT if selected else BODY, anchor="lm")
         if n == 1:                                    # nothing yet but the row to add one
             y = top_y + self.ROW_H + 18
-            for line in ("A Pi running Pitato's camera server",
-                         "(sudo bash setup.sh --camera on that Pi),", "or any MJPEG or JPEG camera link."):
+            for line in ("Any camera on your network: its address and",
+                         "port, or its link. A Pi can share its USB camera",
+                         "too: sudo bash setup.sh --camera on that Pi."):
                 d.text((W / 2, y), line, font=F["small"], fill=MUTED, anchor="mm")
                 y += 22
         kind, entry = rows[sel]
         if kind == "cam":
             remove = ("X", "Remove" if self.confirm[0] != "camdel:" + cam_key(entry["addr"]) else "Remove it")
-            if cam.may_steer(entry["addr"]):          # (one that may turn: ◀▶ swaps left and right; lit: swapped)
-                flip = cam.flipped(entry["addr"])
-                hints = [("A", "Watch"), ("Y", "Rotate"),
-                         ("◀▶", "Left/right swapped" if flip else "Swap left/right", flip), remove, ("B", "Home")]
-            else:
-                hints = [("A", "Watch"), ("Y", "Rotate"), remove, ("L R", "Tabs"), ("B", "Home")]
+            hints = [("A", "Watch"), ("Y", "Rotate"), ("START", "Settings"), remove, ("B", "Home")]
         else:
             hints = [("A", "Add"), ("L R", "Tabs"), ("B", "Home")]
         about = ""
         if entry:
             about = entry["addr"].split("://", 1)[-1]
-            what = cam.kind_of(entry["addr"]) or entry.get("server", "")
+            what = cam.kind_shown(entry["addr"], entry.get("server", ""))
             about += f" · {what}" if what else ""
         self.footer(d, hints, right=about)
         self.fb.show(img)

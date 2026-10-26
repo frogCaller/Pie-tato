@@ -65,8 +65,6 @@ class BotScreen:
         self.friend_scroll = 0
         if fr.ready() and self.bot_voice() and self.bot_speaks() and not self.proc:
             self.voice.warm(self.bot_voice())          # (a voice takes a few seconds to load)
-        if fr.ready():
-            fr.check_vision()                          # (can it see? for what it says by itself)
         if fr.ready() and not fr.busy and time.time() - fr.last_said() > FRIEND_HELLO_AFTER:
             fr.remark("hello")
 
@@ -141,9 +139,8 @@ class BotScreen:
 
     def friend_topic(self):
         """Something to talk about: mostly the weather and the time, the stocks and coins now and then, and
-        what it sees, when it has a camera and a model that can see."""
+        what it sees, when it has a camera (and its model hasn't turned out not to see)."""
         fr = self.friend
-        fr.check_vision()
         topic = random.choice(FRIEND_TOPICS + (["sight"] * FRIEND_SIGHT if fr.sees() and self.friend_camera() else []))
         if topic == "weather" and not self.weather.data:
             topic = "time"
@@ -217,7 +214,7 @@ class BotScreen:
         return cam.addr or (cams[0]["addr"] if cams else "")
 
     def friend_look(self, text=""):
-        """A picture from your camera, for a model that can see: (its JPEG, the camera) or (None, why not)."""
+        """A picture from your camera, for its model to look at: (its JPEG, the camera) or (None, why not)."""
         cam = self.camera
         addr = self.friend_camera(text)
         if not addr:
@@ -448,7 +445,7 @@ class BotScreen:
             return voice_name(self.bot_voice()) if self.bot_voice() else "None"
         if key == "f_speak":
             return "On" if self.bot_speaks() else "Off"
-        return {"f_server": fr.server or "Not set", "f_model": fr.model or "Pick one", "f_eyes": fr.eyes or "None",
+        return {"f_server": fr.server or "Not set", "f_model": fr.model or "Pick one",
                 "f_name": fr.name or "Not set", "f_chatter": fr.chatter_text()}.get(key, "")
 
     def press_friend_settings(self, name, repeat, key, extra):
@@ -460,7 +457,7 @@ class BotScreen:
             if page == "friend":
                 self.set_page, self.set_sel = "root", self.settings_root_index("friend")
             else:
-                self.set_page, self.set_sel = "friend", {"f_models": 1, "f_eyes": 2, "f_voices": 5}[page]
+                self.set_page, self.set_sel = "friend", {"f_models": 1, "f_voices": 4}.get(page, 0)
             self.confirm = (None, 0.0)
         elif page == "f_voices":
             self.press_voices(name, key, extra)
@@ -473,14 +470,13 @@ class BotScreen:
             elif name == "a" and key == "f_name":
                 self.open_keyboard("What should it call you?", fr.name,
                                    lambda t: self.friend_set(name=t), limit=40, empty=True)
-            elif name == "a" and key in ("f_model", "f_eyes"):
+            elif name == "a" and key == "f_model":
                 if not fr.server:
                     self.toast("Set the computer with Ollama first", 3)
                 else:
-                    self.set_page = "f_models" if key == "f_model" else "f_eyes"
-                    want = fr.model if key == "f_model" else fr.eyes
+                    self.set_page = "f_models"
                     rows = self.settings_rows()
-                    self.set_sel = next((i for i, r in enumerate(rows) if r[2] == want), 0)
+                    self.set_sel = next((i for i, r in enumerate(rows) if r[2] == fr.model), 0)
                     if fr.models_at != fr.server or not fr.models:
                         fr.fetch_models()
             elif key == "f_chatter" and name in ("left", "right", "a"):
@@ -505,13 +501,9 @@ class BotScreen:
                     if not self.bot_speaks():
                         self.voice.stop()
         elif name == "a" and key == "f_pick":
-            if page == "f_models":
-                self.friend_set(model=extra)
-                self.toast(f"Using {extra}", 2)
-            else:
-                self.friend_set(eyes=extra)
-                self.toast(f"Looking with {extra}" if extra else "No model for seeing", 2)
-            self.set_page, self.set_sel = "friend", 1 if page == "f_models" else 2
+            self.friend_set(model=extra)
+            self.toast(f"Using {extra}", 2)
+            self.set_page, self.set_sel = "friend", 1
         self.dirty = True
         return None
 

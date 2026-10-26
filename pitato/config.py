@@ -18,7 +18,7 @@ WEB_PRIVATE = {"webui.txt", "homeassistant.txt", "plex.txt", "jellyfin.txt", "pi
 
 # ---- your settings files: the static folder ---------------------------------
 def settings_dir():
-    """Where your settings files are (radio.txt, bot.txt...): the static folder in the pitato
+    """Where your settings files are (radio.txt, bot.txt...): the static folder in the Pie-tato
     folder. The service is told where that is (setup.sh); run by hand, it's the one next to the
     code's own folder."""
     told = os.environ.get("PITATO_STATIC", "").strip()
@@ -52,16 +52,15 @@ def web_private(name):
 # ---- settings: saved with the rest of the state ---------------------------------------
 WALLPAPERS = ["Midnight", "Dusk", "Ocean", "Forest", "Aurora", "Black", "Picture"]
 SCREEN_MODES = ["Fit", "Full screen", "Stretch"]   # Settings > Video size; Y while a video plays
-SETTINGS = [   # key, label, choices (None: opens a page of its own)
+SETTINGS = [   # key, label, choices (None: opens a page of its own). (Where you are and the temperature's units are
+               # Weather's: START there)
     ("wifi", "WiFi", None),
     ("bluetooth", "Bluetooth", None),     # your controllers, keyboards and the rest: find, pair, connect
     ("wallpaper", "Background", WALLPAPERS),
-    ("home_style", "Home screen style", ["Bright", "Glass", "Minimal", "Cards"]),
+    ("home_style", "Home screen style", ["Bright", "Glass", "Cards"]),
     ("accent", "Accent colour", [a for a, _ in ACCENTS]),
     ("clock", "Clock", ["12-hour", "24-hour"]),
-    ("widget", "On the home screen", ["Weather", "Just the time"]),
-    ("location", "Location", None),
-    ("units", "Temperature", ["°F", "°C"]),
+    ("app_full", "Full screen apps", ["Off", "On"]),   # the apps without the bars along the top and bottom
     ("screen", "Video size", SCREEN_MODES),
     ("resolution", "Resolution", None),   # a TV or monitor's: the sizes it takes (not there on the GPi Case)
     ("sound", "Sound", None),
@@ -72,12 +71,14 @@ SETTINGS = [   # key, label, choices (None: opens a page of its own)
     ("start_song", "Random song at start-up", ["Off", "On"]),   # one of yours from ~/Music, as it starts
 ]
 SETTINGS_DEFAULT = {"wallpaper": "Midnight", "picture": "", "accent": "Blue", "clock": "12-hour",
-                    "widget": "Weather", "units": "°F", "start": "Home screen", "location": None,
+                    "units": "°F", "start": "Home screen", "location": None,
                     "screen": "Fit", "sound": "Auto", "coder_sound": "On", "sim_full": "Off", "bot_mode": "chat",
                     "game_picture": "Fit", "start_song": "Off", "home_style": "Glass",
-                    "ds_screens": "Left/Right", "ds_touch": "Right stick, R2"}
-HOME_STYLE_WAS = {"Original": "Bright", "Style 2": "Glass", "Style 3": "Minimal", "Style 4": "Cards"}   # (earlier names)
-SETTINGS_GONE = ("shrink",)   # settings there were once (Big videos: they're made smaller whenever they need it)
+                    "ds_screens": "Left/Right", "ds_touch": "Right stick, R2", "app_full": "Off"}
+HOME_STYLE_WAS = {"Original": "Bright", "Style 2": "Glass", "Style 3": "Glass", "Style 4": "Cards",   # (earlier names,
+                  "Minimal": "Glass"}                                                               # and one gone)
+SETTINGS_GONE = ("shrink", "widget")   # settings there were once (Big videos: they're made smaller whenever they
+                                       # need it; On the home screen: the weather's there once there's a place)
 
 
 STATE_FILE = "/var/lib/pitato/state.json"   # resume points, lengths, lists
@@ -144,7 +145,7 @@ def write_setting(name, text, private=False):
     in, so a link left in its place is replaced rather than followed (this runs as root)."""
     st = os.stat(home_dir())
     if not os.path.isdir(STATIC):                     # not made yet: yours, like the rest (and only
-        os.mkdir(STATIC)                              # in a pitato folder that's there)
+        os.mkdir(STATIC)                              # in a Pie-tato folder that's there)
         os.chown(STATIC, st.st_uid, st.st_gid, follow_symlinks=False)
     fd, tmp = tempfile.mkstemp(dir=STATIC, prefix="." + name + ".")
     try:

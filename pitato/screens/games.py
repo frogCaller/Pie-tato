@@ -1,8 +1,10 @@
-"""The Games tab: Snake and your own games, with their pictures (Y finds them); a game while it plays (a
-process of its own draws it, pitato/emulator.py), and the menu HOME brings up over it."""
+"""The Games tab: Snake and your own games, with their pictures (Y finds them) and a box to find one by name
+(START); a game while it plays (a process of its own draws it, pitato/emulator.py), and the menu HOME brings up
+over it."""
 import os
 import struct
 import time
+import unicodedata
 
 from ..theme import ACCENT, BG, BODY, LINE, MUTED, ROW, TEXT
 from ..util import item
@@ -10,8 +12,10 @@ from ..screen import aplay_device, sound_place
 from ..library import LIBRARY
 from ..snake import snake_card
 from ..games import (ANALOG_SYSTEMS, art_path, ArtFinder, bios_missing, find_core, find_games, game_kind,
-                     GAME_PACKAGES, GAME_PLAYERS, GameRun, has_resume, plain_title, playable, system)
+                     GAME_PACKAGES, GAME_PLAYERS, GameRun, games_dir, has_resume, plain_title, playable, save_name,
+                     SAVES_FOLDER, system)
 from ..emulator import screen_picture
+from ..gameai import GameAI
 
 GAME_BUTTONS = ("a", "b", "x", "y", "l", "r", "l2", "r2", "start", "select", "up", "down", "left", "right")
 BY_PLACE = {"a": "b", "b": "a", "x": "y", "y": "x"}   # PlayStation buttons go by where they are, not their letters
@@ -23,9 +27,10 @@ GAME_BUTTON_MAPS = {"ps1": BY_PLACE, "psp": BY_PLACE, "n64": N64_BUTTONS, "nds":
 DPAD = ("up", "down", "left", "right")
 GAME_MENU = [("resume", "Back to the game"), ("save", "Save state"), ("load", "Load state"),
              ("reset", "Start over"), ("disc", "Disc"), ("screens", "Screens"), ("touch", "Touch screen"),
-             ("volume", "Volume"), ("picture", "Picture"), ("players", "Players"), ("quit", "Quit game")]
+             ("volume", "Volume"), ("picture", "Picture"), ("players", "Players"), ("ai", "AI player"),
+             ("quit", "Quit game")]
 DS_ONLY = ("screens", "touch")      # (a DS game's own)
-GAME_CHANGE = ("disc", "volume", "picture", "screens", "touch")   # (◀▶ changes these)
+GAME_CHANGE = ("disc", "volume", "picture", "screens", "touch", "ai")   # (◀▶ changes these)
 DS_SCREENS = [("Left/Right", "Side by side"), ("Top/Bottom", "One above the other"),
               ("Hybrid Top", "Top one big"), ("Hybrid Bottom", "Touch screen big")]   # (melonDS's names, and ours)
 DS_TOUCH = ["Right stick, R2", "D-pad, A"]   # what moves the pointer on the touch screen, and touches
@@ -37,13 +42,41 @@ GAME_CONFIRM = ("load", "reset")    # (these lose where you are: A twice)
 GAME_PANEL_W = 212                  # the picked game's picture, beside the list
 GAME_THUMB = 40                     # ...and each game's, on its row
 GAME_PICS_KEPT = 80                 # pictures kept ready to draw
+GAME_PICTURES = ("Fit", "Sharp", "Fill")   # a game's picture: as big as fits in its shape, whole pixels only, or the
+                                           # whole screen (kept for each console)
+WIDE_SCREEN = 1.5                   # a screen wider than this (a TV's 16:9, not 4:3): an N64 game in Fill is drawn wide
+N64_WIDE = "mupen64plus-aspect=16:9 adjusted"   # (its own wide picture: more to each side, nothing stretched; it
+                                                # takes it as it starts)
+GAME_FIND_MOST = 40                 # letters in the box that finds a game
+
+
+def fold(text):
+    """A name as it's matched when you look for a game: lower case, no accents, its punctuation spaces."""
+    text = "".join(c for c in unicodedata.normalize("NFKD", text or "") if not unicodedata.combining(c)).lower()
+    return " ".join("".join(c if c.isalnum() else " " for c in text).split())
+
+
+def game_matches(row, words):
+    """Every word you typed is in the game's name (anywhere in it, with its spaces or without: "pacman" finds
+    Pac-Man), or starts a word of its console's ("gba", "game boy"; "nes" isn't the SNES). Snake: its name."""
+    names = [fold(row.get("title", ""))]
+    consoles = []
+    if row.get("kind") == "game":
+        names.append(fold(row.get("label") or ""))
+        consoles = [c for c in (fold(row.get("sub", "")), fold(row.get("icon", ""))) if c]
+
+    def found(w):
+        return (any(w in n or w in n.replace(" ", "") for n in names)
+                or any(c.replace(" ", "").startswith(w) or any(x.startswith(w) for x in c.split()) for c in consoles))
+    return all(found(w) for w in words)
 
 
 class GameScreen:
     """The Games tab: Snake and your own games; a game while it plays, and its menu (HOME)."""
 
     def games_rows(self):
-        """Snake, then the games in your Games folder (a word on where they go, if there are none)."""
+        """Snake, then the games in your Games folder (a word on where they go, if there are none). While you're
+        finding one (START): just the ones with what you typed in their names, those starting with it first."""
         snake = next(k for k, t in enumerate(LIBRARY) if t.get("sim") == "snake")
         rows = [dict(item("grp:Snake", "Snake", "child", str(snake), sub=LIBRARY[snake].get("about", "")),
                      icon=LIBRARY[snake].get("badge", ""))]
@@ -56,10 +89,36 @@ class GameScreen:
                      else f"{g['title']} ({badge})")      # (two of a name: their tags, or their kinds, tell them apart)
             rows.append(dict(item(g["path"], g["title"], "game", g["path"], sub=name), icon=badge,
                              system=g["system"], label=label))
+        words = fold(getattr(self, "games_q", None)).split()
+        if words:
+            hits = [r for r in rows if game_matches(r, words)]
+            hits.sort(key=lambda r: not fold(r.get("label") or r["title"]).startswith(words[0]))
+            return hits or [dict(item("games:none", f"No game has “{self.games_q}” in its name", "info", ""),
+                                 sub="")]
         if len(rows) == 1:
             rows.append(dict(item("games:where", "Your own games go in", "info", ""),
                              sub="the Games folder"))
         return rows
+
+    def games_find(self):
+        """START on the Games tab: a box to type a game's name in (what you typed last, if it's still finding it)."""
+        self.open_keyboard("Find a game", self.games_q or "", self.games_search, empty=True, limit=GAME_FIND_MOST)
+
+    def games_search(self, text):
+        """The games with every word you typed in their names, the first of them picked. Nothing typed (or B): all
+        of them again, the one you were on still picked."""
+        i = self.tab_index("games")
+        if i is None:
+            return
+        rows = self.tab_items(i)
+        sel = self.sels.get(i, 0)
+        was = rows[sel].get("key") if rows and 0 <= sel < len(rows) else None
+        self.games_q = text.strip() if fold(text) else None
+        self.items[i] = self.games_rows()
+        keys = [r.get("key") for r in self.items[i]]
+        self.sels[i] = 0 if self.games_q or was not in keys else keys.index(was)
+        self.tops[i] = 0
+        self.dirty = True
 
     @staticmethod
     def game_system(path):
@@ -90,6 +149,9 @@ class GameScreen:
         self.stop()                                    # (music, a video, another game: the game has the speaker)
         self.game_menu = None
         options = []
+        picture = self.game_picture(g["system"])
+        if self.game_wide(g["system"], picture):       # (an N64 game filling a TV: drawn wide, not stretched)
+            options.append(N64_WIDE)
         if g["system"] == "nds":                       # (its screens, as you had them last)
             layout = self.setting("ds_screens")
             options.append("melonds_screen_layout=" + (layout if layout in dict(DS_SCREENS) else DS_SCREENS[0][0]))
@@ -98,8 +160,7 @@ class GameScreen:
         run = GameRun(g, on_change=self.game_changed)
         place = sound_place(self.setting("sound"))     # (Bluetooth headphones, if they're on: sound_tick moves it)
         try:
-            run.start(core, sound=aplay_device(None, place[0]), volume=self.volume,
-                      picture=self.setting("game_picture"), options=options)
+            run.start(core, sound=aplay_device(None, place[0]), volume=self.volume, picture=picture, options=options)
         except OSError as ex:
             print(f"game: couldn't start {g['path']}: {ex}", flush=True)
             self.view = "list"
@@ -113,6 +174,27 @@ class GameScreen:
         used = getattr(self, "input_pad", None)       # the controller that started it: player 1 (from the web page or
         self.game_players = {used.path: 0} if used is not None and self.pads and \
             self.pads.by_path.get(used.path) is used else {}      # a keyboard: the first controller pressed)
+
+    def game_picture(self, key):
+        """A console's games' picture: Fit, Sharp or Fill, as it was last picked for that console (at first: as it
+        was for every game, before it was each console's own)."""
+        v = self.setting(f"game_picture_{key}") if key else None
+        if v not in GAME_PICTURES:
+            v = self.setting("game_picture")
+        return v if v in GAME_PICTURES else GAME_PICTURES[0]
+
+    def game_wide(self, key, picture):
+        """An N64 game drawn wide: in Fill, on a screen wider than 4:3 (a TV)."""
+        fb = self.fb
+        w, h = (getattr(fb, "real_w", fb.w), getattr(fb, "real_h", fb.h)) if fb else (640, 480)
+        return key == "n64" and picture == "Fill" and w > h * WIDE_SCREEN
+
+    def game_restart(self):
+        """The game started again where it was (an N64 game drawn wide, or not: it takes that as it starts)."""
+        g = self.game.game
+        it = {"src": g["path"], "title": g["title"], "system": g.get("system", "")}
+        self.game_end()                                # (where you are, kept)
+        self.game_open(it)                             # (...and picked up again)
 
     # -- its players: each controller its own (the one that started it player 1, the next to press player 2...) -----
     def game_port(self, pad, join=True):
@@ -199,7 +281,7 @@ class GameScreen:
                 return None
         else:
             return None
-        key = (it["src"], src, stamp, kind)
+        key = (it["src"], src, stamp, kind) + ((self.HEADER, self.FOOTER) if kind == "back" else ())   # (its size)
         hit = self.game_pics.get(key)
         if hit is not None:
             return hit
@@ -244,6 +326,14 @@ class GameScreen:
         if back is not None:
             img.paste(back, (0, self.HEADER + 1))
         self.header(img, d)
+        if self.games_q:                               # finding one: what you typed, and how many have it
+            found = sum(it["kind"] != "info" for it in items)
+            note = f"{found} found"
+            d.text((W - 20, self.LIST_TOP + 10), note, font=F["small"], fill=MUTED, anchor="rm")
+            crumbs = f"{LIBRARY[self.tab]['name']}  ›  “{self.games_q}”"
+            room = W - 60 - d.textlength(note, font=F["small"])
+            d.text((20, self.LIST_TOP + 10), self.fit(d, crumbs, F["small"], room), font=F["small"], fill=MUTED,
+                   anchor="lm")
         top_y = self.list_top()
         rows = self.visible_rows()
         top = self.tops.get(self.tab, 0)
@@ -264,7 +354,8 @@ class GameScreen:
                 d.rounded_rectangle((x0, y + 13, x0 + 4, y + self.ROW_H - 13), radius=2, fill=ACCENT)
             tx = x0 + 16
             if it["kind"] == "info":
-                d.text((tx, mid), it["title"], font=F["small"], fill=BODY if i == sel else MUTED, anchor="lm")
+                d.text((tx, mid), self.fit(d, it["title"], F["small"], x1 - 12 - tx), font=F["small"],
+                       fill=BODY if i == sel else MUTED, anchor="lm")
                 continue
             pic = self.game_pic(it, "thumb")
             if pic is not None:
@@ -317,8 +408,10 @@ class GameScreen:
 
     # -- the sticks (an N64 or a PSP game) ------------------------------------------------------
     def game_sticks(self):
-        """A game on the screen that takes the sticks as they are: True."""
-        return self.game is not None and self.view == "game" and self.game.game.get("system") in ANALOG_SYSTEMS
+        """A game on the screen that takes the sticks as they are: True. (Not while the AI player plays: it has
+        the sticks, as it has the buttons.)"""
+        return (self.game is not None and self.view == "game" and self.game.game.get("system") in ANALOG_SYSTEMS
+                and not self.game_ai_on())
 
     def game_stick(self, axis, value, pad=None):
         """Where a stick is (axis lx ly rx ry, -127 to 127), to the game when it's moved: its controller's player's.
@@ -395,14 +488,14 @@ class GameScreen:
         if self.game is None:
             self.view = "list"
             self.dirty = True
-        elif name in GAME_BUTTONS and not repeat:
-            port = self.game_port(getattr(self, "input_pad", None))   # (whose controller: their player's)
+        elif name in GAME_BUTTONS and not repeat and not self.game_ai_on():   # (the AI player's playing: it has the
+            port = self.game_port(getattr(self, "input_pad", None))           # buttons till it's off)
             if port is not None:
                 self.game.press(self.game_button(name), port)
         return None
 
     def release_game(self, name):
-        if self.game is not None and name in GAME_BUTTONS:
+        if self.game is not None and name in GAME_BUTTONS and not self.game_ai_on():
             port = self.game_port(getattr(self, "input_pad", None), join=False)
             if port is not None:
                 self.game.release(self.game_button(name), port)
@@ -412,6 +505,9 @@ class GameScreen:
         run, self.game = self.game, None
         if run is None:
             return
+        if getattr(self, "game_ai", None) is not None:
+            self.game_ai.stop()
+            self.game_ai = None
         self.game_menu, self.game_sound = None, None
         if self.view in ("game", "gamemenu"):
             self.view = "list"
@@ -458,12 +554,43 @@ class GameScreen:
 
     def game_menu_items(self):
         """The game's menu: Disc only for a game on more than one; Players for one two (or more) can play;
-        Screens and Touch screen for a DS game."""
+        Screens and Touch screen for a DS game. (AI player: any game.)"""
         many = self.game is not None and self.game.disc[1] > 1
         ds = self.game is not None and self.game.game.get("system") == "nds"
         together = self.game is not None and GAME_PLAYERS.get(self.game.game.get("system"), 1) > 1
         return [m for m in GAME_MENU if (m[0] != "disc" or many) and (m[0] not in DS_ONLY or ds)
                 and (m[0] != "players" or together)]
+
+    # -- the AI player (a decision model on your bot's computer plays, looking at the screen) -------------------
+    def game_ai_on(self):
+        ai = getattr(self, "game_ai", None)
+        return ai is not None and ai.alive()
+
+    def game_ai_models(self):
+        """["Off", and the decision models on your bot's computer] (asked for, if they're not known yet)."""
+        server = self.snake_server()
+        if not server:
+            return ["Off"]
+        self.snake_models()
+        b = self.brain
+        return ["Off"] + (list(b.models) if b.models_for == server else [])
+
+    def game_ai_set(self, model):
+        """The AI player on, with that model ("Off": off). It plays once the game's back on the screen."""
+        ai = getattr(self, "game_ai", None)
+        if ai is not None:
+            ai.stop()
+        self.game_ai = None
+        if model == "Off" or self.game is None:
+            return
+        log = os.path.join(games_dir(), SAVES_FOLDER, save_name(self.game.game["path"]) + ".ai.log")
+        self.game_ai = GameAI(self.game, self.snake_server(), model, log, on_change=self.game_ai_changed)
+        self.game_ai.start()
+        self.set_setting("game_ai_model", model)
+
+    def game_ai_changed(self):
+        if self.view == "gamemenu":
+            self.dirty = True
 
     def game_value(self, job):
         if job == "players" and self.game is not None:
@@ -471,7 +598,7 @@ class GameScreen:
         if job == "volume":
             return f"{self.volume}%"
         if job == "picture":
-            return self.setting("game_picture")
+            return self.game_picture(self.game.game.get("system") if self.game is not None else "")
         if job == "disc" and self.game is not None:
             i, n = self.game.disc
             return f"{i + 1} of {n}"
@@ -479,6 +606,9 @@ class GameScreen:
             return dict(DS_SCREENS).get(self.setting("ds_screens"), DS_SCREENS[0][1])
         if job == "touch":
             return self.setting("ds_touch") if self.setting("ds_touch") in DS_TOUCH else DS_TOUCH[0]
+        if job == "ai":
+            ai = getattr(self, "game_ai", None)
+            return ai.model if ai is not None and ai.alive() else "Off"
         return ""
 
     def game_change(self, job, d):
@@ -494,10 +624,15 @@ class GameScreen:
         elif job == "volume":
             self.volume = max(0, min(100, self.volume + 10 * d))
             self.game.send(f"volume {self.volume}")
-        elif job == "picture":
-            mode = "Sharp" if self.setting("game_picture") == "Fit" else "Fit"
-            self.set_setting("game_picture", mode)
-            self.game.send(f"picture {mode}")
+        elif job == "picture":                         # (kept for this console's games)
+            key = self.game.game.get("system", "")
+            now = self.game_picture(key)
+            mode = GAME_PICTURES[(GAME_PICTURES.index(now) + d) % len(GAME_PICTURES)]
+            self.set_setting(f"game_picture_{key}", mode)
+            if self.game_wide(key, mode) != self.game_wide(key, now):
+                self.game_restart()                    # (an N64 game, wide or not: it starts again where it was)
+            else:
+                self.game.send(f"picture {mode}")
         elif job == "screens":                         # (melonDS lays them out afresh as the game goes on)
             keys = [k for k, _ in DS_SCREENS]
             now = self.setting("ds_screens")
@@ -510,6 +645,23 @@ class GameScreen:
             self.set_setting("ds_touch", want)
             self.game_stick_send("rx", 0)              # (the pointer, still)
             self.game_stick_send("ry", 0)
+        elif job == "ai":
+            if not self.snake_server():
+                self.toast("The AI plays on your bot's computer. Set up the Bot first", 4)
+                return
+            options = self.game_ai_models()
+            if len(options) == 1:
+                self.snake_models(force=True)
+                self.toast("Looking for decision models on your bot's computer…", 3)
+                return
+            now = self.game_value("ai")
+            if now == "Off" and d > 0 and self.setting("game_ai_model") in options:
+                want = self.setting("game_ai_model")   # (the one it had last time, first)
+            else:
+                want = options[((options.index(now) if now in options else 0) + d) % len(options)]
+            self.game_ai_set(want)
+            self.toast("The AI plays once you're back in the game. Your buttons wait while it does" if want != "Off"
+                       else "Your turn", 3)
 
     def press_game_menu(self, name, repeat):
         m, run = self.game_menu, self.game
@@ -583,6 +735,11 @@ class GameScreen:
         sysname = system(g["system"])[2] if g.get("system") else ""
         if self.game is not None and self.game.slow:
             sysname += " (running slowly on this Pi)"
+        ai = getattr(self, "game_ai", None)
+        if ai is not None and self.game is not None:     # the AI player's doing (or why it stopped)
+            sysname = ("AI (its model can't see the screen): " if ai.alive() and ai.blind else "AI: ") + \
+                      (ai.status if ai.alive() or ai.status.startswith("Stopped") else "Off") + \
+                      (" (on its own: your bot's computer isn't answering)" if ai.alive() and ai.offline else "")
         d.text((mx0 + 22, my0 + 46), self.fit(d, sysname, F["small"], mw - 44), font=F["small"], fill=MUTED,
                anchor="lm")
         waiting, until = m["confirm"]

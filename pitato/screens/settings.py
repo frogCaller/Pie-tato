@@ -1,4 +1,4 @@
-"""The Settings tab: WiFi, location and the rest."""
+"""The Settings tab: WiFi, Bluetooth and the rest (where you are is Weather's: its START)."""
 import re
 import subprocess
 import threading
@@ -8,7 +8,7 @@ from ..theme import ACCENT, BODY, DONE, LINE, MUTED, ROW, TEXT, WARN
 from ..config import SETTINGS
 from ..system import nm, nm_why, run_out, wifi_saved, wifi_scan
 from ..screen import (boot_resolution, bt_output_name, hdmi_screens, resolution_choices, set_boot_video,
-                      sound_cards, sound_place)
+                      sound_cards, sound_name, sound_place)
 from ..home import wallpaper
 from ..weather import find_me, geocode, place_text
 from ..voice import BOT_VOICES, VOICE_MB, voices_here
@@ -20,7 +20,7 @@ RES_START = 40         # ...and before that, how long the Pi may take to start a
 
 
 class SettingsScreen:
-    """The Settings tab: WiFi, location and the rest."""
+    """The Settings tab: WiFi, Bluetooth and the rest (where you are is Weather's: its START)."""
 
     # -- Settings --------------------------------------------------------------
     def current_ssid(self):
@@ -42,26 +42,18 @@ class SettingsScreen:
                 rows += [("net", n["ssid"], n) for n in w["nets"]]
                 rows.append(("other", "Other network…", "A hidden network, by name"))
             return rows
-        if self.set_page == "location":
-            rows = [("find", "Find me", "From your internet address"),
-                    ("type", "Type a town…", "With the d-pad or your keyboard")]
-            rows += [("place", place_text(r) + (f", {r['country']}" if r.get("country") else ""), r)
-                     for r in self.loc_results]
-            return rows
         if self.set_page == "friend":
             return [("f_server", "Computer with Ollama", None), ("f_model", "Model", None),
-                    ("f_eyes", "Model that can see", None), ("f_name", "What it calls you", None),
+                    ("f_name", "What it calls you", None),
                     ("f_chatter", "Says something by itself", [t for t, _ in FRIEND_CHATTER]),
                     ("f_voice", "Voice", None), ("f_speak", "Says its replies out loud", ["On", "Off"])]
         if self.set_page == "f_voices":
             ours = [i for i, _, _ in BOT_VOICES]
             return [("v_none", "None", "")] + [("v_pick", n, i) for i, n, _ in BOT_VOICES] + \
                 [("v_pick", v, v) for v in sorted(voices_here()) if v not in ours]
-        if self.set_page in ("f_models", "f_eyes"):
+        if self.set_page == "f_models":
             fr = self.friend
             rows = [("f_pick", m, m) for m in fr.models]
-            if self.set_page == "f_eyes" and rows:
-                rows.insert(0, ("f_pick", "None", ""))
             return rows or [("f_wait", fr.models_status or "Asking for its models…", None)]
         if self.set_page == "resolution":
             info = self.res_info()
@@ -81,11 +73,13 @@ class SettingsScreen:
         return rows
 
     def sound_value(self):
-        """Settings > Sound's row: Auto says so while Bluetooth headphones (or a speaker) have the sound."""
+        """Settings > Sound's row: Auto says where the sound goes now (Bluetooth headphones, a USB speaker, HDMI...)."""
         choice = self.setting("sound")
         place = sound_place(choice)
         if place[0] == "bluetooth":
             return f"{choice}: {bt_output_name(place[1]) or 'Bluetooth'}"
+        if choice in (None, "", "Auto") and place[0]:
+            return f"Auto: {sound_name(place[0])}"
         return choice
 
     def settings_root_index(self, key):
@@ -109,22 +103,6 @@ class SettingsScreen:
             return self.press_friend_settings(name, repeat, key, extra)
         elif self.set_page == "resolution":
             self.press_resolution(name, repeat, key, extra)
-        elif self.set_page == "location":
-            if name == "b" and not repeat:
-                self.set_page, self.set_sel = "root", self.settings_root_index("location")
-            elif name == "a" and not repeat:
-                if key == "find":
-                    self.loc_status = "Finding you…"
-                    threading.Thread(target=self.locate_job, args=(None,), daemon=True).start()
-                elif key == "type":
-                    self.open_keyboard("Town or city", "", lambda text: (
-                        setattr(self, "loc_status", "Looking…"),
-                        threading.Thread(target=self.locate_job, args=(text,), daemon=True).start()))
-                elif key == "place":
-                    self.set_setting("location", extra)
-                    self.toast(f"Location: {place_text(extra)}", 2)
-                    self.weather_changed()
-                    self.set_page, self.set_sel = "root", self.settings_root_index("location")
         elif name == "b":
             return "pass"
         elif key == "pad_swap" and name in ("left", "right", "a"):
@@ -135,16 +113,12 @@ class SettingsScreen:
             i = extra.index(cur) if cur in extra else 0
             value = extra[(i + (1 if name == "right" else -1)) % len(extra)]
             self.set_setting(key, value)
-            if key == "units":
-                self.weather_changed()
         elif name == "a" and not repeat:
             if key == "wifi":
                 self.set_page, self.set_sel = "wifi", 1
                 self.wifi_rescan()
             elif key == "bluetooth":
                 self.bt_open()
-            elif key == "location":
-                self.set_page, self.set_sel, self.loc_status = "location", 0, None
             elif key == "resolution":
                 self.res_seen = (0.0, None)            # (the screen's sizes, looked at afresh)
                 self.set_page, self.confirm = "resolution", (None, 0.0)
@@ -169,8 +143,6 @@ class SettingsScreen:
                 cur = self.setting(key)
                 i = extra.index(cur) if cur in extra else 0
                 self.set_setting(key, extra[(i + 1) % len(extra)])
-                if key == "units":
-                    self.weather_changed()
         elif name == "x" and not repeat and key == "pad" and self.pads:
             self.pads.forget()
             self.toast("Back to each controller's standard buttons", 3)
@@ -432,6 +404,8 @@ class SettingsScreen:
             self.dirty = True
 
     def locate_job(self, text):
+        """Where you are (Weather's settings, or A on Weather with no place yet): found from the internet address
+        (text None), or the towns called that, to pick from."""
         try:
             if text is None:
                 try:
@@ -445,11 +419,12 @@ class SettingsScreen:
                 self.loc_status = None
                 self.toast(f"Location: {place_text(loc)}", 3)
                 self.weather_changed()
-                self.set_page, self.set_sel = "root", self.settings_root_index("location")
+                if self.wx_menu:
+                    self.wx_menu, self.wx_sel = "menu", 0     # (back to Weather's settings, the place set)
             else:
                 self.loc_results = geocode(text)
                 self.loc_status = None if self.loc_results else f"Nothing found for “{text}”"
-                self.set_sel = 2 if self.loc_results else 1
+                self.wx_sel = 2 if self.loc_results else 1
         except Exception as ex:
             self.loc_status = (str(ex) if isinstance(ex, ValueError) else "Can't reach the internet")
         self.dirty = True
@@ -463,9 +438,8 @@ class SettingsScreen:
         self.header(img, d)
         rows = self.settings_rows()
         sel = self.set_sel % len(rows)
-        crumb = {"location": "Settings  ›  Location", "wifi": "Settings  ›  WiFi",
-                 "friend": "Settings  ›  Bot", "f_models": "Bot  ›  Model",
-                 "f_eyes": "Bot  ›  Model that can see", "f_voices": "Bot  ›  Voice",
+        crumb = {"wifi": "Settings  ›  WiFi",
+                 "friend": "Settings  ›  Bot", "f_models": "Bot  ›  Model", "f_voices": "Bot  ›  Voice",
                  "resolution": "Settings  ›  Resolution"}.get(self.set_page, "Settings")
         d.text((20, self.LIST_TOP + 10), crumb, font=F["small"], fill=MUTED, anchor="lm")
         boot = boot_resolution() if self.set_page == "resolution" else None
@@ -480,10 +454,6 @@ class SettingsScreen:
             if note:
                 d.text((W - 20, self.LIST_TOP + 10), self.fit(d, note, F["small"], 330), font=F["small"],
                        fill=ACCENT if voicey and self.voice.job else MUTED, anchor="rm")
-        if self.set_page == "location":
-            here = place_text(self.setting("location"))
-            d.text((W - 20, self.LIST_TOP + 10), self.fit(d, "Now: " + here, F["small"], 300),
-                   font=F["small"], fill=MUTED, anchor="rm")
         top, rh = self.LIST_TOP + 26, 46
         rows_fit = (H - self.FOOTER - top) // rh
         first = max(0, min(sel - rows_fit + 1, len(rows) - rows_fit))
@@ -502,12 +472,6 @@ class SettingsScreen:
             mid = y + rh / 2 - 1
             if self.set_page == "wifi":
                 self.wifi_row(d, key, label, extra, mid, on)
-                continue
-            if self.set_page == "location":
-                d.text((30, mid), self.fit(d, label, F["row"], W - 300), font=F["row"],
-                       fill=TEXT if on else BODY, anchor="lm")
-                if key != "place":
-                    d.text((W - 28, mid), extra, font=F["small"], fill=MUTED, anchor="rm")
                 continue
             if self.set_page == "f_voices":
                 d.text((30, mid), label, font=F["row"], fill=TEXT if on else BODY, anchor="lm")
@@ -535,12 +499,11 @@ class SettingsScreen:
                 elif key == "res" and extra == boot:
                     d.text((W - 28, mid), "Using", font=F["small"], fill=ACCENT, anchor="rm")
                 continue
-            if self.set_page in ("f_models", "f_eyes"):
+            if self.set_page == "f_models":
                 fr = self.friend
                 d.text((30, mid), self.fit(d, label, F["row"], W - 200), font=F["row"],
                        fill=(TEXT if on else BODY) if key == "f_pick" else MUTED, anchor="lm")
-                using = fr.model if self.set_page == "f_models" else fr.eyes
-                if key == "f_pick" and extra == using:
+                if key == "f_pick" and extra == fr.model:
                     d.text((W - 28, mid), "Using", font=F["small"], fill=ACCENT, anchor="rm")
                 continue
             if self.set_page == "friend":
@@ -557,8 +520,7 @@ class SettingsScreen:
                            fill=ACCENT, anchor="rm")
                 continue
             d.text((30, mid), label, font=F["row"], fill=TEXT if on else BODY, anchor="lm")
-            value = (place_text(self.setting("location")) if key == "location" else
-                     (self.current_ssid() or "Not connected") if key == "wifi" else
+            value = ((self.current_ssid() or "Not connected") if key == "wifi" else
                      self.bt_value() if key == "bluetooth" else
                      self.pad_summary() if key == "pad" else
                      self.pad_swap_value() if key == "pad_swap" else
@@ -582,8 +544,6 @@ class SettingsScreen:
                 img.paste(thumb, (int(x0 - 68), int(mid - 13)))
             elif key == "accent":
                 d.ellipse((x0 - 34, mid - 9, x0 - 16, mid + 9), fill=ACCENT)
-        if self.loc_status and self.set_page == "location":
-            d.text((W / 2, H - self.FOOTER - 22), self.loc_status, font=F["small"], fill=ACCENT, anchor="mm")
         right = None
         if self.set_page == "wifi":
             if self.wifi["status"]:
@@ -594,12 +554,10 @@ class SettingsScreen:
                      [("A", "Connect")] + ([("Y", "Forget")] if k == "net" and rows[sel][1] in self.wifi["saved"]
                                            else []) if k == "net" else [("A", "Add")])
             hints += [("X", "Scan"), ("B", "Back")]
-        elif self.set_page == "location":
-            hints = [("A", "Choose"), ("B", "Back")]
         elif self.set_page == "friend":
             k = rows[sel][0]
             hints = ([("◀▶", "Change")] if k in ("f_chatter", "f_speak") else
-                     [("A", "Choose")] if k in ("f_model", "f_eyes", "f_voice") else [("A", "Type")])
+                     [("A", "Choose")] if k in ("f_model", "f_voice") else [("A", "Type")])
             hints += [("X", "Check"), ("B", "Back")]
         elif self.set_page == "f_voices":
             k, _, vid = rows[sel]
@@ -608,15 +566,15 @@ class SettingsScreen:
             if k == "v_pick" and here:
                 hints.append(("X", "Take it off?" if self.confirm[0] == "voicerm:" + vid else "Take it off"))
             hints.append(("B", "Back"))
-        elif self.set_page in ("f_models", "f_eyes"):
+        elif self.set_page == "f_models":
             hints = ([("A", "Use this")] if rows[sel][0] == "f_pick" else []) + [("X", "Ask again"), ("B", "Back")]
         elif self.set_page == "resolution":
             hints = ([("A", "Use this")] if rows[sel][0] == "res" else []) + [("B", "Back")]
         else:
             key = rows[sel][0]
             hints = [("◀▶", "Change"), ("L R", "Tabs"), ("B", "Home")]
-            if key in ("location", "wifi", "bluetooth", "friend", "resolution"):
-                hints = [("A", {"location": "Set", "friend": "Set up", "wifi": "Networks",
+            if key in ("wifi", "bluetooth", "friend", "resolution"):
+                hints = [("A", {"friend": "Set up", "wifi": "Networks",
                                 "bluetooth": "Devices"}.get(key, "Change")),
                          ("L R", "Tabs"), ("B", "Home")]
             elif key == "pad":
