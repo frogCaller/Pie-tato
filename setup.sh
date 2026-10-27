@@ -3,6 +3,9 @@
 #   - in a RetroFlag GPi Case 2W (Pi Zero 2 W): the case screen as the console (with
 #     GPIO 18/19 left free for the speaker), the case speaker, and its power switch:
 #     switching off shuts the Pi down safely (GPIO 26 and 27, as RetroFlag's own script)
+#   - in a RetroFlag GPi Case 2 (Compute Module 4): the case screen, or in its dock the TV
+#     (picked as the Pi starts, GPIO 18 saying which; Pie-tato restarts the Pi when it's
+#     docked or taken out), the case's sound, and its power switch, as the 2W's
 #   - on any other Pi: the screen on HDMI as it is
 #   - game controller buttons as keys + media mode (the case buttons, or any USB or
 #     Bluetooth controller), which opens at start-up on a home screen of app icons: TV (Plex,
@@ -30,7 +33,8 @@
 # keep the folder where it is. Ones left in your home folder by an earlier version move there.
 #
 # Usage (from the repo folder):  sudo bash setup.sh
-#   --gpi       it's in a GPi Case 2W (don't ask)
+#   --gpi       it's in a GPi Case (don't ask): the 2W on a Pi Zero, the GPi Case 2 on a CM4
+#   --gpi2      it's in a GPi Case 2 (don't ask)
 #   --no-gpi    it isn't (don't ask)
 #   --login     keep asking for your password at start-up (instead of signing you in by itself)
 #   --camera    only share this Pi's USB camera on the network, for Pie-tato's Camera tab on
@@ -38,7 +42,8 @@
 #   --update    no questions: it's set up as it was before (System > Update software runs it
 #               after git pull, then restarts the Pi itself)
 #   --image     for an SD card image (image/build.sh): no questions, every emulator built (for any
-#               Pi), nothing started and no restart; with --gpi for the GPi Case 2W
+#               Pi), nothing started and no restart; with --gpi for the GPi Case 2W, --gpi2
+#               for the GPi Case 2
 # Safe to run again: it replaces its own settings instead of adding duplicates.
 
 set -e
@@ -48,7 +53,8 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-GPI=""
+GPI=""          # yes: it's in a GPi Case (CASE says which); no: it isn't; "": ask
+CASE=""         # 2w: the GPi Case 2W (a Pi Zero 2 W); 2: the GPi Case 2 (a Compute Module 4)
 CAMERA=no
 LOGIN=no
 UPDATE=no
@@ -56,12 +62,13 @@ IMAGE=no
 for arg in "$@"; do
   case "$arg" in
     --gpi) GPI=yes ;;
+    --gpi2) GPI=yes CASE=2 ;;
     --no-gpi) GPI=no ;;
     --login) LOGIN=yes ;;
     --camera) CAMERA=yes ;;
     --update) UPDATE=yes ;;
     --image) IMAGE=yes ;;
-    *) echo "Unknown option: $arg (use --gpi, --no-gpi, --login, --camera, --update or --image)"; exit 1 ;;
+    *) echo "Unknown option: $arg (use --gpi, --gpi2, --no-gpi, --login, --camera, --update or --image)"; exit 1 ;;
   esac
 done
 
@@ -253,8 +260,21 @@ if [ -d /boot/firmware ]; then BOOT=/boot/firmware; else BOOT=/boot; fi
 CONFIG="$BOOT/config.txt"
 
 # --------------------------------------------------------------------------
-# the GPi Case 2W needs its own screen and speaker settings; any other Pi uses HDMI
-MODEL="$(tr -d '\0' 2> /dev/null < /proc/device-tree/model || true)"   # (none where an image is made)
+# a GPi Case needs its own screen and sound settings (the 2W's, or the GPi Case 2's); any other Pi uses HDMI
+MODEL="$(tr -d '\0' 2> /dev/null < "${PITATO_MODEL_FILE:-/proc/device-tree/model}" || true)"   # (none where an
+                                                                                                # image is made)
+CM4=no          # a Compute Module 4 (not a 4S): what the GPi Case 2 takes
+case "$MODEL" in
+  *"Compute Module 4 "*|*"Compute Module 4") CM4=yes ;;
+esac
+WAS=""          # the case it was set up for before (setup.sh's part of config.txt says): 2w, 2, or none
+if grep -q '^# >>> gpi-case setup >>>' "$CONFIG" 2>/dev/null; then
+  if sed -n '/^# >>> gpi-case setup >>>/,/^# <<< gpi-case setup <<</p' "$CONFIG" | grep -q '^# GPi Case 2 (CM4)'; then
+    WAS=2
+  else
+    WAS=2w
+  fi
+fi
 SLOW=no         # Pi Zero, 1, 2 and 3: video on a big TV is smoother at 720p
 case "$MODEL" in
   *Zero*|"Raspberry Pi 3"*|"Raspberry Pi 2"*|"Raspberry Pi Model"*|"Raspberry Pi Compute Module 3"*) SLOW=yes ;;
@@ -268,17 +288,28 @@ if [ "$IMAGE" = yes ]; then  # (an image, for any Pi: made on another computer, 
   if [ -z "$GPI" ]; then GPI=no; fi
 fi
 if [ -z "$GPI" ] && [ "$UPDATE" = yes ]; then       # (as it was set up: the case's settings there, or not)
-  if grep -q '^# >>> gpi-case setup >>>' "$CONFIG" 2>/dev/null; then GPI=yes; else GPI=no; fi
+  if [ -n "$WAS" ]; then GPI=yes CASE="${CASE:-$WAS}"; else GPI=no; fi
 fi
 if [ -z "$GPI" ]; then
-  if [[ "$MODEL" == *Zero* ]] || grep -q '^# >>> gpi-case setup >>>' "$CONFIG" 2>/dev/null; then
+  if [ "$WAS" = 2 ]; then                          # (set up for it before: yes, unless you say otherwise)
+    read -r -p "Is this Pi in a RetroFlag GPi Case 2? [Y/n] " ans
+    if [[ "$ans" =~ ^[Nn] ]]; then GPI=no; else GPI=yes CASE=2; fi
+  elif [ "$CM4" = yes ]; then                      # (a CM4 is often on a board of its own, on HDMI: no, unless you say)
+    read -r -p "Is this Pi in a RetroFlag GPi Case 2? [y/N] " ans
+    if [[ "$ans" =~ ^[Yy] ]]; then GPI=yes CASE=2; else GPI=no; fi
+  elif [[ "$MODEL" == *Zero* ]] || [ "$WAS" = 2w ]; then
     read -r -p "Is this Pi in a RetroFlag GPi Case 2W? [Y/n] " ans
-    if [[ "$ans" =~ ^[Nn] ]]; then GPI=no; else GPI=yes; fi
+    if [[ "$ans" =~ ^[Nn] ]]; then GPI=no; else GPI=yes CASE=2w; fi
   else
-    GPI=no      # the case only takes a Pi Zero
+    GPI=no      # the cases take a Pi Zero (the 2W) or a Compute Module 4 (the GPi Case 2)
   fi
 fi
-if [ "$GPI" = yes ]; then
+if [ "$GPI" = yes ] && [ -z "$CASE" ]; then         # (--gpi: the case this Pi goes in; an image's, the 2W)
+  if [ "$CM4" = yes ] && [ "$IMAGE" != yes ]; then CASE=2; else CASE=2w; fi
+fi
+if [ "$GPI" = yes ] && [ "$CASE" = 2 ]; then
+  echo "Setting up for the GPi Case 2: its screen (or a TV, in its dock), sound and buttons."
+elif [ "$GPI" = yes ]; then
   echo "Setting up for the GPi Case 2W: its screen, speaker and buttons."
 else
   echo "Setting up for a screen on HDMI${MODEL:+ ($MODEL)}. Plug in any USB or Bluetooth game controller."
@@ -528,7 +559,131 @@ apt-get install -y --no-install-recommends libreoffice-core libreoffice-writer \
   libreoffice-calc libreoffice-impress || echo "(Couldn't install LibreOffice: documents open as plain text.)"
 
 # --------------------------------------------------------------------------
-if [ "$GPI" = yes ]; then
+if [ "$GPI" = yes ] && [ "$CASE" = 2 ]; then
+step "Building screen overlay (dpi24 without the dock and power switch pins)"
+TMP="$(mktemp -d)"
+# the case's screen is RGB666 on GPIOs 0-9, 12-17 and 20-25 (dpi_output_format 0x16): 18 says it's in the dock
+# with the TV on, 26 and 27 are the power switch. On fb for the firmware's screen, on vc4 under fkms
+cat > "$TMP/gpicase2-dpi.dts" <<'EOF'
+/dts-v1/;
+/plugin/;
+/ {
+    compatible = "brcm,bcm2835";
+    fragment@0 {
+        target = <&fb>;
+        __overlay__ {
+            pinctrl-names = "default";
+            pinctrl-0 = <&gpicase2_dpi_pins>;
+        };
+    };
+    fragment@1 {
+        target = <&vc4>;
+        __overlay__ {
+            pinctrl-names = "default";
+            pinctrl-0 = <&gpicase2_dpi_pins>;
+        };
+    };
+    fragment@2 {
+        target = <&gpio>;
+        __overlay__ {
+            gpicase2_dpi_pins: gpicase2_dpi_pins {
+                brcm,pins = <0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 20 21 22 23 24 25>;
+                brcm,function = <6>;
+                brcm,pull = <0>;
+            };
+        };
+    };
+};
+EOF
+dtc -@ -q -I dts -O dtb -o "$BOOT/overlays/gpicase2-dpi.dtbo" "$TMP/gpicase2-dpi.dts"
+# in the dock, the TV taken as plugged in: KMS goes by the CM4's own HDMI hotplug line, which the dock may not pass on
+# (RetroFlag's settings force it too; hdmi_force_hotplug is the firmware's alone)
+cat > "$TMP/gpicase2-tv.dts" <<'EOF'
+/dts-v1/;
+/plugin/;
+/ {
+    compatible = "brcm,bcm2711";
+    fragment@0 {
+        target-path = "/chosen";
+        __overlay__ {
+            bootargs = "vc4.force_hotplug=1";
+        };
+    };
+};
+EOF
+dtc -@ -q -I dts -O dtb -o "$BOOT/overlays/gpicase2-tv.dtbo" "$TMP/gpicase2-tv.dts"
+rm -rf "$TMP"
+
+# --------------------------------------------------------------------------
+step "Updating $CONFIG (backup saved next to it)"
+cp "$CONFIG" "$CONFIG.bak-$(date +%Y%m%d-%H%M%S)"
+
+# remove this script's old block
+sed -i '/^# >>> gpi-case setup >>>/,/^# <<< gpi-case setup <<</d' "$CONFIG"
+# remove settings added by hand earlier (RetroFlag's patch for the case, say), so nothing is duplicated: its screen
+# and fkms go in the part for the case's screen, KMS in the part for the TV
+sed -i -E '/^\s*dtoverlay=(dpi24|gpicase-dpi|gpicase2-dpi|gpicase2-tv|audremap|vc4-fkms-v3d)/d;
+           /^\s*(enable_dpi_lcd|display_default_lcd|dpi_group|dpi_mode|dpi_output_format|hdmi_timings|framebuffer_width|framebuffer_height)=/d;
+           /^\s*dtoverlay=gpio-shutdown.*gpio_pin=26/d;
+           /^\s*gpio=(27=op,dh|18=ip,pd)/d;
+           /^\s*disable_audio_dither=/d;
+           /^# GPi Case 2W screen/d;
+           /^# case speaker/d' "$CONFIG"
+sed -i -E 's/^\s*dtoverlay=vc4-kms-v3d/#dtoverlay=vc4-kms-v3d/' "$CONFIG"
+USB_ON=""       # the case's buttons and sound are on the CM4's USB, which needs turning on (Bookworm's config.txt does,
+                # in its [cm4] part; RetroFlag's patch with dwc2): a line for any Pi, [all], [pi4] or [cm4] does it
+if ! awk '/^[[:space:]]*\[/ { part = $0 }
+          /^[[:space:]]*(otg_mode=1|dtoverlay=dwc2)/ && (part == "" || part ~ /^[[:space:]]*\[(all|pi4|cm4)\]/) { on = 1 }
+          END { exit !on }' "$CONFIG"; then
+  USB_ON=$'# the case\'s buttons and sound are on the CM4\'s USB: on\notg_mode=1\n'
+fi
+
+{
+cat <<'EOF'
+# >>> gpi-case setup >>>
+[all]
+# GPi Case 2 (CM4): the case's screen, or the TV through its dock, picked as the Pi starts. GPIO 18 is high in
+# the dock with the TV on (as RetroFlag's own script reads it); Pie-tato restarts the Pi when that changes.
+gpio=18=ip,pd
+EOF
+printf '%s' "$USB_ON"
+cat <<'EOF'
+# the power switch: GPIO 27 keeps the case on while the Pi shuts down, and switching off (GPIO 26 goes low)
+# shuts it down safely. The case's SAFE SHUTDOWN switch goes to ON.
+gpio=27=op,dh
+dtoverlay=gpio-shutdown,gpio_pin=26,active_low=1,gpio_pull=up
+[gpio18=0]
+# the case's screen (RetroFlag's settings for it), the 3D chip on for N64 and PSP games (fkms), and the sound
+# through the case's own (USB) sound
+dtoverlay=vc4-fkms-v3d
+dtoverlay=gpicase2-dpi
+enable_dpi_lcd=1
+display_default_lcd=1
+dpi_group=2
+dpi_mode=87
+dpi_output_format=0x00016
+hdmi_timings=640 0 41 40 41 480 0 18 9 18 0 0 0 60 0 24000000 1
+framebuffer_width=640
+framebuffer_height=480
+disable_overscan=1
+dtparam=audio=off
+[gpio18=1]
+# in the dock: the TV, as on any Pi on HDMI (the dock's HDMI taken as plugged in, as RetroFlag's settings have it)
+dtoverlay=vc4-kms-v3d
+dtoverlay=gpicase2-tv
+hdmi_force_hotplug=1
+[all]
+# <<< gpi-case setup <<<
+EOF
+} >> "$CONFIG"
+
+# RetroFlag's own scripts for the case would fight over the same pins, and swap config.txt for theirs
+if [ -f /etc/rc.local ] && grep -qE '^[^#]*RetroFlag/(SafeShutdown\.py|lcdfirst\.sh)' /etc/rc.local; then
+  sed -i -E 's@^([^#]*RetroFlag/(SafeShutdown\.py|lcdfirst\.sh).*)$@# \1   # (Pie-tato looks after the case)@' /etc/rc.local
+  echo "Turned off RetroFlag's scripts in /etc/rc.local: Pie-tato looks after the case."
+fi
+
+elif [ "$GPI" = yes ]; then
 step "Building screen overlay (dpi24 without the speaker and power switch pins)"
 TMP="$(mktemp -d)"
 cat > "$TMP/gpicase-dpi.dts" <<'EOF'

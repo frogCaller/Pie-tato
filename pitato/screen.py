@@ -60,6 +60,8 @@ def video_target():
 ASOUND = "/proc/asound"                         # the kernel's sound cards
 NOT_SPEAKERS = re.compile(r"controller|gamepad|joystick|dualsense|dualshock", re.I)   # USB sound that isn't one
 _usb_seen = {}                                 # card id -> name: each USB speaker seen (one unplugged is still known)
+TV_FIRST = False                               # Auto: the TV before a USB speaker (a GPi Case 2 in its dock: the case's
+                                               # own sound is USB, and the picture's on the TV)
 _descs = {}                                    # card id -> the card's own name (what Settings > Sound once called it)
 
 
@@ -269,14 +271,14 @@ def sound_card(choice):
     """The card for Settings > Sound (by its name, or by the card's own name it had before). Auto: a USB speaker
     while one's plugged in (the last, with two), else the TV on HDMI, else the Pi's usual output (None: the
     system's default); with the screen on HDMI saying it can't play sound (a monitor without speakers), the
-    Pi's headphone jack."""
+    Pi's headphone jack. TV_FIRST (a GPi Case 2 in its dock): the TV, then a USB speaker (the case's own)."""
     cards = sound_cards()
     ids = [c for c, _ in cards]
     if choice and choice != "Auto":
         return next((c for c, n in cards if n == choice), None) or \
             next((c for c in ids if choice in (_descs.get(c), c)), None)
     usb = [c for c in ids if c in _usb_seen]        # (the USB speakers plugged in now)
-    if usb:
+    if usb and not TV_FIRST:
         return usb[-1]
     silent = False
     for port in hdmi_ports():
@@ -285,6 +287,8 @@ def sound_card(choice):
             silent = True                              # (a screen without speakers: not there)
         elif cid:
             return cid
+    if usb:
+        return usb[-1]
     if silent and "Headphones" in ids:
         return "Headphones"
     return None

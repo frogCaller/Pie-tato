@@ -376,6 +376,7 @@ def main():
     media = Media()
     media.shrinker.start()                         # (big videos made smaller, in the background)
     media.updater.start()                          # (a newer version looked for now and then: System > Update software)
+    media.dock_start()                             # (a GPi Case 2: its dock watched, the picture following it)
     control = Control()
     serve_control(media, control, key=control_key())
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # image/build.sh - Pie-tato's SD card images, made from a fresh Raspberry Pi OS Lite (Bookworm, 64-bit) that's never
 # started while they're made. In them: Raspberry Pi OS, Pie-tato and its emulators, and nothing of anyone's (no WiFi,
-# sign-ins, keys or passwords: image/check.sh looks before each one's let go). Two of them: one for the GPi Case 2W,
-# one for a TV or monitor on HDMI. GitHub makes them for each release (.github/workflows/image.yml); on 64-bit ARM
+# sign-ins, keys or passwords: image/check.sh looks before each one's let go). Three of them: one for the GPi Case 2W,
+# one for the GPi Case 2 (a Compute Module 4), and one for a TV or monitor on HDMI. GitHub makes them for each release (.github/workflows/image.yml); on 64-bit ARM
 # Linux (a Pi 4 or 5 with the 64-bit Raspberry Pi OS, say) this makes them too:
 #   sudo bash image/build.sh OUT_FOLDER [NAME]
 # NAME: what they're called after "pie-tato-" (the release's tag); the date when left out. Pie-tato goes in as git clone
@@ -254,7 +254,8 @@ shrink() {         # the root filesystem as small as resize2fs makes it (it leav
   truncate -s $(( (start + want) * 512 )) "$IMG"
 }
 
-make_one() {       # make_one --no-gpi|--gpi KIND: Pie-tato set up for that screen, checked, out as OUT/pie-tato-NAME-KIND
+make_one() {       # make_one --no-gpi|--gpi|--gpi2 KIND: Pie-tato set up for that screen, checked, out as
+                   # OUT/pie-tato-NAME-KIND
   local file="pie-tato-$NAME-$2.img.xz"
   echo
   echo "==> $file"
@@ -281,5 +282,7 @@ grow "$GROW"
 make_one --no-gpi hdmi
 grow 1G                                                    # (room for the package lists again)
 make_one --gpi gpi-case-2w
+grow 1G
+make_one --gpi2 gpi-case-2
 echo
 echo "Done: $(cd "$OUT" && ls pie-tato-"$NAME"-*.img.xz | tr '\n' ' ')"

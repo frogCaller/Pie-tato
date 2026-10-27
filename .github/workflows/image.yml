@@ -1,6 +1,6 @@
 # Pie-tato's SD card images (image/build.sh), made by GitHub for each release and attached to it: one for the GPi
-# Case 2W, one for a TV or monitor on HDMI. Actions > Image > Run workflow makes them without a release, to try
-# (they're kept with that run for a few days).
+# Case 2W, one for the GPi Case 2, one for a TV or monitor on HDMI. Actions > Image > Run workflow makes them
+# without a release, to try (they're kept with that run for a few days).
 name: Image
 
 on:

@@ -9,6 +9,7 @@ date, and nothing's restarted. setup.sh notes what it put in: an update that got
 the next time."""
 import os
 import pwd
+import re
 import shlex
 import shutil
 import subprocess
@@ -49,12 +50,32 @@ WAS="$(git_ rev-parse HEAD 2> /dev/null)"
 git_ pull --ff-only > "$STATUS.pull" 2>&1
 rc=$?
 cat "$STATUS.pull"
+if [ $rc -ne 0 ] && grep -qiE "fast-forward|diverg" "$STATUS.pull" \\
+   && [ -z "$(git_ status --porcelain --untracked-files=no 2> /dev/null)" ] \\
+   && TREE="$(git_ rev-parse 'HEAD^{{tree}}' 2> /dev/null)" && [ -n "$TREE" ] \\
+   && git_ log --format=%T "@{{upstream}}" 2> /dev/null | grep -qxF "$TREE"; then
+  # GitHub's history was written afresh (the same versions under new ids: lines taken out of its notes, say). This
+  # Pi's version is one of GitHub's and nothing's changed here, so nothing of its own is lost: it takes GitHub's.
+  echo "==> GitHub's history was written afresh: taking it as it is"
+  git_ reset --hard "@{{upstream}}" > "$STATUS.pull" 2>&1
+  rc=$?
+  cat "$STATUS.pull"
+fi
 if [ $rc -ne 0 ]; then
   say "failed pull $(tr -s '\\n\\t' '  ' < "$STATUS.pull" | cut -c1-400)"
   exit 1
 fi
 NOW="$(git_ rev-parse HEAD 2> /dev/null)"
-if [ -n "$NOW" ] && [ "$NOW" = "$WAS" ] && [ "$(cat "$INSTALLED" 2> /dev/null)" = "$NOW" ]; then
+PUT_IN="$(cat "$INSTALLED" 2> /dev/null)"
+if [ -n "$NOW" ] && [ "$PUT_IN" != "$NOW" ] && [[ "$PUT_IN" =~ ^[0-9a-f]{{40,64}}$ ]]; then
+  PUT_IN_TREE="$(git_ rev-parse -q --verify "$PUT_IN^{{tree}}" 2> /dev/null)"
+  if [ -n "$PUT_IN_TREE" ] && [ "$PUT_IN_TREE" = "$(git_ rev-parse -q --verify "$NOW^{{tree}}" 2> /dev/null)" ]; then
+    # the very files put in last, under a new id (GitHub's history written afresh): nothing more to put in
+    echo "==> The version put in last, under a new id"
+    printf '%s\\n' "$NOW" > "$INSTALLED.new" && mv -f "$INSTALLED.new" "$INSTALLED" && PUT_IN="$NOW"
+  fi
+fi
+if [ -n "$NOW" ] && [ "$PUT_IN" = "$NOW" ]; then
   echo "==> Already up to date"
   say uptodate
   exit 0
@@ -168,10 +189,23 @@ class Updater:
             ok, out, _ = self.git("rev-list", "--count", "HEAD..@{upstream}", timeout=30)   # (what it fetched last)
             here_ok, head, _ = self.git("rev-parse", "HEAD", timeout=30)
             put_in = read_text(INSTALLED)
+            if ok and out.isdigit() and int(out) and not self.git("merge-base", "--is-ancestor", "HEAD", "@{upstream}",
+                                                                 timeout=30)[0]:
+                # GitHub's history was written afresh (the same versions under new ids: lines taken out of its notes,
+                # say): only what's newer than its version with this one's files is new (none: nothing to update)
+                tree_ok, tree, _ = self.git("rev-parse", "HEAD^{tree}", timeout=30)
+                log_ok, trees, _ = self.git("log", "--format=%T", "@{upstream}", timeout=30)
+                if tree_ok and log_ok and tree in trees.split():
+                    out = str(trees.split().index(tree))
+            behind = bool(here_ok and put_in and put_in != head)
+            if behind and re.fullmatch(r"[0-9a-f]{40,64}", put_in):   # (the very files put in, under a new id:
+                was = self.git("rev-parse", "-q", "--verify", put_in + "^{tree}", timeout=30)   # not behind)
+                if was[0] and was[1] and was[1] == self.git("rev-parse", "HEAD^{tree}", timeout=30)[1]:
+                    behind = False
             with self.lock:
                 if ok and out.isdigit():
                     self.new = int(out)
-                self.behind = bool(here_ok and put_in and put_in != head)
+                self.behind = behind
                 self.fetched = fetched and ok
                 self.looked = time.monotonic()
         finally:

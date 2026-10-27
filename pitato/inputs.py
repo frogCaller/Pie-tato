@@ -9,6 +9,8 @@ import threading
 import time
 from evdev import ecodes as e, InputDevice, list_devices
 
+from .gpicase import case_kind
+
 
 # ---- gamepad code -> button name ------------------------------------------
 CODES = {
@@ -47,7 +49,7 @@ LEARN_STEPS = [   # Settings > Controller: (button, what to press, can be skippe
 ]
 LEARN_SKIP = 8             # seconds before a button your controller may not have is skipped
 
-# the GPi Case 2W's star button (TURBO, to the case): with HOME, or on its own, it's HOME. The case
+# a GPi Case's star button (TURBO, to the case): with HOME, or on its own, it's HOME. The case
 # may keep it to itself, for its turbo; when it does send it, Settings > Controller asks for it last.
 STAR = "star"
 STAR_STEP = (STAR, "the star (TURBO) button", True)
@@ -660,19 +662,9 @@ class Pads:
 # ---- input: the case's power switch ---------------------------------------------------
 BUS_HOST = 0x19                  # a device on the Pi's own pins, rather than USB or Bluetooth
 HALT_WAIT = 30.0                 # how long 'Shutting down' waits for the Pi to go before giving up
-CONFIG_TXT = ("/boot/firmware/config.txt", "/boot/config.txt")
-
-
 def gpi_case_set_up():
-    """True when setup.sh set this Pi up for the GPi Case 2W (its part of config.txt is there)."""
-    for path in CONFIG_TXT:
-        try:
-            with open(path, errors="ignore") as f:
-                if "# >>> gpi-case setup >>>" in f.read():
-                    return True
-        except OSError:
-            pass
-    return False
+    """True when setup.sh set this Pi up for a GPi Case, the 2W or the GPi Case 2 (its part of config.txt is there)."""
+    return case_kind() is not None
 
 
 def input_driver(dev):
@@ -686,7 +678,7 @@ def input_driver(dev):
 
 def is_power_switch(dev, gpi=False):
     """A power switch on the Pi's own pins (the gpio-keys driver's): the one the gpio-shutdown
-    line in config.txt makes (setup.sh adds it for the GPi Case 2W), or on the GPi Case, any.
+    line in config.txt makes (setup.sh adds it for a GPi Case), or on a GPi Case, any.
     Not a remote's power button, or a keyboard's."""
     try:
         if dev.info.bustype != BUS_HOST or e.KEY_POWER not in dev.capabilities().get(e.EV_KEY, []):

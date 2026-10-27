@@ -5,6 +5,7 @@
   util.py           small helpers: files, kinds of file, text, numbers
   net.py            machines on your network: addresses, requests
   system.py         this Pi's numbers, and WiFi
+  gpicase.py        the GPi Case it's in (the 2W, or the GPi Case 2), and the GPi Case 2's dock
   bluetooth.py      Bluetooth: finding, pairing and connecting devices (BlueZ)
   screen.py         the screen, the framebuffer, sound outputs (Bluetooth headphones too), and a TV or
                     monitor's resolution

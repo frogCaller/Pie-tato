@@ -1,9 +1,9 @@
 # Pie-tato
 
-Turns your Raspberry Pi GPi Case 2W into a pocket-sized smart media center. Versatile home entertainment
-remote where you can watch live TV, stream videos, listen to music and radio, view photos, play your own
-games, check the weather and system stats, and control your smart home through Home Assistant. It works on
-any Raspberry Pi with a TV or monitor on HDMI too.
+Turns your Raspberry Pi GPi Case 2W or GPi Case 2 into a pocket-sized smart media center. Versatile home
+entertainment remote where you can watch live TV, stream videos, listen to music and radio, view photos, play
+your own games, check the weather and system stats, and control your smart home through Home Assistant. It
+works on any Raspberry Pi with a TV or monitor on HDMI too.
 
 <p>
   <img src="docs/tv.gif" height="260">
@@ -14,9 +14,10 @@ any Raspberry Pi with a TV or monitor on HDMI too.
 
 ## Install
 
-The easy way is an SD card image, for any 64-bit Pi (Zero 2 W, 3, 4 or 5): from the
+The easy way is an SD card image, for any 64-bit Pi (Zero 2 W, 3, 4, 5 or a Compute Module 4): from the
 [latest release](https://github.com/frogCaller/pie-tato/releases/latest), the one ending in
-`gpi-case-2w.img.xz` for the GPi Case 2W, or `hdmi.img.xz` for a TV or monitor. Write it to a microSD
+`gpi-case-2w.img.xz` for the GPi Case 2W, `gpi-case-2.img.xz` for the GPi Case 2 (a Compute Module 4 without
+eMMC starts from the card), or `hdmi.img.xz` for a TV or monitor. Write it to a microSD
 card (8 GB or more) with [Raspberry Pi Imager](https://www.raspberrypi.com/software/), under Use custom,
 adding your WiFi, time zone, username and password in its settings if you like (the WiFi can be set in
 Pie-tato's Settings too). Without them, the user is `pi`, with no password until you set one
@@ -30,9 +31,12 @@ cd pie-tato
 sudo bash setup.sh
 ```
 
-It asks if the Pi is in a GPi Case 2W. If it is, it sets up the case's screen, speaker and
-power switch: turn the SAFE SHUTDOWN switch behind the cartridge to ON, and switching the case
-off shuts the Pi down safely. If not, it leaves HDMI as it is.
+It asks if the Pi is in a GPi Case 2W (or, on a Compute Module 4, a GPi Case 2). If it is, it sets up the
+case's screen, sound and power switch: turn the SAFE SHUTDOWN switch behind the cartridge to ON, and
+switching the case off shuts the Pi down safely. If not, it leaves HDMI as it is.
+In the GPi Case 2's dock, with the TV on, the picture is on the TV: put the case in the dock or take it out
+and the Pi restarts with the picture where it should be. The case's buttons don't work in the dock, so use a
+USB or Bluetooth controller there.
 Then it installs `pitato.py` and the web page as services, sets the Pi to sign you in by
 itself at start-up (`sudo bash setup.sh --login` keeps the password prompt), asks about the
 optional parts, and reboots. The first time takes a while (an hour or more on a Pi 4, as it builds
@@ -42,7 +46,9 @@ Keep the `pie-tato` folder where it is: your settings live in its `static` folde
 Update software at the top of System (it says New version when there is one): it runs `git pull`, and
 if that brings a new version, the Pi puts it in and restarts. Your settings stay as they are. If you
 set it up before it had Update software, or when it was called gpi-media, run `git pull` and
-`sudo bash setup.sh` once (from gpi-media, that moves everything across to the new name).
+`sudo bash setup.sh` once (from gpi-media, that moves everything across to the new name). If Update
+software ever says the folder has changes of its own when you haven't changed anything, run
+`git fetch` and `git reset --hard origin/main` in the `pie-tato` folder, then `sudo bash setup.sh --update`.
 
 It starts on a home screen of apps:
 

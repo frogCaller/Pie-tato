@@ -8,11 +8,12 @@ import subprocess
 import threading
 import time
 
-from .theme import set_accent, TEXT
+from .theme import MUTED, set_accent, TEXT
 from .config import home_dir, HOME_STYLE_WAS, SCREEN_MODES, SETTINGS_DEFAULT, SETTINGS_GONE, STATE_FILE, web_private
 from .util import classify, clock, FILE_KINDS, find_files, IMAGE_EXTS, item, looks_like_text, title_of
 from .system import system_info, system_stopping
 from .bluetooth import Bluetooth
+from . import screen as screen_out
 from .screen import Framebuffer, slow_pi
 from .library import (
     BOOT_SONG_WAIT, fit_box, LIBRARY, LISTEN_KINDS, MEDIA_VT, PLAYING, read_streams, SCREEN_KINDS, SCREEN_SAY,
@@ -35,7 +36,9 @@ from .snake import SnakeBrain
 from .shrink import Shrinker
 from .update import Updater
 from .computers import Computers
-from .inputs import gpi_case_set_up, HALT_WAIT, KeyReader, show_shutdown_lines
+from .gpicase import (busy, case_kind, DOCK_MOST, DOCK_QUIET, DOCK_SETTLE_IN, DOCK_SETTLE_OUT, DOCK_WINDOW,
+                      DockWatch, dock_tried, note_dock_restart, started_on_tv)
+from .inputs import HALT_WAIT, KeyReader, show_shutdown_lines
 from .screens.sims import SIMS
 from .screens.draw import DrawScreen
 from .screens.home import HomeScreen
@@ -227,7 +230,16 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.wall = (None, None)     # (what it's for, the home screen's background)
         self.home_base = (None, None)  # (what it's for, that background with the app cards on it)
         self.np_until = 0.0          # what's playing shows on the home screen until then (monotonic)
-        self.gpi_case = gpi_case_set_up()   # a GPi Case's speaker: given silence in the terminal (player.py)
+        self.case = case_kind()      # the GPi Case this Pi's in: "2w", "2" (the GPi Case 2), or None
+        self.gpi_case = self.case == "2w"   # the 2W's speaker: given silence in the terminal (player.py)
+        self.dock = None             # the GPi Case 2's dock: its pin, watched (dock_start)
+        self.dock_on_tv = None       # ...the picture since the Pi started: on the TV, or the case's screen
+        self.dock_tried = None       # ...the restart before this start-up was for it ("tv", "case"), and didn't take
+        self.dock_stuck = None       # ...so not again that way till it's been the other way
+        self.dock_times = []         # ...when the latest restarts for it were (by the clock)
+        self.dock_since = 0.0        # ...watched since then (monotonic)
+        self.dock_off = False        # ...not followed any more (it kept changing), till media mode starts again
+        self.dock_busy = (0.0, None)  # ...(when, what) the Pi was last found busy, not to be restarted
         self.pi_slow = slow_pi()     # a Pi Zero, 1, 2 or 3: on a TV, the Simulator and the Bot at work go slower
         self.hush_proc = None        # ...aplay, playing it
         self.hush_wait = 0.0         # ...not tried again before then, if it wouldn't play
@@ -797,6 +809,108 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
                 except OSError as ex:
                     print(f"power switch: couldn't shut down ({ex})", flush=True)
 
+    # -- the GPi Case 2's dock ------------------------------------------------------------------------------
+    def dock_start(self):
+        """In a GPi Case 2: where the picture is since the Pi started, and its dock watched from now on."""
+        if self.case != "2" or self.dock is not None:
+            return
+        self.dock_on_tv = started_on_tv()
+        self.dock_tried, self.dock_times = dock_tried()
+        screen_out.TV_FIRST = bool(self.dock_on_tv)   # (in the dock, sound to the TV rather than the case)
+        if self.dock_on_tv is None:
+            print("dock: can't tell where the picture is (vcgencmd): the dock isn't followed", flush=True)
+            return
+        print(f"dock: the picture's on {'the TV' if self.dock_on_tv else 'the case'}"
+              f"{', after a restart for the dock' if self.dock_tried else ''}", flush=True)
+        self.dock = DockWatch()
+        self.dock_since = time.monotonic()
+
+    def dock_tick(self, now):
+        """The GPi Case 2 put in its dock with the TV on, or taken out (its pin changed, and stayed so: a few seconds
+        in, longer out), after media mode's first minute: the Pi restarts with the picture where it should be. A
+        restart for that which didn't take (the Pi saw the pin the other way as it started) isn't tried again till
+        the pin's been the other way; after two in ten minutes the dock isn't followed till media mode starts again;
+        and never while Update software, setup.sh or apt is at work (it waits till they're done)."""
+        if self.dock is None or self.dock_off or time.monotonic() < self.halting or self.view == "update" \
+                or self.updater.started or now - self.dock_since < DOCK_QUIET:
+            return                                     # (not while Update software puts a new version in)
+        docked = self.dock.settled(now, DOCK_SETTLE_OUT if self.dock_on_tv else DOCK_SETTLE_IN)
+        if docked is None:
+            return
+        if docked == self.dock_on_tv:
+            self.dock_stuck = self.dock_tried = None   # (where it should be)
+            return
+        to = "tv" if docked else "case"
+        if self.dock_stuck == to:
+            return
+        if self.dock_tried == to:
+            self.dock_stuck, self.dock_tried = to, None
+            where = "the TV" if docked else "the case's screen"
+            print(f"dock: the restart for it didn't take (the picture's not on {where}): staying as it is", flush=True)
+            if self.active:
+                self.toast("In the dock, but the Pi started on its own screen" if docked
+                           else "Out of the dock, but the Pi started on the TV", 6)
+            return
+        recent = [t for t in self.dock_times if 0 <= time.time() - t < DOCK_WINDOW]
+        if len(recent) >= DOCK_MOST:
+            self.dock_off = True
+            print(f"dock: {len(recent)} restarts for it in {DOCK_WINDOW / 60:.0f} minutes: not followed till media "
+                  f"mode starts again", flush=True)
+            if self.active:
+                self.toast("The dock keeps changing: the picture stays here till the Pi restarts", 6)
+            return
+        if now - self.dock_busy[0] < 5:
+            return                                     # (busy a moment ago: looked at again in a while)
+        why = busy()
+        if why:
+            if why != self.dock_busy[1]:
+                print(f"dock: {why} is at work: the Pi restarts when it's done", flush=True)
+                if self.active:
+                    self.toast(f"The Pi restarts for the dock when {why} is done", 4)
+            self.dock_busy = (now, why)
+            return
+        self.dock_restart(to, recent)
+
+    def dock_restart(self, to, recent=()):
+        """The Pi restarts with the picture on the TV (to "tv") or the case's screen ("case"): a game ends first (it
+        carries on from there next time), and the screen says so meanwhile."""
+        words = "In the dock: on to the TV" if to == "tv" else "Out of the dock: back to the case's screen"
+        print(f"dock: {words}, restarting", flush=True)
+        self.halting, self.halt_note = time.monotonic() + HALT_WAIT, "The Pi didn't restart"
+        note_dock_restart(to, list(recent) + [time.time()])
+        try:
+            if self.learn:
+                self.cancel_learn("")
+            if self.game is not None:
+                self.game_end()
+            if self.active and self.fb is not None:
+                self.prog_stop()
+                self.stop()                            # (a video would draw over it)
+                self.close_viewer()
+                self.camera.stop()
+                self.dock_saying(words)
+            else:
+                show_shutdown_lines()
+            self.save_state()
+        finally:
+            if not system_stopping():
+                try:
+                    subprocess.Popen(["systemctl", "reboot"], stdin=subprocess.DEVNULL)
+                except OSError as ex:
+                    print(f"dock: couldn't restart ({ex})", flush=True)
+
+    def dock_saying(self, words):
+        """Why the Pi's restarting, on the screen till it does."""
+        try:
+            img, d = self.canvas()
+            W, H = self.fb.w, self.fb.h
+            d.text((W / 2, H / 2 - 18), self.fit(d, words, self.fonts["big"], W - 60), font=self.fonts["big"],
+                   fill=TEXT, anchor="mm")
+            d.text((W / 2, H / 2 + 18), "The Pi restarts", font=self.fonts["small"], fill=MUTED, anchor="mm")
+            self.fb.show(img)
+        except Exception as ex:
+            print(f"dock: {ex!r}", flush=True)
+
     def goodbye(self):
         """'Shutting down' on the screen, left there until the power goes."""
         try:
@@ -996,6 +1110,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.shrink_drawn = now                   # (how far it's got)
             self.dirty = True
         self.hush_tick(now)                           # (the GPi Case's speaker, quiet in the terminal)
+        self.dock_tick(now)                           # (the GPi Case 2 in its dock, or out: the picture follows)
         self.sound_tick(now)                          # (Bluetooth headphones come or go: the sound goes with them)
         self.settle_tick(now)                         # (a player started paused: paused once it listens)
         self.music_back(now)                          # (music a game or a video stopped, back after it)

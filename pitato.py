@@ -2,8 +2,9 @@
 """
 pitato.py - game controller buttons as keyboard keys, plus a media mode.
 
-Made for the RetroFlag GPi Case 2W, and works on any Raspberry Pi with a screen: a TV or monitor
-on HDMI, or the GPi Case's own. The menus are drawn at 640x480 and scaled up to fit.
+Made for the RetroFlag GPi Case 2W and GPi Case 2, and works on any Raspberry Pi with a screen: a TV or
+monitor on HDMI, or the GPi Case's own. The menus are drawn at 640x480 and scaled up to fit. In the GPi
+Case 2's dock (the TV on), the picture's on the TV: docked or taken out, the Pi restarts with it there.
 
 Controllers: the GPi Case's buttons, or any USB or Bluetooth game controller (Xbox, PlayStation,
 8BitDo, the cheap SNES-style ones...), plugged in or out at any time; a Bluetooth one (or a keyboard,
