@@ -12,6 +12,7 @@ from ..screen import (boot_resolution, bt_output_name, hdmi_screens, resolution_
 from ..home import wallpaper
 from ..weather import find_me, geocode, place_text
 from ..voice import BOT_VOICES, VOICE_MB, voices_here
+from ..listen import mics
 from ..bot import FRIEND_CHATTER, FRIEND_PAGES
 from ..inputs import HALT_WAIT
 
@@ -43,10 +44,17 @@ class SettingsScreen:
                 rows.append(("other", "Other network…", "A hidden network, by name"))
             return rows
         if self.set_page == "friend":
-            return [("f_server", "Computer with Ollama", None), ("f_model", "Model", None),
+            rows = [("f_server", "Computer with Ollama", None), ("f_model", "Model", None),
                     ("f_name", "What it calls you", None),
                     ("f_chatter", "Says something by itself", [t for t, _ in FRIEND_CHATTER]),
                     ("f_voice", "Voice", None), ("f_speak", "Says its replies out loud", ["On", "Off"])]
+            found = mics()                             # (a microphone plugged in: in a GPi Case, one that isn't
+            usable = [c for c in found if not c["plays"]] if getattr(self, "case", None) else found   # its own sound)
+            if usable or self.bot_listens():
+                rows += [("f_listen", "Listens for you", ["Off", "On"]), ("f_wake", "Wake phrase", None)]
+                if len(found) > 1 or self.bot_mic():
+                    rows.append(("f_mic", "Microphone", ["Auto"] + [c["name"] for c in found]))
+            return rows
         if self.set_page == "f_voices":
             ours = [i for i, _, _ in BOT_VOICES]
             return [("v_none", "None", "")] + [("v_pick", n, i) for i, n, _ in BOT_VOICES] + \
@@ -480,13 +488,19 @@ class SettingsScreen:
             d.text((W - 20, self.LIST_TOP + 10), "Now: " + self.res_here(), font=F["small"], fill=MUTED,
                    anchor="rm")
         if self.set_page in FRIEND_PAGES:
+            listening = self.set_page == "friend" and (rows[sel][0] in ("f_listen", "f_wake", "f_mic")
+                                                        or (self.ears.job and not self.voice.job))
             voicey = self.set_page == "f_voices" or (self.set_page == "friend" and self.voice.job)
-            note = (self.voice.status() or ("Voices from Piper, made on the Pi" if self.voice.supported()
-                                            else "Piper doesn't run on this Pi")) if voicey \
-                else self.friend.models_status
+            if listening:
+                note, lit = self.listen_note()
+            else:
+                note = (self.voice.status() or ("Voices from Piper, made on the Pi" if self.voice.supported()
+                                                else "Piper doesn't run on this Pi")) if voicey \
+                    else self.friend.models_status
+                lit = voicey and self.voice.job
             if note:
                 d.text((W - 20, self.LIST_TOP + 10), self.fit(d, note, F["small"], 330), font=F["small"],
-                       fill=ACCENT if voicey and self.voice.job else MUTED, anchor="rm")
+                       fill=ACCENT if lit else MUTED, anchor="rm")
         top, rh = self.LIST_TOP + 26, 46
         rows_fit = (H - self.FOOTER - top) // rh
         first = max(0, min(sel - rows_fit + 1, len(rows) - rows_fit))
@@ -589,7 +603,7 @@ class SettingsScreen:
             hints += [("X", "Scan"), ("B", "Back")]
         elif self.set_page == "friend":
             k = rows[sel][0]
-            hints = ([("◀▶", "Change")] if k in ("f_chatter", "f_speak") else
+            hints = ([("◀▶", "Change")] if k in ("f_chatter", "f_speak", "f_listen", "f_mic") else
                      [("A", "Choose")] if k in ("f_model", "f_voice") else [("A", "Type")])
             hints += [("X", "Check"), ("B", "Back")]
         elif self.set_page == "f_voices":

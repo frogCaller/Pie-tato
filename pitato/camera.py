@@ -18,8 +18,12 @@ setup.sh tells the service where that is; run by hand, it's the one beside the f
     fps = 15
     device =           /dev/video0 and so on (blank: the first USB camera)
     hosts =            other names you reach this Pi by, if your router gives it one
+
+Pie-tato uses it on its own Pi too, for a USB camera plugged into that Pi (OwnCameras): each one plugged in
+answers the same calls at /usb/<its id>, on 127.0.0.1 only, so it isn't shared on the network.
 """
 import glob
+import hashlib
 import io
 import ipaddress
 import json
@@ -51,6 +55,8 @@ LOWEST = -30.0                   # never further down than this (an OBSBOT point
 SPEED = 60.0                     # degrees a second while the d-pad is held
 CONTROLS = {"pan": "pan_absolute", "tilt": "tilt_absolute", "zoom": "zoom_absolute"}
 ID = uuid.uuid4().hex[:8]
+V4L = "/sys/class/video4linux"   # the kernel's cameras (and the Pi's own video blocks)
+DEV = "/dev"                     # ...and their nodes
 
 
 def settings():
@@ -108,7 +114,7 @@ def find_camera(want=""):
 
 def card_name(path):
     try:
-        with open(f"/sys/class/video4linux/{os.path.basename(path)}/name") as f:
+        with open(os.path.join(V4L, os.path.basename(path), "name")) as f:
             return f.read().strip()
     except OSError:
         return ""
@@ -184,7 +190,9 @@ def parse_size(text, default=(640, 480)):
 class Feed:
     """ffmpeg runs while someone is watching; the newest picture is kept for whoever asks."""
 
-    def __init__(self):
+    def __init__(self, device=""):
+        self.fixed = device         # this node, whatever camera-server.txt says (Pie-tato's own: each USB camera)
+        self.gone = False           # ...and it's been taken out: not started again till it's back
         self.cond = threading.Condition()
         self.starting = threading.Lock()   # one start or stop at a time: a new ffmpeg never meets the old
         self.jpeg, self.seq, self.at = None, 0, 0.0
@@ -205,10 +213,22 @@ class Feed:
             self.fps = max(1, min(60, int(conf.get("fps") or 15)))
         except ValueError:
             self.fps = 15
-        dev, card = find_camera(conf.get("device", ""))
+        dev, card = find_camera(self.fixed or conf.get("device", ""))
         if dev != self.dev:
             self.dev, self.card, self.mjpeg = dev, card, True
         return self.dev
+
+    def use(self, device):
+        """The same camera on another node (it was plugged in again), or None: it's been taken out. The old node
+        let go, either way."""
+        if (device or self.fixed) == self.fixed and self.gone == (device is None):
+            return
+        self.stop()
+        with self.cond:
+            self.gone = device is None
+            self.fixed = device or self.fixed
+            self.dev, self.jpeg, self.error, self.failed_at = None, None, None, -1e9
+            self.cond.notify_all()
 
     def running(self):
         return self.proc is not None and self.proc.poll() is None
@@ -217,6 +237,9 @@ class Feed:
         """Someone wants pictures: the camera is started if it isn't running."""
         self.wanted = time.monotonic()
         with self.cond:
+            if self.gone:
+                self.error, self.failed_at = "It's been unplugged", time.monotonic()
+                return
             if self.held or self.running() or time.monotonic() - self.failed_at < 3:
                 return
         with self.starting:
@@ -585,7 +608,18 @@ p {{ color: #8b95a3; margin: 10px 2px; }}
 </main></body></html>"""
 
 
-def serve(feed, ptz, shutter, port=PORT):
+def shared_about(feed):
+    return {"server": "Pitato camera",                 # (its name from before Pie-tato's: what other Pis look for)
+            "name": settings().get("name") or socket.gethostname(),
+            "hostname": socket.gethostname()}
+
+
+def serve(feed, ptz, shutter, port=PORT, host="", pick=None, about=shared_about):
+    """The camera's calls on port (host "": every address; "127.0.0.1": this Pi only). pick(path): (feed, ptz,
+    shutter, the path inside) for a server of several cameras (Pie-tato's own: /usb/<id>/api/...), None for none."""
+    if pick is None:
+        pick = lambda path: (feed, ptz, shutter, path)   # noqa: E731
+
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
@@ -630,8 +664,11 @@ def serve(feed, ptz, shutter, port=PORT):
         def do_GET(self):
             if not self.allowed():
                 return
-            path = urllib.parse.urlsplit(self.path).path
-            if path == "/":
+            got = pick(urllib.parse.urlsplit(self.path).path)
+            if got is None:
+                return self.reply(404, {"ok": False, "error": "Not found"})
+            feed, ptz, shutter, path = got
+            if path == "/" and about is shared_about:      # (the page: the camera shared on the network)
                 name = settings().get("name") or socket.gethostname()
                 import html
                 return self.reply(200, PAGE.format(name=html.escape(name)).encode(), "text/html; charset=utf-8")
@@ -641,11 +678,11 @@ def serve(feed, ptz, shutter, port=PORT):
                     return self.reply(503, {"ok": False, "error": feed.error or "The camera is starting"})
                 return self.reply(200, jpeg, "image/jpeg")
             if path == "/api/camera/stream":
-                return self.stream()
+                return self.stream(feed)
             if path == "/api/ptz":
-                return self.reply(200, {"ok": True, **ptz.status(), **about()})
+                return self.reply(200, {"ok": True, **ptz.status(), **about(feed)})
             if path in ("/api/info", "/api/status"):
-                return self.reply(200, {"ok": True, **about(),
+                return self.reply(200, {"ok": True, **about(feed),
                                         "camera": {"device": feed.dev, "card": feed.card, "size": list(feed.size),
                                                    "fps": feed.fps, "running": feed.running(), "error": feed.error}})
             m = re.fullmatch(r"/api/photos/([\w.-]+\.jpg)", path)
@@ -654,7 +691,7 @@ def serve(feed, ptz, shutter, port=PORT):
                 return self.reply(200, data, "image/jpeg") if data else self.reply(404, {"ok": False, "error": "No such picture"})
             self.reply(404, {"ok": False, "error": "Not found"})
 
-        def stream(self):
+        def stream(self, feed):
             """MJPEG for a browser's <img>: it keeps showing the newest picture."""
             self.send_response(200)
             self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
@@ -685,7 +722,10 @@ def serve(feed, ptz, shutter, port=PORT):
                 body = None
             if not isinstance(body, dict):
                 return self.reply(400, {"ok": False, "error": "Bad request"})
-            path = urllib.parse.urlsplit(self.path).path
+            got = pick(urllib.parse.urlsplit(self.path).path)
+            if got is None:
+                return self.reply(404, {"ok": False, "error": "Not found"})
+            feed, ptz, shutter, path = got
             num = lambda k: float(body[k]) if body.get(k) is not None else None   # noqa: E731
             try:
                 if path == "/api/ptz/drive":
@@ -709,14 +749,186 @@ def serve(feed, ptz, shutter, port=PORT):
                 return self.reply(400, {"ok": False, "error": str(ex)[:160] or "That didn't work"})
             self.reply(404, {"ok": False, "error": "Not found"})
 
-    def about():
-        return {"server": "Pitato camera",             # (its name from before Pie-tato's: what other Pis look for)
-                "name": settings().get("name") or socket.gethostname(),
-                "hostname": socket.gethostname()}
-
-    server = ThreadingHTTPServer(("", port), Handler)
+    server = ThreadingHTTPServer((host, port), Handler)
     server.daemon_threads = True
     return server
+
+
+# ---- Pie-tato's own Pi: the USB cameras plugged into it, for its Camera tab and its bot ------------------------
+VIDIOC_QUERYCAP = 0x80685600     # what a node is: _IOR('V', 0, struct v4l2_capability), 104 bytes
+CAP_CAPTURE, CAP_DEVICE_CAPS = 0x00000001, 0x80000000
+OWN_PORTS = (5434, 5435, 5436, 5437)   # on 127.0.0.1 only (5433 is this script's, shared): the first that's free
+OWN_LOOK = 2.0                   # seconds between looks for one plugged in or taken out
+
+
+def read_text(path):
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except (OSError, UnicodeDecodeError):
+        return ""
+
+
+def query_cap(path):
+    """What a camera node says it is: (driver, card, bus, what this node does), or None."""
+    import fcntl
+    import struct
+    for flags in (os.O_RDWR, os.O_RDONLY):
+        try:
+            fd = os.open(path, flags | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0))
+            break
+        except OSError:
+            fd = None
+    if fd is None:
+        return None
+    try:
+        buf = bytearray(104)
+        fcntl.ioctl(fd, VIDIOC_QUERYCAP, buf, True)
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+    driver, card, bus = (bytes(buf[a:b]).split(b"\0", 1)[0].decode("utf-8", "replace").strip()
+                         for a, b in ((0, 16), (16, 48), (48, 80)))
+    caps, node = struct.unpack_from("=II", buf, 84)
+    return driver, card, bus, node if caps & CAP_DEVICE_CAPS else caps
+
+
+def camera_name(card):
+    """A camera's own name, tidied: "USB2.0 HD UVC WebCam: USB2.0 HD" is "USB2.0 HD UVC WebCam"."""
+    name = " ".join((card or "").partition(": ")[0].split())
+    return name[:40] or "USB camera"
+
+
+def own_camera(name):
+    """{"id", "card"} for a USB camera's picture node (video0...), or None: a camera's second node (what it knows
+    about its pictures), the Pi's own video blocks, a Pi camera on its ribbon. The id is the same each time it's
+    plugged in: its maker's numbers and its serial number (or, without one, the USB port it's in)."""
+    try:
+        iface = os.path.realpath(os.path.join(V4L, name, "device"))
+    except OSError:
+        return None
+    usb = os.path.dirname(iface)                       # (the interface, 1-1.2:1.0; the device is its folder, 1-1.2)
+    if not os.path.exists(os.path.join(usb, "idVendor")):
+        return None
+    card = read_text(os.path.join(V4L, name, "name"))
+    index = read_text(os.path.join(V4L, name, "index")) or "0"
+    if any(w in card.lower() for w in NOT_CAMERAS):
+        return None
+    cap = query_cap(os.path.join(DEV, name))
+    if cap:
+        if not cap[3] & CAP_CAPTURE:
+            return None
+        card = cap[1] or card
+    elif index != "0":
+        return None
+    who = "|".join([read_text(os.path.join(usb, "idVendor")), read_text(os.path.join(usb, "idProduct")),
+                    read_text(os.path.join(usb, "serial")) or os.path.basename(usb), iface.rpartition(":")[2], index])
+    return {"id": hashlib.sha1(who.encode()).hexdigest()[:8], "card": card}
+
+
+def own_cameras(seen):
+    """The USB cameras plugged in now: [{"id", "dev", "card"}], in the kernel's order. Each node is looked at once
+    (seen: video0... -> (which it was, what it is), kept between looks)."""
+    try:
+        names = sorted((n for n in os.listdir(V4L) if re.fullmatch(r"video\d+", n)), key=lambda n: int(n[5:]))
+    except OSError:
+        names = []
+    out = []
+    for name in names:
+        try:
+            st = os.stat(os.path.join(DEV, name))
+        except OSError:
+            continue
+        which = (st.st_rdev, st.st_ctime_ns)
+        hit = seen.get(name)
+        if not hit or hit[0] != which:
+            hit = seen[name] = (which, own_camera(name))
+        if hit[1]:
+            out.append(dict(hit[1], dev=os.path.join(DEV, name)))
+    for name in [n for n in seen if n not in names]:
+        del seen[name]
+    ids = [c["id"] for c in out]
+    for c in out:                                      # (two nodes of one camera, both pictures: told apart)
+        if ids.count(c["id"]) > 1:
+            c["id"] = hashlib.sha1((c["id"] + c["dev"]).encode()).hexdigest()[:8]
+    return out
+
+
+def own_about(feed):
+    """What one of this Pi's own USB cameras says it is, and why there's no picture, when there isn't."""
+    return {"server": "USB camera", "name": camera_name(feed.card), "hostname": socket.gethostname(),
+            "trouble": (feed.error or "") if not feed.running() else ""}
+
+
+class OwnCameras:
+    """The USB cameras plugged into Pie-tato's own Pi, for its Camera tab and its bot. They aren't shared on the
+    network (that's what the rest of this script is for): each answers the same calls as a camera on another Pi, at
+    /usb/<its id> on 127.0.0.1, and its picture is taken only while someone's watching, as this script's is."""
+
+    def __init__(self, ports=OWN_PORTS):
+        self.lock = threading.Lock()
+        self.ports = ports
+        self.server, self.port = None, 0
+        self.cams = {}              # its id -> (Feed, Ptz, Shutter), once it's been asked for
+        self.seen = {}              # video0... -> (which it was, what it is)
+        self.found = []             # [{"id", "dev", "card"}]: plugged in when last looked
+        self.looked = -1e9
+        self.failed = -1e9          # when the server couldn't start (tried again a while after)
+
+    def look(self, now=False):
+        """The USB cameras plugged in: [{"id", "dev", "card", "name", "addr"}] (looked for afresh every OWN_LOOK
+        seconds, or now). [] when there's none, or nowhere to answer for them."""
+        with self.lock:
+            if now or time.monotonic() - self.looked >= OWN_LOOK:
+                self.looked = time.monotonic()
+                self.found = own_cameras(self.seen)
+                here = {c["id"]: c["dev"] for c in self.found}
+                for cid, (feed, _, _) in self.cams.items():
+                    feed.use(here.get(cid))            # (taken out; or plugged in again, on another node perhaps)
+            if self.found and self.server is None and time.monotonic() - self.failed > 30:
+                self.start()
+            if self.server is None:
+                return []
+            return [dict(c, name=camera_name(c["card"]), addr=f"127.0.0.1:{self.port}/usb/{c['id']}")
+                    for c in self.found]
+
+    def start(self):
+        for port in self.ports + (0,):
+            try:
+                server = serve(None, None, None, port=port, host="127.0.0.1", pick=self.pick, about=own_about)
+            except OSError:
+                continue
+            self.server, self.port = server, server.server_address[1]
+            threading.Thread(target=server.serve_forever, daemon=True, name="own-cameras").start()
+            return True
+        self.failed = time.monotonic()
+        return False
+
+    def pick(self, path):
+        """(feed, ptz, shutter, the path inside) for /usb/<id>/..., or None."""
+        m = re.fullmatch(r"/usb/([0-9a-f]{8})(/.*)?", path)
+        if not m:
+            return None
+        with self.lock:
+            dev = next((c["dev"] for c in self.found if c["id"] == m.group(1)), None)
+            if dev is None:
+                return None
+            have = self.cams.get(m.group(1))
+            if have is None:
+                feed = Feed(dev)
+                have = self.cams[m.group(1)] = (feed, Ptz(feed), Shutter(feed))
+        return have + (m.group(2) or "/",)
+
+    def close(self):
+        with self.lock:
+            server, self.server = self.server, None
+            cams = list(self.cams.values())
+        for feed, _, _ in cams:
+            feed.stop()
+        if server is not None:
+            server.shutdown()
+            server.server_close()
 
 
 def main():

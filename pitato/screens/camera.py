@@ -40,7 +40,8 @@ class CameraScreen:
         Pi's address, so one of them may be a PiE-ink)."""
         cam = self.camera
         sure = [v["url"] for v in list(cam.known.values()) if v.get("kind") == "pie" and v.get("server") == "PiE-ink"]
-        return sure, [c["addr"] for c in cam.cams or read_cameras(LIBRARY[self.tab_index("camera")]["files"])]
+        return sure, [c["addr"] for c in cam.cams or read_cameras(LIBRARY[self.tab_index("camera")]["files"])
+                      if not c.get("usb")]
 
     def press_cameras(self, name, repeat):
         """The Camera tab: the live picture (B for your cameras, L R between them), or the list."""
@@ -99,7 +100,9 @@ class CameraScreen:
         elif name == "x" and not repeat and rows[sel][0] == "cam":
             entry = rows[sel][1]
             key = "camdel:" + cam_key(entry["addr"])
-            if self.confirm[0] == key:
+            if entry.get("usb"):                      # (plugged into this Pi: it's here while it's plugged in)
+                self.toast("It's plugged into this Pi: unplug it to take it off", 3)
+            elif self.confirm[0] == key:
                 self.confirm = (None, 0.0)
                 self.camera_remove(entry["addr"])
             else:
@@ -242,7 +245,8 @@ class CameraScreen:
         sel = menu["sel"] % len(rows)
         d.text((20, self.LIST_TOP + 10), self.fit(d, f"Camera  ›  {cam.name_of(menu['addr'])}", F["small"], W - 200),
                font=F["small"], fill=MUTED, anchor="lm")
-        d.text((W - 20, self.LIST_TOP + 10), cam_host(menu["addr"]) or "", font=F["small"], fill=MUTED, anchor="rm")
+        d.text((W - 20, self.LIST_TOP + 10), "USB" if cam.is_usb(menu["addr"]) else cam_host(menu["addr"]) or "",
+               font=F["small"], fill=MUTED, anchor="rm")
         top, rh = self.LIST_TOP + 26, 46
         for r, (key, label, value) in enumerate(rows):
             y = top + r * rh
@@ -336,13 +340,17 @@ class CameraScreen:
     def camera_remove(self, addr):
         cam = self.camera
         name = cam.name_of(addr)
+        if cam.is_usb(addr) and not any(cam_key(c["addr"]) == cam_key(addr)
+                                        for c in read_cameras(cam.patterns or LIBRARY[self.tab_index("camera")]["files"])):
+            self.toast("It's plugged into this Pi: unplug it to take it off", 3)
+            return
         try:
             edit_cameras(remove=addr)
         except OSError as ex:
             self.toast(f"Couldn't change static/camera.txt ({ex.strerror or ex})", 4)
             return
         was = cam_key(addr) == cam_key(cam.addr)
-        cam.cams = read_cameras(cam.patterns or LIBRARY[self.tab_index("camera")]["files"])
+        cam.cams = cam.listed(cam.patterns or LIBRARY[self.tab_index("camera")]["files"])
         if cam.turn_of(addr) or cam.flipped(addr) or cam.flipped(addr, "y"):   # (added again later: the right
             cam.set_turn(addr, 0)                                              # way up, steered as it is)
             cam.set_flip(addr, False)
@@ -419,7 +427,16 @@ class CameraScreen:
             d.rounded_rectangle((cx - 44, cy - 40, cx + 44, cy + 40), radius=16, fill=ROW)
             d.ellipse((cx - 24, cy - 24, cx + 24, cy + 24), fill=BG, outline=ACCENT, width=3)
             d.ellipse((cx - 7, cy - 7, cx + 7, cy + 7), fill=ACCENT)
-            if cam.reached is False:
+            usb = cam.is_usb(cam.addr)
+            trouble = (cam.info.get("trouble") or "") if usb and cam.info else ""
+            if usb and not cam.mine(cam.addr):
+                big, small = "It's been unplugged", "Plug it in again, or press B for your cameras"
+            elif trouble:
+                big, small = "No picture from the camera", ("Another program is using it" if "busy" in trouble.lower()
+                                                            else trouble)
+            elif usb:
+                big, small = "Starting the camera", cam.title
+            elif cam.reached is False:
                 big, small = "Can't reach this camera", f"Is it on? Nothing answered at {cam.where}"
             elif cam.kind == "pie" and cam.info and not cam.available:
                 big, small = "No picture from that Pi", "Is its camera plugged in?"
@@ -605,7 +622,7 @@ class CameraScreen:
                                (by0 + by1) / 2 + 9), outline=MUTED, width=2)
                 title = cam.name_of(entry["addr"]) if kind == "cam" else entry["name"]
                 gone = k in cam.missing and k not in cam.thumbs
-                right = "Can't reach" if gone else cam_host(entry["addr"])
+                right = "Can't reach" if gone else "USB" if entry.get("usb") else cam_host(entry["addr"])
                 colour = WARN if gone else MUTED
             tx = bx1 + 14
             rw = d.textlength(right, font=F["small"]) if right else 0
@@ -618,17 +635,22 @@ class CameraScreen:
             y = top_y + self.ROW_H + 18
             for line in ("Any camera on your network: its address and",
                          "port, or its link. A Pi can share its USB camera",
-                         "too: sudo bash setup.sh --camera on that Pi."):
+                         "too: sudo bash setup.sh --camera on that Pi.",
+                         "A USB camera plugged into this Pi shows up here."):
                 d.text((W / 2, y), line, font=F["small"], fill=MUTED, anchor="mm")
                 y += 22
         kind, entry = rows[sel]
-        if kind == "cam":
+        if kind == "cam" and entry.get("usb"):
+            hints = [("A", "Watch"), ("Y", "Rotate"), ("START", "Settings"), ("B", "Home")]
+        elif kind == "cam":
             remove = ("X", "Remove" if self.confirm[0] != "camdel:" + cam_key(entry["addr"]) else "Remove it")
             hints = [("A", "Watch"), ("Y", "Rotate"), ("START", "Settings"), remove, ("B", "Home")]
         else:
             hints = [("A", "Add"), ("L R", "Tabs"), ("B", "Home")]
         about = ""
-        if entry:
+        if entry and entry.get("usb"):
+            about = "Plugged into this Pi"
+        elif entry:
             about = entry["addr"].split("://", 1)[-1]
             what = cam.kind_shown(entry["addr"], entry.get("server", ""))
             about += f" · {what}" if what else ""

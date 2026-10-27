@@ -69,7 +69,8 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
                 after it, from where it was
   Radio       - real stations by genre, popular near you, or search by name (from the free
                 Radio Browser directory), and your own list in static/radio.txt
-  Camera      - cameras on your other Pis (PiE-ink, or this repo's camera.py: setup.sh
+  Camera      - a USB camera plugged into this Pi (there by itself, while it's plugged in), cameras
+                on your other Pis (PiE-ink, or this repo's camera.py: setup.sh
                 --camera) or any camera on your network (its address and port: the picture is
                 found on its page, or where camera servers put it; or its stream's link), listed
                 in static/camera.txt or added by typing an address; L/R switch between them, the
@@ -124,7 +125,9 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
                 that model can't see pictures, it says so and answers without them); ask it
                 to take a picture and your camera takes one, into Photos and the conversation.
                 With a voice (Piper, on the Pi) it says its replies out loud; SELECT says the
-                last one again. Left and right switch it between chat and work: at work it sits
+                last one again. With a USB microphone, Settings > Bot > Listens: say the wake
+                phrase ("hey potato") and what you want (Vosk makes it out, on the Pi; X > Talk to
+                it skips the phrase). Left and right switch it between chat and work: at work it sits
                 at a desk and acts out what your coding agent is doing: typing, reading,
                 thinking, ringing its bell when it's done, waving when it needs you. Claude Code
                 tells it through hooks that coder_hooks.py sets up on the computer it runs on;

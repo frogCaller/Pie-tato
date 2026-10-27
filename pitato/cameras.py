@@ -15,6 +15,7 @@ from .config import clean_name, read_lines, read_own_text, settings_file, write_
 from .util import save_picture
 from .net import cam_address, cam_host, cam_json, CAM_JSON_MAX, cam_key, cam_open, read_capped
 from .screen import slow_pi
+from .camera import OwnCameras
 
 
 # Camera tab: cameras on other Pis (PiE-ink, or camera.py from this repo), or any camera on your network
@@ -24,9 +25,10 @@ CAM_FPS = 4              # how often a camera that's only a picture is fetched, 
 CAM_STREAM_FPS = (15, 8)  # ...and the pictures of one that streams, shown at most this many a second (on a Pi 4
                           # or 5; on a slower Pi)
 PIE_STREAM = "/api/camera/stream"   # a Pi's camera (camera.py's): its stream, watched rather than its picture fetched
-PIE_STREAMS = ("Pitato camera", "Pie-tato camera")   # ...the camera server that has one, as it says (PiE-ink's
-                                                     # picture is fetched). camera.py says the first, as it always has
-                                                     # (Pis not yet updated look for it): shown as the second
+PIE_STREAMS = ("Pitato camera", "Pie-tato camera", "USB camera")   # ...the camera servers that have one, as they
+                                                     # say (PiE-ink's picture is fetched). camera.py says the first, as
+                                                     # it always has (Pis not yet updated look for it): shown as the
+                                                     # second. The last: a USB camera plugged into this Pi
 CAM_SHOWN_AS = {"Pitato camera": "Pie-tato camera"}   # a camera server's name, as the Camera tab and web page show it
 CAM_STREAM_WAIT = 15.0   # seconds a stream may send nothing before it's connected again (some send a picture only
                          # when they have a new one)
@@ -47,6 +49,7 @@ CAM_LINK_WORDS = re.compile(r"stream|video|mjpe?g|jpe?g|snap|shot|feed|cam|frame
 CAM_BEACON = 5151        # PiE-inks and camera.py say they're there, a few times a minute
 CAM_FOUND_FOR = 30       # a camera gone quiet this long drops off "On your network"
 CAM_FOUND_KEEP = 16      # at most this many cameras heard on the network are kept in mind
+USB_CAMERA = "USB camera"   # what a USB camera plugged into this Pi answers as (camera.py's OwnCameras)
 
 
 CAM_FRAME_MAX = 12_000_000   # bytes: a camera's live pictures aren't big (a big one is kept as a smaller copy),
@@ -402,11 +405,15 @@ class Camera:
     stream or a picture (a script sharing a webcam, an ESP32-CAM, motion, mjpg-streamer...) can be
     watched, found from its address and port alone (cam_detect: on its web page, or where camera
     servers usually put it), and A keeps the picture on screen. Your cameras are in camera.txt; Pis
-    that say they have one (PiE-ink and camera.py announce themselves) are listed as found."""
+    that say they have one (PiE-ink and camera.py announce themselves) are listed as found. A USB
+    camera plugged into this Pi is first among yours, by itself, while it's plugged in: camera.py's
+    OwnCameras answers for it, on this Pi only, as camera.py does for one on another Pi."""
 
     def __init__(self):
         self.patterns = []
-        self.cams = []               # [{"addr", "name"}]: camera.txt, in order
+        self.cams = []               # [{"addr", "name"}]: this Pi's USB cameras ("usb": True), then camera.txt's
+        self.own = OwnCameras()      # ...the USB ones: what answers for them
+        self.usb = []                # ...and them, as they were last looked for
         self.found = {}              # cam_key -> {"addr", "name", "server", "seen"}: heard on the network
         self.known = {}              # cam_key -> what answered there: {"kind", "url", "name", "server"}
         self.missing = {}            # cam_key -> when nothing answered there
@@ -457,7 +464,7 @@ class Camera:
 
     def load(self, patterns, last=None):
         self.patterns = patterns
-        self.cams = read_cameras(patterns)
+        self.cams = self.listed(patterns)
         keys = [cam_key(c["addr"]) for c in self.cams]
         if self.addr and (cam_key(self.addr) in keys or cam_key(self.addr) in self.found):
             return
@@ -465,6 +472,46 @@ class Camera:
             self.select(self.cams[keys.index(cam_key(last))]["addr"])
         else:
             self.select(self.cams[0]["addr"] if self.cams else "")
+
+    # this Pi's own USB cameras
+    def usb_look(self, now=False):
+        """The USB cameras plugged into this Pi, looked for (afresh every couple of seconds, or now): first among
+        yours, while they're plugged in. True when they've changed."""
+        try:
+            got = self.own.look(now)
+        except Exception as ex:                       # (whatever the kernel says, the Camera tab carries on)
+            print(f"usb cameras: {ex!r}", flush=True)
+            got = []
+        names = [c["name"] for c in got]
+        usb, seen = [], {}
+        for c in got:
+            name = c["name"]
+            if names.count(name) > 1:                 # (two of a kind: numbered)
+                seen[name] = seen.get(name, 0) + 1
+                name = f"{name} {seen[name]}"
+            usb.append({"addr": c["addr"], "name": name, "usb": True})
+            self.known[cam_key(c["addr"])] = {"kind": "pie", "url": "http://" + c["addr"], "name": name,
+                                              "server": USB_CAMERA}
+        if usb == self.usb:
+            return False
+        self.usb = usb
+        if self.patterns or self.cams:
+            self.cams = usb + [c for c in self.cams if not c.get("usb")]
+        if self.is_usb(self.addr) and not any(cam_key(c["addr"]) == cam_key(self.addr) for c in usb):
+            with self.lock:                           # (the one on screen, unplugged: its picture goes at once)
+                self.frame = self.raw = self.jpeg = self.fitted = None
+                self.connecting = True
+        self.on_change()
+        return True
+
+    def listed(self, patterns=None):
+        """Your cameras: this Pi's USB ones first (while they're plugged in), then camera.txt's."""
+        self.usb_look()
+        return list(self.usb) + read_cameras(patterns if patterns is not None else self.patterns)
+
+    def is_usb(self, addr):
+        """A USB camera plugged into this Pi (or one that was)."""
+        return bool(addr) and (self.known.get(cam_key(addr)) or {}).get("server") == USB_CAMERA
 
     # names and places
     def name_of(self, addr):
@@ -659,8 +706,10 @@ class Camera:
 
     @property
     def steers(self):
-        """The d-pad is for turning it: one that turns, or a Pi's camera that hasn't said yet."""
-        return self.kind == "pie" and (self.available or not self.info)
+        """The d-pad is for turning it: one that turns, or a Pi's camera that hasn't said yet (not a USB camera
+        that's been unplugged)."""
+        return self.kind == "pie" and (self.available or not self.info) and \
+            not (self.is_usb(self.addr) and not self.mine(self.addr))
 
     @property
     def can_follow(self):
@@ -690,6 +739,11 @@ class Camera:
             if self.running:
                 self.running = False
                 self.gen += 1
+
+    def close(self):
+        """Pie-tato's stopping: this Pi's USB cameras let go."""
+        self.stop()
+        self.own.close()
 
     def control_loop(self, gen, base):
         moving, next_info, next_zoom = False, 0.0, 0.0
@@ -744,7 +798,8 @@ class Camera:
                     try:
                         came = self.watch_stream(gen, stream, only_streams=kind == "pie")
                     except (urllib.error.HTTPError, NotAStream) as ex:
-                        if kind != "pie" or getattr(ex, "code", 404) not in (404, 405, 501):
+                        if kind != "pie" or getattr(ex, "code", 404) not in (404, 405, 501) or \
+                                self.kind_of(self.addr) == USB_CAMERA:   # (one that's unplugged: it'll be back)
                             raise
                         self.no_stream.add(cam_key(url))   # (no stream there after all: its picture, fetched)
                         continue
@@ -904,7 +959,7 @@ class Camera:
         now = time.time()
         found = sorted(list(self.found.items()), key=lambda kv: -kv[1]["seen"])
         self.found = {k: f for k, f in found[:CAM_FOUND_KEEP] if now - f["seen"] <= CAM_FOUND_FOR * 10}
-        keep = set(self.found) | {cam_key(c["addr"]) for c in self.cams} | {cam_key(self.addr)}
+        keep = set(self.found) | {cam_key(c["addr"]) for c in self.cams + self.usb} | {cam_key(self.addr)}
         for name in ("known", "missing", "thumbs", "turned"):
             setattr(self, name, {k: v for k, v in list(getattr(self, name).items()) if k in keep})
 
@@ -919,6 +974,7 @@ class Camera:
     def scan(self):
         """A small picture from each camera for the list, in the background (one at a time)."""
         self.listen()
+        self.usb_look()
         self.tidy()
         if self.scanning:
             return

@@ -19,6 +19,7 @@
   cameras.py        the Camera tab's cameras
   nearby.py         what another Pi on your network has already fetched
   voice.py          the bot's voice (Piper)
+  listen.py         the bot's ears: a USB microphone, the wake phrase, and Vosk fetched the first time
   bot.py            the bot (Ollama)
   coder.py          the Bot at work
   crypto.py         coin prices (CoinGecko), for the Finance tab
@@ -48,7 +49,9 @@
 
 Beside them, each run on its own:
   webui.py          the web page (port 5432): setup.sh makes it a service of its own
-  camera.py         a Pi's USB camera on your network, for the Camera tab (setup.sh --camera)
+  camera.py         a Pi's USB camera on your network, for the Camera tab (setup.sh --camera); also
+                    imported for this Pi's own USB cameras (on 127.0.0.1 only)
+  hear.py           what a USB microphone hears, made out by Vosk (listen.py starts it, as you)
   coder_hooks.py    Claude Code's hooks, telling the Bot what it's doing (the web page hands it out)
   convert_videos.sh videos made smaller on your computer (the Pi does it by itself too)
 """

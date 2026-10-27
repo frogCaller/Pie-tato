@@ -12,9 +12,9 @@ from ..net import cam_address
 from ..screen import aplay_device
 from ..library import LIBRARY
 from ..weather import place_text, wx_words
-from ..cameras import read_cameras
 from ..stocks import money
 from ..voice import BOT_VOICES, voice_name, VOICE_SAMPLE, voices_here
+from ..listen import LISTEN_MB, PATIENCE, WAKE, WAKE_MOST, have_vosk, mics, supported as listen_supported, tidy_phrase
 from ..bot import (
     Friend, FRIEND_BUBBLE, FRIEND_CHATTER, FRIEND_FACES, FRIEND_HEAD, FRIEND_HELLO_AFTER, FRIEND_KEEP,
     FRIEND_PAGES, FRIEND_PIC_ROOM, FRIEND_SIGHT, FRIEND_TOPICS)
@@ -137,6 +137,143 @@ class BotScreen:
         self.voice.get(vid)
         return True, f"Getting {voice_name(vid)}…"
 
+    # its ears: a USB microphone (Settings > Bot > Listens)
+    def bot_listens(self):
+        """Settings > Bot > Listens is on."""
+        return (self.friend.conf.get("listen") or "off").strip().lower() in ("on", "yes", "1", "true")
+
+    def bot_wake(self):
+        """The wake phrase: yours in bot.txt, or "hey potato"."""
+        return tidy_phrase(self.friend.conf.get("wake")) or WAKE
+
+    def bot_mic(self):
+        """The microphone picked in Settings > Bot (its sound card's id), or "" for the first there is."""
+        return clean_name(self.friend.conf.get("mic"), 40)
+
+    def listen_now(self):
+        """Listening as Settings > Bot has it, while Pie-tato's on screen: started (afresh, for a new phrase or
+        microphone), or stopped."""
+        if self.active and self.bot_listens() and have_vosk():
+            self.ears.start(self.bot_wake(), self.bot_mic())
+        else:
+            self.ears.stop()
+
+    def ears_busy(self):
+        """Not now: the bot (or your coding agent) is speaking, something's playing, or a game or a program has the
+        screen (it would hear that instead). (From the ears' thread.)"""
+        return (not self.active or self.voice.speaking or self.proc is not None or self.game is not None
+                or self.prog is not None or self.coder.talking())
+
+    def ears_heard(self, text):
+        """You said something to the bot (from the ears' thread): the main loop passes it on."""
+        self.ears_said.append(text)
+        self.dirty = True
+        self.wake()
+
+    def ears_changed(self):
+        """It started or stopped listening, or heard a little more (from its thread)."""
+        self.dirty = True
+        self.wake()
+
+    def ears_ready(self):
+        """Vosk arrived (on its download's thread): the main loop starts listening."""
+        self.ears_arrived = True
+        self.dirty = True
+        self.wake()
+
+    def ears_tick(self):
+        """The main loop: "Listening…" while it is (after the wake phrase), and its troubles, where you'd see them."""
+        e = self.ears
+        now = (e.state, e.error if e.state == "error" else "", tuple(e.unknown))
+        was, self.ears_seen = self.ears_seen, now
+        if now == was or not self.active:
+            return
+        if now[0] == "listening" and was[0] != "listening":
+            if not self.on_friend_page():             # (there, its face says so)
+                self.toast("Listening…", PATIENCE)
+        elif was[0] == "listening" and self.msg == "Listening…":
+            self.msg = None
+            self.dirty = True
+        if not (self.on_friend_page() or (self.view == "list" and self.tab_type() == "settings"
+                                          and self.set_page in FRIEND_PAGES)):
+            return                                    # (its troubles: where you'd look for them)
+        if now[1] and now[1] != was[1]:
+            self.toast(now[1], 5)
+        elif now[2] and now[2] != was[2]:
+            self.toast(f"It doesn't know the word \"{now[2][0]}\": try another wake phrase", 6)
+
+    def bot_heard(self, text):
+        """You said something to the bot (the wake phrase, then this): it answers, out loud when it has a voice,
+        and its page comes up (unless you're typing, or looking at something)."""
+        if self.msg == "Listening…":
+            self.msg = None
+        fr = self.friend
+        fr.load(self.friend_files())
+        if not fr.ready():
+            self.toast("Set up your bot first: Settings > Bot", 4)
+            return
+        if not fr.say(text):
+            self.toast("Still thinking about the last one", 2)
+            return
+        self.friend_scroll = 0
+        if self.active and self.view in ("home", "list") and not self.on_friend_page() and not self.learn:
+            self.set_setting("bot_mode", "chat")
+            self.web_tab("Bot")
+        self.dirty = True
+
+    def listen_toggle(self):
+        """Settings > Bot > Listens, on or off: on the first time, Vosk is fetched first."""
+        if self.bot_listens():
+            if self.friend_set(listen="off"):
+                self.toast("It isn't listening now", 2)
+            return
+        if not have_vosk():
+            if not listen_supported():
+                self.toast("Vosk doesn't run on this Pi", 3)
+                return
+            job = self.ears.job
+            if job:
+                self.toast(f"Still getting {job['what']}", 2)
+                return
+            if self.friend_set(listen="on"):
+                self.ears.get()
+                self.toast(f"Getting what it listens with ({LISTEN_MB} MB)", 4)
+            return
+        if self.friend_set(listen="on"):
+            self.toast(f"Say \"{self.bot_wake()}\", then what you want", 4)
+
+    def listen_wake_typed(self, text):
+        phrase = tidy_phrase(text) if text.strip() else WAKE
+        if not phrase:
+            self.toast("A word or two, like hey potato", 3)
+            return
+        if self.friend_set(wake=phrase):
+            self.toast(f"Say \"{phrase}\", then what you want" if self.bot_listens() else f"Wake phrase: {phrase}", 3)
+
+    def listen_mic_step(self, d):
+        """Settings > Bot > Microphone: the next one (Auto: the first there is)."""
+        ids = [""] + [c["id"] for c in mics()]
+        cur = self.bot_mic()
+        i = ids.index(cur) if cur in ids else 0
+        self.friend_set(mic=ids[(i + d) % len(ids)])
+
+    def listen_note(self):
+        """Settings > Bot's note on listening, top right: (what it says, lit)."""
+        e = self.ears
+        if e.job:
+            return e.status(), True
+        if e.got_error:
+            return e.got_error, False
+        if not self.bot_listens():
+            return "It makes out what you say on the Pi", False
+        if e.unknown:
+            return f"It doesn't know \"{e.unknown[0]}\": try another phrase", False
+        if e.state == "error":
+            return e.error, False
+        if e.state in ("waiting", "listening"):
+            return f"Listening for \"{self.bot_wake()}\"", True
+        return "Starting to listen…", False
+
     def friend_topic(self):
         """Something to talk about: mostly the weather and the time, the stocks and coins now and then, and
         what it sees, when it has a camera (and its model hasn't turned out not to see)."""
@@ -204,7 +341,8 @@ class BotScreen:
         """The camera the bot looks through: one named in what you said ("take a picture with the
         garage camera"), the one on the Camera tab, or the first of yours. "" when there's none."""
         cam = self.camera
-        cams = cam.cams or read_cameras(LIBRARY[self.tab_index("camera")]["files"])
+        cam.usb_look()                                # (a USB camera plugged into this Pi: among them)
+        cams = cam.cams or cam.listed(LIBRARY[self.tab_index("camera")]["files"])
         low = (text or "").lower()
         if low:
             for c in cams:
@@ -247,7 +385,8 @@ class BotScreen:
 
     def friend_options(self):
         """The Bot page's X menu: (what it says, what it does)."""
-        opts = [("Send a picture from Photos", "send")]
+        opts = [("Talk to it", "talk")] if self.ears.on and self.ears.state in ("waiting", "listening") else []
+        opts.append(("Send a picture from Photos", "send"))
         if self.friend_camera():
             opts.append(("Take a picture", "snap"))
         opts.append(("Set up your bot", "setup"))
@@ -312,6 +451,14 @@ class BotScreen:
                     if what == "clear":
                         fr.clear()
                         self.toast("Conversation cleared", 2)
+                    elif what == "talk":
+                        if fr.busy:
+                            self.toast("Still thinking about the last one", 2)
+                        elif self.voice.speaking:
+                            self.voice.stop()
+                            self.ears.wake_now()
+                        elif not self.ears.wake_now():
+                            self.toast(self.ears.error or "It isn't listening yet", 3)
                     elif what == "send":
                         self.friend_pick()
                     elif what == "snap":
@@ -418,6 +565,7 @@ class BotScreen:
             self.toast(f"Couldn't save it ({ex.strerror or ex})", 4)
             return False
         self.friend.load(self.friend_files())
+        self.listen_now()                              # (listening on or off, or a new phrase or microphone)
         self.dirty = True
         return True
 
@@ -445,6 +593,14 @@ class BotScreen:
             return voice_name(self.bot_voice()) if self.bot_voice() else "None"
         if key == "f_speak":
             return "On" if self.bot_speaks() else "Off"
+        if key == "f_listen":
+            job = self.ears.job
+            return f"Getting it… {job['pct']}%" if job else "On" if self.bot_listens() else "Off"
+        if key == "f_wake":
+            return self.bot_wake()
+        if key == "f_mic":
+            cur = self.bot_mic()
+            return next((c["name"] for c in mics() if c["id"] == cur), cur) if cur else "Auto"
         return {"f_server": fr.server or "Not set", "f_model": fr.model or "Pick one",
                 "f_name": fr.name or "Not set", "f_chatter": fr.chatter_text()}.get(key, "")
 
@@ -493,6 +649,13 @@ class BotScreen:
                     rows = self.settings_rows()
                     want = self.voice_want or self.bot_voice()
                     self.set_sel = next((i for i, r in enumerate(rows) if r[2] == want), 0)
+            elif key == "f_listen" and name in ("left", "right", "a"):
+                self.listen_toggle()
+            elif name == "a" and key == "f_wake":
+                self.open_keyboard("Wake phrase: what you say first", self.bot_wake(), self.listen_wake_typed,
+                                   limit=WAKE_MOST, empty=True)
+            elif key == "f_mic" and name in ("left", "right", "a"):
+                self.listen_mic_step(-1 if name == "left" else 1)
             elif key == "f_speak" and name in ("left", "right", "a"):
                 if not self.bot_voice():
                     self.toast("Pick a voice first", 3)
@@ -539,10 +702,11 @@ class BotScreen:
         mid = (top + bottom) / 2 - 16
         d.text(((cx0 + cx1) / 2, mid), face, font=F["face"], fill=TEXT, anchor="mm")
         speaking = self.voice.speaking
-        status = (fr.doing or "Thinking…") if fr.busy else "Speaking…" if speaking else \
+        hearing = fr.ready() and self.ears.state == "listening" and not fr.busy and not speaking
+        status = (fr.doing or "Thinking…") if fr.busy else "Speaking…" if speaking else "Listening…" if hearing else \
             self.fit(d, fr.model, F["small"], cx1 - cx0 - 24) if fr.ready() else "Not set up"
-        d.text(((cx0 + cx1) / 2, mid + 50), status, font=F["small"], fill=ACCENT if fr.busy or speaking else MUTED,
-               anchor="mm")
+        d.text(((cx0 + cx1) / 2, mid + 50), status, font=F["small"],
+               fill=ACCENT if fr.busy or speaking or hearing else MUTED, anchor="mm")
         self.bot_label(d)
         work = self.friend_work_shown = self.bot_work_line()
         if work:                                      # (your coding agent: left or right shows it)
@@ -577,6 +741,10 @@ class BotScreen:
                 bubbles.append((x["who"], x.get("kind"), lines, int(w), h, pic))
             if fr.busy:
                 bubbles.append(("friend", "typing", [], 70, 40, None))
+            elif hearing:                             # what it's hearing you say, as you say it
+                lines = self.wrap(pd, self.ears.heard, font, maxw - 28, lines=4) if self.ears.heard else []
+                w = max([pd.textlength(ln, font=font) + 28 for ln in lines] + [70])
+                bubbles.append(("you", "hearing", lines, int(w), 16 + len(lines) * lh if lines else 40, None))
             total = sum(b[4] + 10 for b in bubbles)
             self.friend_scroll = max(0, min(self.friend_scroll, total - ph))
             y = ph + self.friend_scroll
@@ -588,7 +756,7 @@ class BotScreen:
                     bx0 = pw - w if who == "you" else 0
                     pd.rounded_rectangle((bx0, y, bx0 + w, y + h), radius=14,
                                          fill=mine if who == "you" else ROW)
-                    if kind == "typing":
+                    if kind == "typing" or (kind == "hearing" and not lines):
                         for k in range(3):
                             pd.ellipse((bx0 + 18 + k * 14, y + h / 2 - 4, bx0 + 26 + k * 14, y + h / 2 + 4),
                                        fill=MUTED)
@@ -598,7 +766,7 @@ class BotScreen:
                         ty += pic[0].height + 8
                     for k, ln in enumerate(lines):
                         pd.text((bx0 + 14, ty + k * lh + lh / 2), ln, font=font,
-                                fill=WARN if kind == "error" else TEXT, anchor="lm")
+                                fill=WARN if kind == "error" else BODY if kind == "hearing" else TEXT, anchor="lm")
                 y -= 10
             if not bubbles:
                 pd.text((pw / 2, ph / 2 - 14), "Say hello", font=F["big"], fill=TEXT, anchor="mm")

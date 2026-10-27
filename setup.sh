@@ -322,6 +322,8 @@ step "Installing packages"
 apt-get update
 apt-get install -y python3-evdev python3-pil python3-numpy fonts-dejavu-core \
   mplayer poppler-utils iw evtest device-tree-compiler python3-flask alsa-utils ffmpeg bluez
+# a USB camera (v4l2-ctl: its sizes, and turning one that turns) and a USB microphone (Vosk needs libatomic)
+apt-get install -y v4l-utils libatomic1 || echo "(Couldn't install v4l-utils or libatomic1: a USB camera or microphone may not work.)"
 # the Simulator's cmatrix, nyancat, htop and hollywood: Linux's own. hollywood with what its panes show, but not
 # atop or plocate, which would keep running in the background
 apt-get install -y cmatrix || echo "(Couldn't install cmatrix: the Simulator's cmatrix won't start.)"

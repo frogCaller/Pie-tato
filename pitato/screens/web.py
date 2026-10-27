@@ -319,14 +319,14 @@ class WebScreen:
         asks no camera anything.)"""
         cam = self.camera
         cam.listen()
-        cams = read_cameras(LIBRARY[self.tab_index("camera")]["files"])
+        cams = cam.listed(LIBRARY[self.tab_index("camera")]["files"])
         hosts = {cam_host(c["addr"]) for c in cams}
 
         def row(addr, name):
             k = cam_key(addr)
             got = cam.known.get(k) or cam.found.get(k) or {}
             th, miss = cam.thumbs.get(k), cam.missing.get(k, 0)
-            return {"addr": addr, "name": name or got.get("name") or cam_host(addr) or addr,
+            return {"addr": addr, "name": name or got.get("name") or cam_host(addr) or addr, "usb": cam.is_usb(addr),
                     "kind": cam.kind_shown(addr, got.get("server", "")), "turn": cam.turn_of(addr),
                     "steers": cam.may_steer(addr), "flip": cam.flipped(addr), "flipv": cam.flipped(addr, "y"),
                     "reach": "no" if miss and (not th or miss > th[2]) else "yes" if th else ""}
@@ -341,7 +341,7 @@ class WebScreen:
         """A picture from one of your cameras, or one heard on the network (no other address)."""
         cam = self.camera
         k = cam_key(addr)
-        cams = read_cameras(LIBRARY[self.tab_index("camera")]["files"])
+        cams = cam.listed(LIBRARY[self.tab_index("camera")]["files"])
         if not addr or (k not in {cam_key(c["addr"]) for c in cams} and k not in cam.found):
             return None
         got = cam.snapshot(addr, max_age=1.5)
@@ -354,7 +354,7 @@ class WebScreen:
         if not addr:
             return {"error": "That isn't an address. Try 192.168.1.50, or a link"}
         files = LIBRARY[self.tab_index("camera")]["files"]
-        cam.cams = read_cameras(files)
+        cam.cams = cam.listed(files)
         cam.patterns = cam.patterns or files
         if do == "add":
             if cam.mine(addr):
@@ -365,12 +365,14 @@ class WebScreen:
                 edit_cameras(add=addr, name=clean_name(cmd.get("name")))
             except OSError as ex:
                 return {"error": f"Couldn't save it ({ex.strerror or ex})"}
-            cam.cams = read_cameras(files)
+            cam.cams = cam.listed(files)
             self.dirty = True
             return {"ok": True}
         if do == "remove":
             if not cam.mine(addr):
                 return {"error": "That camera isn't in your list"}
+            if cam.is_usb(addr) and not any(cam_key(c["addr"]) == cam_key(addr) for c in read_cameras(files)):
+                return {"error": "It's plugged into the Pi: unplug it to take it off"}
             self.camera_remove(addr)
             return {"ok": True}
         if do == "rotate":                            # its picture a quarter turn clockwise (one on its side)

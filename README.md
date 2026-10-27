@@ -60,8 +60,9 @@ It starts on a home screen of apps:
 - **Weather** (press START there to set where you are, and °F or °C), and **Finance**: stock and coin prices
   and charts. Press Y on Finance to look up more to add
 - **Files**: PDFs, documents, text, pictures, video and music, on the Pi or on your other computers
-- **Camera**: any camera on your network, or the ones on your other Pis: switch between them with L and R,
-  steer an OBSBOT, take pictures, and have your bot say what it sees
+- **Camera**: a USB camera plugged into the Pi (it shows up by itself), any camera on your network, or the ones
+  on your other Pis: switch between them with L and R, steer an OBSBOT, take pictures, and have your bot say
+  what it sees
 - **Bot**: talks through Ollama on another computer, sees through your camera and takes pictures,
   out loud if you give it a voice. At work, it acts out what your coding agent is doing, rings a
   bell when it's done, and sends it prompts you type
@@ -197,6 +198,12 @@ If you pick a voice in Settings > Bot > Voice, it says its replies out loud with
 downloads Piper (about 25 MB) and the voice (about 60 MB). The quick voices suit a Pi Zero
 best. Press SELECT to hear the last reply again, or Say it out loud on the web page.
 
+If you plug in a USB microphone (on a Pi with a free USB port, so not in a GPi Case), you can talk to it:
+turn on Settings > Bot > Listens, then say "hey potato" and what you want. You can change the wake phrase
+there, or press X on the Bot page and Talk to it instead. It makes out what you say on the Pi itself with
+[Vosk](https://alphacephei.com/vosk/), which it downloads the first time (about 45 MB), and it doesn't
+listen while it's talking or something's playing.
+
 ## Bot at work
 
 Press left or right on the Bot to switch between chatting and work. At work it sits at a desk: it
@@ -244,7 +251,7 @@ All optional, in the `static` folder. Git leaves them out, so they stay off GitH
 | `streams.txt`, `radio.txt` | your own streams and stations, `Name \| URL` per line |
 | `finance.txt` | `stocks =` the stocks to show (tickers, as on Yahoo Finance) and `coins =` the coins (CoinGecko ids). Y on the Finance tab adds and removes them |
 | `camera.txt` | `camera =` an address per line, a name after it if you like |
-| `bot.txt` | `server =`, `model =` and `voice =` (Settings > Bot writes these) |
+| `bot.txt` | `server =`, `model =`, `voice =`, `listen =` and `wake =` (Settings > Bot writes these) |
 | `homeassistant.txt` | `url =` and `token =` (a long-lived access token). Your TVs and lights are found by themselves, and `lights =` picks which lights show |
 | `pihole.txt` | `address =` and `password =`: the Pi-hole page writes them when you sign in there |
 | `jellyfin.txt` | `server =` if your Jellyfin server isn't found by itself, and `user =` and `password =` if you'd rather not use Quick Connect |

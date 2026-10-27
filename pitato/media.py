@@ -24,6 +24,7 @@ from .documents import doc_text
 from .cameras import CAM_SHOT_SHOW, Camera
 from .nearby import PieInk
 from .voice import Voice
+from .listen import Ears
 from .bot import Friend, FRIEND_PAGES
 from .coder import AgentPrompts, Coder, CODER_FPS
 from .crypto import Crypto
@@ -158,6 +159,14 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.voice_want = None       # a voice you picked that's on its way
         self.voice_arrived = None    # ...and here (for the main loop to use)
         self.voice_told = ""         # the last of the voice's troubles shown
+        self.ears = Ears()           # its ears: a USB microphone (Settings > Bot > Listens)
+        self.ears.is_busy = self.ears_busy
+        self.ears.on_heard = self.ears_heard
+        self.ears.on_change = self.ears_changed
+        self.ears.on_ready = self.ears_ready
+        self.ears_said = []          # ...what it heard you say, for the main loop to pass on
+        self.ears_arrived = False    # ...Vosk arrived (for the main loop to start listening)
+        self.ears_seen = ("off", "", ())   # ...how it was, the last time the main loop looked
         self.coder = Coder()         # the Bot at work: your coding agent, acted out
         self.coder.on_change = self.coder_changed
         self.coder.on_news = self.coder_news
@@ -734,6 +743,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.dirty = True
         if self.playing_now():                         # what's playing, for a moment
             self.pop_now()
+        self.listen_now()                              # (the bot listening, if it's set to)
         if not (self.prober and self.prober.is_alive()):
             self.prober = threading.Thread(target=self.probe_loop, daemon=True)
             self.prober.start()
@@ -750,6 +760,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.confirm = (None, 0.0)
         self.camera.stop()
         self.voice.stop(unload=True)
+        self.ears.stop()                               # (the microphone's free for the terminal)
         self.fin_stop()
         self.fin_close()
         self.hass.stop()
@@ -784,7 +795,9 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.shrinker.stop()
         self.computers.close_all()
         self.close_viewer()
+        self.ears.stop()
         self.camera.stop()
+        self.camera.close()
         if self.active and self.fb is not None and system_stopping():
             self.goodbye()                 # the Pi is going off (the power switch, say): say so
             return
@@ -1175,6 +1188,12 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.weather.refresh(full=self.view == "list")   # only does anything when it's due
         if self.voice_arrived:
             self.voice_use(self.voice_arrived)
+        if self.ears_arrived:
+            self.ears_arrived = False
+            self.listen_now()
+        if self.ears_said:
+            self.bot_heard(self.ears_said.pop(0))
+        self.ears_tick()
         if self.voice.error and self.voice.error != self.voice_told:
             self.voice_told = self.voice.error
             if self.on_friend_page() or (self.view == "list" and self.tab_type() == "settings"
@@ -1189,6 +1208,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
                     time.time() - max(fr.last_said(), self.friend_opened_at) >= gap * self.friend_jitter:
                 fr.remark(self.friend_topic())
                 self.friend_jitter = random.uniform(0.7, 1.3)
+        if self.on_camera_page() or self.on_camera_list():
+            self.camera.usb_look()                    # (a USB camera plugged in or taken out: it says so itself)
         if self.on_camera_page():
             if self.camera.check_hold() or self.camera.stale_changed():
                 self.dirty = True

@@ -1713,7 +1713,7 @@ async function drawCameras() {
   refreshCams(token, camSig(d));
 }
 const camSig = (d) => JSON.stringify([d.cameras.map((c) => [c.addr, c.name, c.turn, c.flip, c.flipv]), d.found.map((c) => c.addr), d.showing]);
-const camWhat = (c) => [shortAddr(c.addr), c.kind].filter(Boolean).join(" · ");
+const camWhat = (c) => c.usb ? "Plugged into the Pi" : [shortAddr(c.addr), c.kind].filter(Boolean).join(" · ");
 function camCard(c, showing, found) {
   const on = !!showing && showing === c.addr;
   const card = el("div", "cam" + (on ? " on" : "") + (c.reach === "no" ? " gone" : "")
@@ -1757,10 +1757,12 @@ function camCard(c, showing, found) {
         meta.append(flip);
       }
     }
-    const x = button("ib cam-rm");
-    x.innerHTML = ICONS.trash; x.title = "Remove " + c.name; x.setAttribute("aria-label", x.title);
-    x.onclick = () => camRemove(c, x);
-    meta.append(x);
+    if (!c.usb) {                                             // (plugged into the Pi: there while it's plugged in)
+      const x = button("ib cam-rm");
+      x.innerHTML = ICONS.trash; x.title = "Remove " + c.name; x.setAttribute("aria-label", x.title);
+      x.onclick = () => camRemove(c, x);
+      meta.append(x);
+    }
   }
   card.append(pic, meta);
   saidInto(card, c.addr);
@@ -1828,7 +1830,7 @@ function addCamCard(typed) {
   const row = el("div", "in-row");
   row.append(input, add);
   f.append(el("b", "", "Add a camera"),
-    el("p", "", "Any camera on your network: its address and port, or its link. A Pi can share its USB camera too (sudo bash setup.sh --camera on it)."), row);
+    el("p", "", "Any camera on your network: its address and port, or its link. A Pi can share its USB camera too (sudo bash setup.sh --camera on it). A USB camera plugged into this Pi shows up by itself."), row);
   f.onsubmit = async (e) => {
     e.preventDefault();
     const addr = input.value.trim();
