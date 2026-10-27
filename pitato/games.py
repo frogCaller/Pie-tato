@@ -725,8 +725,9 @@ class GameRun:
         self.writing = threading.Lock()              # (a line at a time: an AI player sends from its own thread)
         self.ended = False                           # it's gone (quit, or it stopped)
 
-    def start(self, core, sound="", volume=80, picture="Fit", fb="/dev/fb0", resume=True, options=()):
-        """options: the emulator's settings ("key=value"), over what it'd have otherwise (a DS game's screens)."""
+    def start(self, core, sound="", volume=80, picture="Fit", fb="/dev/fb0", resume=True, options=(), turn=0):
+        """options: the emulator's settings ("key=value"), over what it'd have otherwise (a DS game's screens).
+        turn: degrees the screen's picture is turned clockwise (a screen on its side: Settings > Rotate screen)."""
         exts = ",".join(system(self.game["system"])[3])
         saves = os.path.join(games_dir(), SAVES_FOLDER)
         own = self.game["system"] in OWN_FILES          # (Mupen64Plus: its settings, its shaders)
@@ -745,6 +746,8 @@ class GameRun:
                "--volume", str(int(volume)), "--picture", picture]
         if resume:
             cmd.append("--resume")
+        if turn:
+            cmd += ["--turn", str(int(turn))]
         for o in options:
             cmd += ["--option", o]
         self.p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env, text=True,

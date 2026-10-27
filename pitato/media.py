@@ -9,7 +9,8 @@ import threading
 import time
 
 from .theme import MUTED, set_accent, TEXT
-from .config import home_dir, HOME_STYLE_WAS, SCREEN_MODES, SETTINGS_DEFAULT, SETTINGS_GONE, STATE_FILE, web_private
+from .config import (home_dir, HOME_STYLE_WAS, SCREEN_MODES, SETTINGS_DEFAULT, SETTINGS_GONE, STATE_FILE, TURN_DEGREES,
+                     web_private)
 from .util import classify, clock, FILE_KINDS, find_files, IMAGE_EXTS, item, looks_like_text, title_of
 from .system import system_info, system_stopping
 from .bluetooth import Bluetooth
@@ -327,6 +328,10 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.res_boot()                                # (just restarted at a new resolution: it asks if you'll keep it)
         self.boot_song = time.monotonic() + BOOT_SONG_WAIT if self.setting("start_song") == "On" else 0.0
         set_accent(self.setting("accent"))
+        turn = TURN_DEGREES.get(self.setting("turn"), 0)
+        screen_out.set_turn(turn)                      # (Settings > Rotate screen: everything drawn turned)
+        if turn:
+            screen_out.set_terminal_turn(turn)         # (...the terminal too: left as it is otherwise)
         self.weather = Weather(lambda: self.setting("location"),
                                lambda: "C" if self.setting("units") == "°C" else "F", pie=self.pie)
         self.weather.on_change = self.weather_drawn
@@ -347,6 +352,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.icons.clear()
         if key in ("wallpaper", "picture"):
             self.wall = (None, None)
+        if key == "turn":
+            self.turn_screen()
         self.save_state()
         self.dirty = True
 
@@ -768,6 +775,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.fb.close()
             self.fb = None
         subprocess.run(["chvt", self.prev_vt])
+        screen_out.terminal_turn_now()                 # (the terminal turned as the screen is: in text mode now)
 
     def shutdown(self):
         self.prog_stop()                               # (first: "Shutting down" can't go over it)

@@ -63,6 +63,8 @@ SETTINGS = [   # key, label, choices (None: opens a page of its own). (Where you
     ("app_full", "Full screen apps", ["Off", "On"]),   # the apps without the bars along the top and bottom
     ("screen", "Video size", SCREEN_MODES),
     ("resolution", "Resolution", None),   # a TV or monitor's: the sizes it takes (not there on the GPi Case)
+    ("turn", "Rotate screen", ["Off", "90°", "180°", "270°"]),   # a screen on its side: the picture turned
+                                                                # clockwise (not there on the GPi Case's own)
     ("sound", "Sound", None),
     ("pad", "Controller", None),
     ("pad_swap", "Swap A and B", ["Off", "On"]),   # on the controller in hand (kept with its buttons, not here)
@@ -74,7 +76,8 @@ SETTINGS_DEFAULT = {"wallpaper": "Midnight", "picture": "", "accent": "Blue", "c
                     "units": "°F", "start": "Home screen", "location": None,
                     "screen": "Fit", "sound": "Auto", "coder_sound": "On", "sim_full": "Off", "bot_mode": "chat",
                     "game_picture": "Fit", "start_song": "Off", "home_style": "Glass",
-                    "ds_screens": "Left/Right", "ds_touch": "Right stick, R2", "app_full": "Off"}
+                    "ds_screens": "Left/Right", "ds_touch": "Right stick, R2", "app_full": "Off", "turn": "Off"}
+TURN_DEGREES = {"Off": 0, "90°": 90, "180°": 180, "270°": 270}   # Settings > Rotate screen's choices
 HOME_STYLE_WAS = {"Original": "Bright", "Style 2": "Glass", "Style 3": "Glass", "Style 4": "Cards",   # (earlier names,
                   "Minimal": "Glass"}                                                               # and one gone)
 SETTINGS_GONE = ("shrink", "widget")   # settings there were once (Big videos: they're made smaller whenever they

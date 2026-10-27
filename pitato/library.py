@@ -110,9 +110,16 @@ PLAYING = {
 SCREEN_SAY = {"Fit": "Whole picture", "Full screen": "Full screen", "Stretch": "Full screen (stretched)"}
 
 
-def video_scale(mode, size, w=640, h=480):
+def video_scale(mode, size, w=640, h=480, turn=0):
     """mplayer's scaling for the screen: Fit keeps the whole picture, Fill zooms it to cover the
-    screen (cutting the edges, so letterboxed or 16:9 shows fill it), Stretch pulls it to fit."""
+    screen (cutting the edges, so letterboxed or 16:9 shows fill it), Stretch pulls it to fit. A screen on its
+    side (turn: degrees, clockwise; w and h its size as it's seen): scaled for that, then turned, with what mplayer
+    writes over it (where you are in it, subtitles) put on first, so they're turned too."""
+    if turn in (90, 180, 270):
+        vf = video_scale(mode, size, w, h)
+        if vf[0] != "-vf":                               # (the GPi Case's own way: as for any other screen)
+            vf = ["-vf", f"dsize={w}:{h}:0,scale=0:0"]
+        return vf[:-1] + [vf[-1] + ",expand=::::1," + {90: "rotate=1", 180: "flip,mirror", 270: "rotate=2"}[turn]]
     if mode == "Stretch":
         return ["-vf", f"scale={w}:{h}"]
     if mode in ("Full screen", "Fill"):

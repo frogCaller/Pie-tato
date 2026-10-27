@@ -23,7 +23,8 @@ disc 1 3 (the disc in, of how many), paused, resumed, saved, loaded, nostate, re
 (the game ended itself as it started: a PSP game that won't boot), peek 7 <hex>... (- for memory it hasn't),
 mem ok|none, shot ok|none, bye.
 
-Run as: python3 -m pitato.emulator --core CORE --game GAME --saves FOLDER [--resume] ..."""
+Run as: python3 -m pitato.emulator --core CORE --game GAME --saves FOLDER [--resume] [--turn 90] ...
+(--turn: a screen on its side, Settings > Rotate screen: the pictures go onto it turned that far clockwise.)"""
 import argparse
 import ctypes as C
 import fcntl
@@ -46,7 +47,8 @@ import numpy as np
 
 from .discs import cue_fixed
 from .gpu import CORE_CB, GPU, GPUError, HWRender, ON_GPU, wanted_version
-from .screen import fb_geometry, slow_pi
+from . import screen as screens
+from .screen import TURNS, fb_geometry, slow_pi, turn_block, turn_pixels, turned, unturn_pixels
 
 # libretro's numbers (libretro.h)
 EXP = 0x10000
@@ -333,9 +335,11 @@ def picture_size(sw, sh, w, h, aspect, mode, most=None, whole=True):
 
 
 class Screen:
-    """The framebuffer, written a band of rows at a time: the picture in the middle, black either side."""
+    """The framebuffer, written a band of rows at a time: the picture in the middle, black either side. A screen on
+    its side (turn: degrees, clockwise; Settings > Rotate screen) is all that as it's seen (w x h): the picture's
+    turned as it goes onto the screen's own pixels (dev_w x dev_h)."""
 
-    def __init__(self, dev="/dev/fb0"):
+    def __init__(self, dev="/dev/fb0", turn=0):
         test = os.environ.get("PITATO_FB")         # (the tests: path:WxH:bits, a plain file)
         if test:
             path, size, bits = test.rsplit(":", 2)
@@ -347,7 +351,9 @@ class Screen:
         else:
             self.f = open(dev, "r+b", buffering=0)
             geo = fb_geometry(self.f)
-        self.w, self.h, self.xo, self.yo, self.bpp, fields, self.stride = geo
+        self.dev_w, self.dev_h, self.xo, self.yo, self.bpp, fields, self.stride = geo
+        self.turn = turn if turn in TURNS else 0
+        self.w, self.h = turned(self.dev_w, self.dev_h, self.turn)   # (the screen as it's seen)
         if self.bpp not in (16, 32):
             raise OSError(f"unsupported framebuffer depth {self.bpp}")
         self.fields = [tuple(f) for f in fields]
@@ -392,51 +398,74 @@ class Screen:
         return lut[a]
 
     def layout(self, w, h, aspect, whole=True):
+        """How a w x h frame goes onto the screen (worked out once for each size): a dict of the picture's size
+        as it's seen (size), which of the frame's rows and columns make its rows and columns (ys, xs), the band of
+        the screen's own rows it's written into (band, from byte at), the picture's place in them (view), and
+        how the frame's taken into it: the frame turned or not (turned), its columns then rows (cols_i, rows_i),
+        through cols."""
         key = (w, h, round(aspect or 0, 4), self.mode, whole)
-        if self.plan and self.plan[0] == key:
+        if self.plan and self.plan["key"] == key:
             return self.plan
         dw, dh = picture_size(self.w, self.h, w, h, aspect, self.mode, self.most, whole)
         x0, y0 = (self.w - dw) // 2, (self.h - dh) // 2
         ys = (np.arange(dh) * h // dh).astype(np.intp)
         xs = (np.arange(dw) * w // dw).astype(np.intp)
-        band = np.zeros((dh, self.row_px), dtype=self.dtype)
-        view = band[:, self.xo + x0:self.xo + x0 + dw]
-        cols = np.empty((h, dw), dtype=self.dtype)
+        bx, by, bw, bh = turn_block(self.turn, self.dev_w, self.dev_h, x0, y0, dw, dh)
+        band = np.zeros((bh, self.row_px), dtype=self.dtype)
+        view = band[:, self.xo + bx:self.xo + bx + bw]
+        # the screen's rows and columns, from the frame's: as it is, or turned (its columns down the screen's rows)
+        rows_i, cols_i = {0: (ys, xs), 180: (ys[::-1], xs[::-1]), 90: (xs, ys[::-1]),
+                          270: (xs[::-1], ys)}[self.turn]
+        turned_ = self.turn in (90, 270)
+        cols = np.empty(((w if turned_ else h), len(cols_i)), dtype=self.dtype)
         if self.plan is not None:
             self.clear()                              # (a new size: no bits of the old one left)
-        self.plan = (key, ys, xs, band, view, (y0 + self.yo) * self.stride, cols)
+        self.plan = {"key": key, "size": (dw, dh), "ys": ys, "xs": xs, "band": band, "view": view,
+                     "at": (by + self.yo) * self.stride, "turned": turned_, "rows_i": np.ascontiguousarray(rows_i),
+                     "cols_i": np.ascontiguousarray(cols_i), "cols": cols, "up": None}
         return self.plan
 
     def show(self, a, fmt, aspect):
-        """A frame onto the screen: wider first (fewer rows), then taller, then the rows written at once."""
+        """A frame onto the screen: wider first (fewer rows), then taller, then the rows written at once (turned
+        on the way, for a screen on its side: the frame's columns taken for the screen's rows)."""
         h, w = a.shape
-        _, ys, xs, band, view, at, cols = self.layout(w, h, aspect)
-        np.take(self.convert(a, fmt), xs, axis=1, out=cols, mode="clip")
-        np.take(cols, ys, axis=0, out=view, mode="clip")
-        os.pwrite(self.f.fileno(), band, at)
+        p = self.layout(w, h, aspect)
+        src = self.convert(a, fmt)
+        np.take(src.T if p["turned"] else src, p["cols_i"], axis=1, out=p["cols"], mode="clip")
+        np.take(p["cols"], p["rows_i"], axis=0, out=p["view"], mode="clip")
+        os.pwrite(self.f.fileno(), p["band"], p["at"])
 
     def show_gpu(self, gpu, w, h, aspect, flipped=True):
         """A frame the graphics chip drew (a 3D game's, w x h): the chip makes it the picture's size and reads
         it into the rows, in the screen's own pixels when it can. In Fit, as big as fits: the chip smooths it as
-        it scales, so whole pixels wouldn't make it any crisper."""
-        _, _, _, band, view, at, _ = self.layout(w, h, aspect, whole=False)
+        it scales, so whole pixels wouldn't make it any crisper. (A screen on its side: read as it's seen, then
+        turned into the rows.)"""
+        p = self.layout(w, h, aspect, whole=False)
         kind = "rgb565" if self.native(FMT_RGB565) else "xrgb8888" if self.native(FMT_XRGB8888) else None
-        got = gpu.read(view, kind, self.row_px, w, h, flipped, smooth=self.mode != "Sharp")
+        into, row_px = p["view"], self.row_px
+        if self.turn:
+            if p["up"] is None:
+                p["up"] = np.empty((p["size"][1], p["size"][0]), dtype=self.dtype)
+            into, row_px = p["up"], p["size"][0]
+        got = gpu.read(into, kind, row_px, w, h, flipped, smooth=self.mode != "Sharp")
         if got is not None:                           # (red, green, blue bytes: the screen's pixels made here)
-            view[...] = self.pack(got[..., 0], got[..., 1], got[..., 2])
-        os.pwrite(self.f.fileno(), band, at)
+            into[...] = self.pack(got[..., 0], got[..., 1], got[..., 2])
+        if self.turn:
+            p["view"][...] = turn_pixels(into, self.turn)
+        os.pwrite(self.f.fileno(), p["band"], p["at"])
 
     def clear(self):
-        os.pwrite(self.f.fileno(), bytes(self.stride * self.h), self.yo * self.stride)
+        os.pwrite(self.f.fileno(), bytes(self.stride * self.dev_h), self.yo * self.stride)
 
     def shot(self, path, most=SHOT_MOST):
-        """The game's last picture, as it is on the screen (not the black either side), one of the screen's
-        pixels for each of the game's own (smaller if it's still more than `most` across), into a PPM file.
-        False before it's drawn one. (A quick copy out of the rows the screen was given, between frames.)"""
+        """The game's last picture, as it is on the screen (not the black either side; as it's seen), one of the
+        screen's pixels for each of the game's own (smaller if it's still more than `most` across), into a PPM
+        file. False before it's drawn one. (A quick copy out of the rows the screen was given, between frames.)"""
         if self.plan is None:
             return False
-        key, ys, xs, _, view, _, _ = self.plan
-        w, h = key[0], key[1]
+        p = self.plan
+        w, h, ys, xs = p["key"][0], p["key"][1], p["ys"], p["xs"]
+        view = unturn_pixels(p["view"], self.turn)
         rows = np.unique(np.searchsorted(ys, np.arange(h)).clip(0, len(ys) - 1))
         cols = np.unique(np.searchsorted(xs, np.arange(w)).clip(0, len(xs) - 1))
         step = max(1, -(-len(cols) // most))
@@ -450,10 +479,11 @@ class Screen:
         return True
 
     def snapshot(self, max_w=640):
-        """What's on the screen now, as a picture at most max_w wide (a game's menu goes over it)."""
+        """What's on the screen now, as it's seen, as a picture at most max_w wide (a game's menu goes over it)."""
         from PIL import Image
-        data = os.pread(self.f.fileno(), self.stride * self.h, self.yo * self.stride)
-        a = np.frombuffer(data, dtype=self.dtype).reshape(self.h, self.row_px)[:, self.xo:self.xo + self.w]
+        data = os.pread(self.f.fileno(), self.stride * self.dev_h, self.yo * self.stride)
+        a = np.frombuffer(data, dtype=self.dtype).reshape(self.dev_h, self.row_px)[:, self.xo:self.xo + self.dev_w]
+        a = unturn_pixels(a, self.turn)
         step = max(1, -(-self.w // max_w))
         a = a[::step, ::step].astype(np.uint32)
         rgb = [((a >> off) & ((1 << ln) - 1)) << (8 - ln) for off, ln in self.fields[:3]]
@@ -464,9 +494,9 @@ class Screen:
 
 
 def screen_picture(dev="/dev/fb0", max_w=640):
-    """The screen as it is (a game's last picture), or None."""
+    """The screen as it is (a game's last picture), as it's seen, or None."""
     try:
-        s = Screen(dev)
+        s = Screen(dev, turn=screens.TURN)
     except (OSError, ValueError):
         return None
     try:
@@ -1001,7 +1031,7 @@ class Session:
         if args.resume and os.path.isfile(self.base + ".state.auto"):
             self.first_disc = read_disc(self.base + ".disc")
         try:
-            self.screen = Screen(args.fb)
+            self.screen = Screen(args.fb, turn=args.turn)
         except OSError as ex:
             raise GameError("Couldn't draw on the screen") from ex
         self.screen.mode = args.picture
@@ -1339,6 +1369,8 @@ def main(argv=None):
     ap.add_argument("--sound", default="")
     ap.add_argument("--volume", type=int, default=80)
     ap.add_argument("--picture", default="Fit", choices=PICTURES)
+    ap.add_argument("--turn", type=int, default=0, choices=TURNS, help="degrees the screen's picture is turned "
+                    "clockwise (a screen on its side)")
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--option", action="append", default=[], help="an emulator's setting: key=value")
     args = ap.parse_args(argv)

@@ -78,6 +78,8 @@ It starts on a home screen of apps:
 - If you'd rather see the apps on the whole screen, set Settings > Full screen apps to On. The status
   bar, the tabs and the button hints go away, leaving just the app's name at the top. The buttons work
   the same, and L and R still switch apps
+- If your screen is mounted on its side or upside down, Settings > Rotate screen turns the picture to
+  match: the apps, games, videos and the console
 
 ![Media mode](docs/screens.png)
 
@@ -183,8 +185,12 @@ It can also play your games for you: in a game, open its menu with Home and pres
 pick a decision model. It looks at the screen and picks the next button to press, while the game goes
 on at its own speed, and your buttons wait while it plays. It plays Pokémon Emerald (the English
 cartridge) best, as there it reads the game's memory too: it battles, reads, answers, walks around and
-works toward the next badge, though it can't shop, catch Pokémon or solve every puzzle yet. What it saw
-and picked goes in `Games/Saves`, in a file ending in `.ai.log`.
+works toward the next badge, though it can't shop, catch Pokémon or solve every puzzle yet.
+
+In other games, your Bot's model coaches it: every so often, and whenever it gets stuck, it looks at
+the screen and works out what to aim for and how, and the decision model follows that. What it works
+out goes in `Games/Saves`, in a file ending in `.ai-notes.txt`, for next time, and you can add your own
+tips there, under Tips. What it saw and picked goes there too, in a file ending in `.ai.log`.
 
 If you pick a voice in Settings > Bot > Voice, it says its replies out loud with
 [Piper](https://github.com/rhasspy/piper), which runs on the Pi. The first time, the Pi
@@ -249,18 +255,6 @@ your phone or computer, open your profile, then Quick Connect, and type the code
 
 If a video is too big for the Pi to play smoothly (a 1080p film on a Pi Zero, or one in HEVC), the Pi
 makes it smaller by itself in the background, in place of the original.
-
-## AI-Assisted Development
-
-Pie-tato was built with the help of AI, but bringing the idea to life took a bit of hands-on work, testing, and troubleshooting.
-I'm building this project because I enjoy experimenting with hardware, making useful things out of devices I already
-own, and seeing how far I can push them.
-
-I understand that people have different opinions about AI-assisted development, and I respect that. I'm not claiming
-every line of code was written by hand. What matters to me is building something real, sharing what I've made,
-and hopefully giving other people something they can build on.
-
-Pie-tato is an ongoing project, and there's still plenty I'd like to improve.
 
 ## License
 

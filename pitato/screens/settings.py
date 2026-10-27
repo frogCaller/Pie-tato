@@ -5,10 +5,10 @@ import threading
 import time
 
 from ..theme import ACCENT, BODY, DONE, LINE, MUTED, ROW, TEXT, WARN
-from ..config import SETTINGS
+from ..config import SETTINGS, TURN_DEGREES
 from ..system import nm, nm_why, run_out, wifi_saved, wifi_scan
 from ..screen import (boot_resolution, bt_output_name, hdmi_screens, resolution_choices, set_boot_video,
-                      sound_cards, sound_name, sound_place)
+                      set_terminal_turn, set_turn, sound_cards, sound_name, sound_place)
 from ..home import wallpaper
 from ..weather import find_me, geocode, place_text
 from ..voice import BOT_VOICES, VOICE_MB, voices_here
@@ -62,12 +62,16 @@ class SettingsScreen:
         return self.settings_root_rows()
 
     def settings_root_rows(self):
-        """Settings' first page: Sound's outputs are this Pi's, and Resolution is there for a TV or monitor."""
+        """Settings' first page: Sound's outputs are this Pi's, Resolution is there for a TV or monitor, and Rotate
+        screen for any screen but the GPi Case's own (unless it's turned already: to turn it back)."""
         rows = []
         for key, label, choices in SETTINGS:
             if key == "sound":
                 choices = ["Auto"] + [n for _, n in sound_cards()]
             elif key == "resolution" and not self.res_info():
+                continue
+            elif key == "turn" and getattr(self, "case", None) and not self.res_info() \
+                    and self.setting("turn") in (None, "Off"):
                 continue
             rows.append((key, label, choices))
         return rows
@@ -149,6 +153,31 @@ class SettingsScreen:
         self.dirty = True
         return None
 
+    # -- Rotate screen: a screen mounted on its side or upside down ----------------------------------------------
+    def turn_screen(self):
+        """Settings > Rotate screen, put into effect: the menus (and the terminal) turned now; a game or a video
+        as it next starts."""
+        turn = TURN_DEGREES.get(self.setting("turn"), 0)
+        set_turn(turn)
+        set_terminal_turn(turn)
+        fb = self.fb
+        if fb is not None and hasattr(fb, "turn_to") and getattr(fb, "turn", 0) != turn:
+            try:
+                fb.turn_to(turn)
+            except (OSError, ValueError) as ex:
+                print(f"rotate screen: {ex}", flush=True)
+            self.forget_drawn()                        # (the menus may be another size now)
+        self.dirty = True
+
+    def forget_drawn(self):
+        """Pictures kept to draw quicker (the Simulator's and the Coder's backgrounds, buttons and last frames),
+        forgotten: they were for the menus' size before."""
+        self.sim_base, self.sim_panel, self.sim_card = (None, None, None), (None, None, 0.0), (None, None)
+        self.sim_shown, self.sim_head, self.sim_feet = (None, None, 0.0, 0.0), (None, None), {}
+        self.sim_still, self.sim_mask = (None, None), None
+        self.coder_base, self.coder_shown = (None, None, None), (None, None, 0.0, 0.0)
+        self.wall, self.home_base = (None, None), (None, None)
+
     # -- Resolution: a TV or monitor's picture size ---------------------------------
     # The size is the kernel's (video= in cmdline.txt), so the Pi restarts to change it. Then it asks if
     # you'll keep it, and if nothing says yes (the screen may show nothing at that size), it goes back.
@@ -170,9 +199,13 @@ class SettingsScreen:
         return self.res_seen[1]
 
     def res_here(self):
-        """The screen's size now: "1920x1080"."""
+        """The screen's size now: "1920x1080" (its own, as the sizes it takes go: not turned, if it's on its
+        side)."""
         fb = self.fb
-        return f"{getattr(fb, 'real_w', fb.w)}x{getattr(fb, 'real_h', fb.h)}" if fb else ""
+        if not fb:
+            return ""
+        w, h = getattr(fb, "real_w", fb.w), getattr(fb, "real_h", fb.h)
+        return f"{getattr(fb, 'dev_w', w)}x{getattr(fb, 'dev_h', h)}"
 
     def res_value(self):
         """Settings > Resolution's row: the size the Pi starts at, or Auto, the screen's own."""

@@ -105,8 +105,10 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
                 with its menu's Touch screen), L2 blows on the microphone, the left stick is the d-pad.
                 Any game: its menu's AI player has a decision model on your bot's computer play it,
                 looking at the screen and picking the next button (pitato/anygame.py), the game going on
-                at its own speed; Pokémon Emerald (the English cartridge) from the game's memory too
-                (pitato/emerald.py): battles, text, questions, walking to doors, roads, people and grass,
+                at its own speed, with your Bot's model as its coach (pitato/coach.py: what to aim for and
+                how, kept in Games/Saves/<game>.ai-notes.txt with your tips); Pokémon Emerald (the English
+                cartridge) from the game's memory too (pitato/emerald.py): battles, text, questions, walking
+                to doors, roads, people and grass,
                 toward the next badge. Your buttons wait while it plays, and Games/Saves/<game>.ai.log
                 has what it saw and picked. START on the list finds a game by name (or console), B all again
   Weather     - like PiE-ink's: now, the next hours, the week, and the US Weather
@@ -159,7 +161,8 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
   Settings    - WiFi (scan, connect, forget), Bluetooth (look, pair, connect, forget: a keyboard shows
                 its code to type), the home screen's style (Bright, Glass or Cards: the weather on it
                 once Weather knows where you are), background and colours, clock, full screen apps (just the
-                app's name along the top, no bars or buttons), video size, sound (Auto: Bluetooth
+                app's name along the top, no bars or buttons), video size, rotate screen (a screen on its
+                side: the menus, games, videos and the terminal turned 90°, 180° or 270°), sound (Auto: Bluetooth
                 headphones or a speaker while they're connected, else a USB speaker while it's plugged
                 in, else a TV on HDMI (a monitor that says it has no sound: the headphone jack), else
                 the Pi's own; or HDMI, headphones, a USB speaker...; a microphone isn't listed),

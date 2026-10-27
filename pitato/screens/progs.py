@@ -11,6 +11,7 @@ import termios
 import time
 
 from ..library import MEDIA_VT
+from ..screen import terminal_turn_now
 from .player import quiet_child
 
 CM_COLOURS = "@!#$%^&"   # cmatrix's keys for its colours: its own green, then red, yellow, blue, magenta, cyan, white
@@ -118,6 +119,8 @@ class ProgScreen:
                 pass
             self.prog_key(PROG_GO)                     # (a Ctrl+S in the menus would have it stuck from the start)
             self.prog_mode(KD_TEXT)                    # the console draws it, as in the terminal
+            terminal_turn_now()                        # ...turned as the screen is (it takes that in text mode),
+                                                       # before it starts: it's the size it'll be, turned
             # (in Pie-tato's session, so the console never becomes its own: when it ends, the console carries on;
             # and it goes if Pie-tato goes)
             args = PROG_ARGS.get(name, []) + (htop_args(path) if name == "htop" else [])

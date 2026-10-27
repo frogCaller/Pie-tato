@@ -8,7 +8,7 @@ import unicodedata
 
 from ..theme import ACCENT, BG, BODY, LINE, MUTED, ROW, TEXT
 from ..util import item
-from ..screen import aplay_device, sound_place
+from ..screen import aplay_device, screen_turn, sound_place
 from ..library import LIBRARY
 from ..snake import snake_card
 from ..games import (ANALOG_SYSTEMS, art_path, ArtFinder, bios_missing, find_core, find_games, game_kind,
@@ -160,7 +160,9 @@ class GameScreen:
         run = GameRun(g, on_change=self.game_changed)
         place = sound_place(self.setting("sound"))     # (Bluetooth headphones, if they're on: sound_tick moves it)
         try:
-            run.start(core, sound=aplay_device(None, place[0]), volume=self.volume, picture=picture, options=options)
+            turn = screen_turn()                       # (a screen on its side: the game's turned too)
+            run.start(core, sound=aplay_device(None, place[0]), volume=self.volume, picture=picture, options=options,
+                      **({"turn": turn} if turn else {}))
         except OSError as ex:
             print(f"game: couldn't start {g['path']}: {ex}", flush=True)
             self.view = "list"
@@ -561,7 +563,8 @@ class GameScreen:
         return [m for m in GAME_MENU if (m[0] != "disc" or many) and (m[0] not in DS_ONLY or ds)
                 and (m[0] != "players" or together)]
 
-    # -- the AI player (a decision model on your bot's computer plays, looking at the screen) -------------------
+    # -- the AI player (a decision model on your bot's computer plays, looking at the screen; your Bot's model
+    #    coaches it) -----------------------------------------------------------------------------------------
     def game_ai_on(self):
         ai = getattr(self, "game_ai", None)
         return ai is not None and ai.alive()
@@ -583,8 +586,10 @@ class GameScreen:
         self.game_ai = None
         if model == "Off" or self.game is None:
             return
-        log = os.path.join(games_dir(), SAVES_FOLDER, save_name(self.game.game["path"]) + ".ai.log")
-        self.game_ai = GameAI(self.game, self.snake_server(), model, log, on_change=self.game_ai_changed)
+        base = os.path.join(games_dir(), SAVES_FOLDER, save_name(self.game.game["path"]))
+        server = self.snake_server()                  # (and your Bot's model, to coach it: pitato/coach.py)
+        self.game_ai = GameAI(self.game, server, model, base + ".ai.log", on_change=self.game_ai_changed,
+                              coach=self.friend.model, notes_path=base + ".ai-notes.txt")
         self.game_ai.start()
         self.set_setting("game_ai_model", model)
 

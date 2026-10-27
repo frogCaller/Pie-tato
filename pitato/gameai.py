@@ -1,8 +1,10 @@
 """An AI player for the game that's playing: a decision model on your bot's computer (Ollama, as Snake's AI)
 looks at the game's screen and picks what to do. Any game: the model picks the next button to press, from what it
-sees (pitato/anygame.py). Pokémon Emerald has a player of its own (pitato/emerald.py): the model picks at each moment
-that needs a decision, and it does the rest from the game's memory, a button at a time. The model is assumed to see
-(the game's screen goes with each pick); one that turns out not to is asked without it from then on. It plays on a
+sees (pitato/anygame.py), coached by your Bot's model (pitato/coach.py: what to aim for and how, worked out from the
+screen now and then, and kept for next time beside the game's saves, with your tips: Games/Saves/<game>
+.ai-notes.txt). Pokémon Emerald has a player of its own (pitato/emerald.py): the model picks at each moment that
+needs a decision, and it does the rest from the game's memory, a button at a time. The model is assumed to see (the
+game's screen goes with each pick); one that turns out not to is asked without it from then on. It plays on a
 thread of its own while the game runs (the game never waits for it: only the picking is slow), waits while the
 game's menu is up, and stops when it's turned off there (pitato/screens/games.py) or the game ends. What it saw
 and picked goes in a log beside the game's saves (Games/Saves/<game>.ai.log): send that when it gets stuck."""
@@ -18,6 +20,7 @@ import traceback
 
 from . import anygame, emerald
 from .bot import CantSee, ollama_decide
+from .coach import Coach
 from .emulator import game_data
 
 FIRST_PICK = 120.0           # seconds the model's first pick may take (it wakes up on the other computer)
@@ -28,6 +31,7 @@ TAP_DOWN, TAP_GAP = 0.05, 0.06   # seconds a tapped button's down, and before th
 SHOT_WAIT = 1.5              # seconds the game has to give its picture (it answers between frames, or paused)
 SEE_SIZE = 512               # pixels across, at most, of the game's screen as the model's shown it
 SAME_SIZE = (32, 24)         # ...and the small grey copy that tells whether the screen changed
+CELLS = (64, 48)             # ...and the one that tells something new from what's been seen (pitato/anygame.py)
 SCREEN_SAYS = "The attached picture is the game's screen right now."
 
 
@@ -67,15 +71,24 @@ def can_play(path):
 
 
 class Look:
-    """The game's screen at one moment: its size, a small grey copy (to tell whether it changed), and data: the
-    picture as the model's shown it (base64 PNG, or JPEG for a big one), made when it's wanted."""
+    """The game's screen at one moment: its size, a small grey copy (to tell whether it changed), and, made when
+    they're wanted, data: the picture as the model's shown it (base64 PNG, or JPEG for a big one), and cells: a
+    bigger grey copy, to tell something new from what's been seen."""
 
     def __init__(self, im):
         from PIL import Image
         self.im = im.convert("RGB")
         self.size = self.im.size
         self.grey = self.im.convert("L").resize(SAME_SIZE, Image.BILINEAR).tobytes()
-        self._data = None
+        self._data = self._cells = None
+
+    @property
+    def cells(self):
+        if self._cells is None:
+            import numpy as np
+            from PIL import Image
+            self._cells = np.asarray(self.im.convert("L").resize(CELLS, Image.BILINEAR), dtype=np.uint8).ravel()
+        return self._cells
 
     @property
     def data(self):
@@ -297,16 +310,20 @@ def emulator_iwram():
 
 
 class GameAI:
-    """The AI player, while it plays: start(), stop(); status is what it's doing, in a few words."""
+    """The AI player, while it plays: start(), stop(); status is what it's doing, in a few words. coach: your Bot's
+    model, to coach it in a game with no player of its own ("": none), and notes_path: where its notes on the game
+    are kept (None: nowhere, and no coach)."""
 
-    def __init__(self, run, server, model, log_path, on_change=lambda: None):
+    def __init__(self, run, server, model, log_path, on_change=lambda: None, coach="", notes_path=None):
         self.run, self.server, self.model = run, server, model
         self.log_path, self.on_change = log_path, on_change
+        self.coach_model, self.notes_path = (coach or "").strip(), notes_path
         self.stopping = threading.Event()
         self.status = "Starting"
         self.offline = False                       # the model hasn't answered of late: playing on its own
         self.thread = None
         self.io = None
+        self.coach = None
         self.lock = threading.Lock()
 
     @property
@@ -335,9 +352,9 @@ class GameAI:
             with self.lock:
                 if os.path.exists(self.log_path) and os.path.getsize(self.log_path) > LOG_MOST:
                     os.replace(self.log_path, self.log_path + ".1")
-                with open(self.log_path, "a") as f:
-                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        except OSError:
+                with open(self.log_path, "a", encoding="utf-8", errors="replace") as f:   # (a stray half of a
+                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")                # character: a ?)
+        except (OSError, ValueError):
             pass
 
     def main(self):
@@ -349,13 +366,18 @@ class GameAI:
                 rom = cartridge(game["path"])          # (a player of its own reads the cartridge too)
             mod = player_for(rom)
             io = self.io = GameIO(self, rom)
+            if mod is None and self.notes_path:
+                self.coach = Coach(self.server, self.coach_model, self.notes_path, log=self.log,
+                                   paused=lambda: self.run.state != "on")
+            coached = self.coach is not None and self.coach_model
             self.log({"event": f"Started, with {self.model or 'no model (on its own)'}"
-                               + ("" if mod else ", looking at the screen")})
+                               + ("" if mod else ", looking at the screen")
+                               + (f", and {self.coach_model} coaching it" if coached else "")})
             self.set_status("Playing")
             if mod is emerald:
                 emerald.Emerald(rom, io).play()
             else:
-                anygame.AnyGame(game, io).play()
+                anygame.AnyGame(game, io, self.coach).play()
         except emerald.Stop:
             self.log({"event": "Stopped"})
         except Exception as ex:                    # (it says why, here and in the log)
@@ -364,6 +386,8 @@ class GameAI:
             print(f"game ai: {ex!r}", flush=True)
             return
         finally:
+            if self.coach is not None:
+                self.coach.stop()
             if io is not None:
                 io.close()
             self.stopping.set()

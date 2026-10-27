@@ -7,8 +7,8 @@
   system.py         this Pi's numbers, and WiFi
   gpicase.py        the GPi Case it's in (the 2W, or the GPi Case 2), and the GPi Case 2's dock
   bluetooth.py      Bluetooth: finding, pairing and connecting devices (BlueZ)
-  screen.py         the screen, the framebuffer, sound outputs (Bluetooth headphones too), and a TV or
-                    monitor's resolution
+  screen.py         the screen, the framebuffer, sound outputs (Bluetooth headphones too), a TV or
+                    monitor's resolution, and a screen on its side (the picture turned)
   radio.py          internet radio
   tv.py             the TV tab's shelves: old cartoons and films, live channels' words
   library.py        what's in each tab, and what plays things
@@ -38,6 +38,7 @@
   gpu.py            the graphics chip, for a game drawn in 3D (an N64's, a PSP's)
   gameai.py         the AI player: a decision model on your bot's computer plays the game, looking at its screen
   anygame.py        ...any game: the next button to press, from what's on the screen
+  coach.py          ...and your Bot's model coaching it: what to aim for and how, kept for next time
   emerald.py        ...Pokémon Emerald: from the game's memory too (emerald_maps.py: its maps' names)
   inputs.py         controllers, keys, the power switch
   control.py        the web page's requests

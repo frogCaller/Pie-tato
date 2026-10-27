@@ -1,6 +1,8 @@
 """Any screen, any sound output: the screen's size and the framebuffer media mode draws on, the
 sound cards (and Bluetooth headphones and speakers), the video size to ask for, and the size an HDMI screen starts
-at."""
+at. And a screen on its side or upside down (Settings > Rotate screen: one that's taller than it's wide, turned to
+lie wide, or one mounted the other way round): everything here draws on it turned, a quarter or half turn, and looks
+at it turned back."""
 import fcntl
 import glob
 import json
@@ -23,6 +25,89 @@ PLEX_BITRATE = 1500                            # kbps
 PLEX_LIVE_HEIGHT = 480                         # pick the channel's stream closest to this
 
 
+# ---- a screen on its side (Settings > Rotate screen) -------------------------------------------------------
+TURNS = (0, 90, 180, 270)      # degrees, clockwise: how the picture's turned for the screen
+TURN = 0                       # ...now (set_turn)
+FBCON_ROTATE = "/sys/class/graphics/fbcon/rotate_all"   # the terminal's turn: 0 to 3, a quarter turn each
+TERMINAL_TURNED = False        # ...and whether it's been turned here (then Off turns it back; else it's left be)
+
+
+def set_turn(degrees):
+    """The picture turned this many degrees clockwise from now on (0, 90, 180 or 270), for everything here that
+    draws on the screen or looks at it (a framebuffer opened afresh, a game or video started afresh)."""
+    global TURN
+    TURN = degrees if degrees in TURNS else 0
+
+
+def screen_turn():
+    """How the picture's turned now (degrees, clockwise)."""
+    return TURN
+
+
+def turned(w, h, turn=None):
+    """A screen's size as it's seen: (w, h), or (h, w) a quarter turn round."""
+    return (h, w) if (TURN if turn is None else turn) in (90, 270) else (w, h)
+
+
+def turn_block(turn, dev_w, dev_h, x, y, w, h):
+    """A w x h block at x, y on the screen as it's seen: where it is in the screen's own pixels (x, y, w, h), on
+    a screen dev_w x dev_h of them."""
+    if turn == 90:
+        return dev_w - (y + h), x, h, w
+    if turn == 180:
+        return dev_w - (x + w), dev_h - (y + h), w, h
+    if turn == 270:
+        return y, dev_h - (x + w), h, w
+    return x, y, w, h
+
+
+def turn_pixels(a, turn):
+    """Rows of pixels (a numpy array) as they're seen, as the screen's own: turned that far clockwise (a view)."""
+    import numpy as np
+    if turn == 90:
+        return np.rot90(a, -1)
+    if turn == 180:
+        return a[::-1, ::-1]
+    if turn == 270:
+        return np.rot90(a, 1)
+    return a
+
+
+def unturn_pixels(a, turn):
+    """The screen's own pixels as they're seen: turned back."""
+    return turn_pixels(a, (360 - turn) % 360)
+
+
+def unturn_image(img, turn):
+    """A picture of the screen's own pixels (PIL) as it's seen: turned back."""
+    from PIL import Image
+    how = {90: Image.ROTATE_90, 180: Image.ROTATE_180, 270: Image.ROTATE_270}.get(turn)
+    return img.transpose(how) if how is not None else img
+
+
+def set_terminal_turn(degrees, path=None):
+    """The terminal (the kernel's text on the screen) turned too: True if it could be. Only a console in text mode
+    takes it: the kernel passes over one in graphics mode, as media mode's is while the menus are up. So it's done as
+    Pie-tato starts and when the setting changes (for the consoles in text mode then), and again whenever media
+    mode's own console goes to text mode (terminal_turn_now: a Simulator program on it, or back to the terminal).
+    The Pi's own messages as it starts up stay as they are."""
+    global TERMINAL_TURNED
+    try:
+        with open(path or FBCON_ROTATE, "w") as f:
+            f.write(str(TURNS.index(degrees) if degrees in TURNS else 0))
+    except OSError:
+        return False
+    TERMINAL_TURNED = TERMINAL_TURNED or bool(degrees)
+    return True
+
+
+def terminal_turn_now():
+    """The terminal turned as the screen is, now (a console just gone to text mode takes it): unless nothing here has
+    ever turned it and the screen isn't turned (a turn of your own, fbcon=rotate on the kernel's line, stays)."""
+    if TURN or TERMINAL_TURNED:
+        set_terminal_turn(TURN)
+
+
 # ---- any screen, any sound output ---------------------------------------------------
 def pi_model():
     return read_file("/proc/device-tree/model").replace("\x00", "").strip()
@@ -36,16 +121,17 @@ def slow_pi():
 
 
 def screen_size():
-    """The screen's real size: 640x480 on the GPi Case, 1920x1080 on most TVs."""
+    """The screen's real size, as it's seen (turned, if it's on its side): 640x480 on the GPi Case, 1920x1080 on
+    most TVs."""
     try:
         with open("/dev/fb0", "rb", buffering=0) as f:
             w, h = fb_geometry(f)[:2]
         if w and h:
-            return w, h
+            return turned(w, h)
     except (OSError, struct.error):
         pass
     m = re.match(r"(\d+),(\d+)", read_file("/sys/class/graphics/fb0/virtual_size"))
-    return (int(m.group(1)), int(m.group(2))) if m else (640, 480)
+    return turned(int(m.group(1)), int(m.group(2))) if m else (640, 480)
 
 
 def video_target():
@@ -433,14 +519,16 @@ def fb_geometry(f):
     return w, h, xo, yo, bpp, fields, stride
 
 
-def read_screen(f, geo, max_w=640):
-    """What's on a framebuffer, as a picture at most max_w wide. On a big screen only every
-    few pixels are read, so a 1080p TV costs about what the GPi Case's screen does."""
+def read_screen(f, geo, max_w=640, turn=None):
+    """What's on a framebuffer, as a picture at most max_w wide, as it's seen (turned back, if the screen's on its
+    side: turn, or TURN). On a big screen only every few pixels are read, so a 1080p TV costs about what the GPi
+    Case's screen does."""
     from PIL import Image
     import numpy as np
+    turn = TURN if turn is None else turn
     w, h, xo, yo, bpp, fields, stride = geo
     bp = bpp // 8
-    step = max(1, w // max_w)
+    step = max(1, turned(w, h, turn)[0] // max_w)
     if step == 1 and stride == w * bp and not xo and not yo:
         f.seek(0)
         raw, n = f.read(w * h * bp), h
@@ -456,14 +544,14 @@ def read_screen(f, geo, max_w=640):
     for c, (off, ln) in enumerate(fields):
         top = (1 << ln) - 1
         rgb[..., c] = ((px >> off) & top).astype(np.uint32) * 255 // top
-    img = Image.fromarray(rgb, "RGB")
-    if rw > max_w:
-        img = img.resize((max_w, max(1, round(rh * max_w / rw))), Image.BILINEAR)
+    img = unturn_image(Image.fromarray(rgb, "RGB"), turn)
+    if img.width > max_w:
+        img = img.resize((max_w, max(1, round(img.height * max_w / img.width))), Image.BILINEAR)
     return img
 
 
 def grab_screen(max_w=640, dev="/dev/fb0"):
-    """A picture of the screen right now, video and terminal included (for the web page)."""
+    """A picture of the screen right now, video and terminal included (for the web page), as it's seen."""
     with open(dev, "rb", buffering=0) as f:
         return read_screen(f, fb_geometry(f), max_w)
 
@@ -472,15 +560,25 @@ class Framebuffer:
     """Draws a PIL image onto /dev/fb0 in whatever format it uses. The menus are drawn 640x480 on the
     GPi Case's screen. On a big one (1080p, 4K) they're drawn a little bigger, 960x540 on a 1080p
     monitor, and doubled (or more): crisp, quick, and room to spare. On anything else they're 480
-    lines high and as wide as the screen's shape, scaled to fill it."""
+    lines high and as wide as the screen's shape, scaled to fill it. A screen on its side (turn: degrees,
+    clockwise; TURN's unless said) is all that, as it's seen: real_w and real_h are its size as it's seen, and
+    each picture's turned as it goes onto the screen's own pixels (dev_w x dev_h)."""
     W, H = 640, 480
     TALLEST = 600                                     # ...the menus' height on a big screen, at most
     WIDEST = 1140                                     # (a 21:9 screen's, at 480 lines: wider, edges black)
     count = 0                                         # pictures shown, ever: the web page's cue
 
-    def __init__(self, dev="/dev/fb0"):
+    def __init__(self, dev="/dev/fb0", turn=None):
         self.f = open(dev, "r+b", buffering=0)
+        self.turn = TURN if turn is None else (turn if turn in TURNS else 0)
         self.setup(*fb_geometry(self.f))
+
+    def turn_to(self, turn):
+        """Turned another way, from the next picture on (the screen's black, to start)."""
+        self.turn = turn if turn in TURNS else 0
+        self.close_memory()
+        self.setup(self.dev_w, self.dev_h, self.xo, self.yo, self.bpp, self.fields, self.stride)
+        self.put_dev(bytes(self.dev_w * self.dev_h * self.bpp // 8), 0, 0, self.dev_w, self.dev_h)
 
     @classmethod
     def whole_times(cls, w, h):
@@ -491,6 +589,9 @@ class Framebuffer:
     def setup(self, w, h, xo, yo, bpp, fields, stride):
         if bpp not in (16, 32):
             raise OSError(f"unsupported framebuffer depth {bpp}")
+        self.turn = getattr(self, "turn", 0)
+        self.dev_w, self.dev_h = w, h                 # the screen's own pixels
+        w, h = turned(w, h, self.turn)                # ...and as it's seen: what the rest is worked out for
         self.real_w, self.real_h, self.xo, self.yo = w, h, xo, yo
         self.bpp, self.fields, self.stride = bpp, fields, stride
         self.w, self.h = self.W, self.H               # what the menus are drawn at
@@ -547,20 +648,43 @@ class Framebuffer:
         screen (it writes its own way, as ever), or if the screen can't be mapped."""
         if getattr(self, "mem", False) is False:      # (not tried yet)
             self.mem = None
-            if not self.same:
+            if not self.same or self.turn:
                 try:
                     import mmap
                     import numpy as np
-                    rows, bp = self.yo + self.real_h, self.bpp // 8
+                    rows, bp = self.yo + self.dev_h, self.bpp // 8
                     self.mapping = mmap.mmap(self.f.fileno(), rows * self.stride)
                     self.mem = np.frombuffer(self.mapping, dtype="<u2" if bp == 2 else "<u4").reshape(
-                        rows, self.stride // bp)[self.yo:, self.xo:self.xo + self.real_w]
+                        rows, self.stride // bp)[self.yo:, self.xo:self.xo + self.dev_w]
                 except (OSError, ValueError, ImportError, AttributeError, TypeError):
                     self.mem = None
         return self.mem
 
+    def close_memory(self):
+        self.mem, mapping, self.mapping = False, getattr(self, "mapping", None), None
+        if mapping is not None:
+            try:
+                mapping.close()
+            except (BufferError, ValueError):
+                pass                                   # (a picture of it still about: let it go by itself)
+
     def put(self, data, x, y, w, h):
-        """Bytes for a w x h block, written at x, y on the real screen."""
+        """Bytes for a w x h block, written at x, y on the real screen (as it's seen: turned onto its own pixels
+        if it's on its side)."""
+        if not self.turn:
+            return self.put_dev(data, x, y, w, h)
+        import numpy as np
+        a = np.frombuffer(data, dtype="<u2" if self.bpp == 16 else "<u4").reshape(h, w)
+        bx, by, bw, bh = turn_block(self.turn, self.dev_w, self.dev_h, x, y, w, h)
+        a = turn_pixels(a, self.turn)
+        mem = self.memory()
+        if mem is not None:
+            mem[by:by + bh, bx:bx + bw] = a
+            return
+        self.put_dev(np.ascontiguousarray(a).tobytes(), bx, by, bw, bh)
+
+    def put_dev(self, data, x, y, w, h):
+        """Bytes for a w x h block, written at x, y on the screen's own pixels."""
         bp = self.bpp // 8
         row = w * bp
         mem = self.memory()
@@ -568,7 +692,7 @@ class Framebuffer:
             import numpy as np
             mem[y:y + h, x:x + w] = np.frombuffer(data, dtype=mem.dtype).reshape(h, w)
             return
-        if x == 0 and y == 0 and w == self.real_w and self.stride == row and not self.xo and not self.yo:
+        if x == 0 and y == 0 and w == self.dev_w and self.stride == row and not self.xo and not self.yo:
             self.f.seek(0)
             self.f.write(data)
             return
@@ -580,13 +704,13 @@ class Framebuffer:
         self.last = img
         type(self).count += 1
         self.frames = type(self).count
-        if self.same:
+        if self.same and img.size == (self.real_w, self.real_h):   # (one of another size: scaled to it, below)
             self.put(self.pack(img), 0, 0, self.real_w, self.real_h)
             return
         from PIL import Image
         if self.clear_next:
             self.clear_next = False
-            self.put(bytes(self.real_w * self.real_h * self.bpp // 8), 0, 0, self.real_w, self.real_h)
+            self.put_dev(bytes(self.dev_w * self.dev_h * self.bpp // 8), 0, 0, self.dev_w, self.dev_h)
         if self.sharp and img.size == (self.w, self.h):    # pack it, then repeat each pixel: the quickest
             self.put_repeated(self.pack(img), 0, 0, self.w, self.h)
             return
@@ -599,15 +723,19 @@ class Framebuffer:
         4x) onto the screen: straight into its memory if it's mapped, the bigger copy never made."""
         import numpy as np
         k = self.tw // self.w
-        a = np.frombuffer(packed, dtype="<u2" if self.bpp == 16 else "<u4").reshape(h, 1, w, 1)
+        a = np.frombuffer(packed, dtype="<u2" if self.bpp == 16 else "<u4").reshape(h, w)
         x0, y0 = self.ox + x * k, self.oy + y * k
+        x0, y0, bw, bh = turn_block(self.turn, self.dev_w, self.dev_h, x0, y0, w * k, h * k)
+        a = turn_pixels(a, self.turn)                  # (turned while it's small: the screen's on its side)
+        h, w = a.shape
+        a = a.reshape(h, 1, w, 1)
         mem = self.memory()
         if mem is not None:
-            block = mem[y0:y0 + h * k, x0:x0 + w * k]
+            block = mem[y0:y0 + bh, x0:x0 + bw]
             block.shape = (h, k, w, k)                 # (a view of it, never a copy: an error otherwise)
             block[...] = a
             return
-        self.put(np.broadcast_to(a, (h, k, w, k)).tobytes(), x0, y0, w * k, h * k)
+        self.put_dev(np.broadcast_to(a, (h, k, w, k)).tobytes(), x0, y0, bw, bh)
 
     def show_part(self, img, box):
         """Only box (x0, y0, x1, y1) has changed since the last picture: just that goes to the screen
@@ -645,13 +773,15 @@ class Framebuffer:
         self.clear_next = not self.same and (self.tw, self.th) != (self.real_w, self.real_h)
 
     def blank_outside(self, box):
-        """Black everywhere but the box (x0, y0, x1, y1), in real screen pixels: the bars round
+        """Black everywhere but the box (x0, y0, x1, y1), in real screen pixels (as it's seen): the bars round
         a video that doesn't fill the screen. mplayer only ever draws its picture."""
         bp = self.bpp // 8
-        x0, y0 = max(0, int(box[0])), max(0, int(box[1]))
-        x1, y1 = min(self.real_w, int(box[2])), min(self.real_h, int(box[3]))
-        row = bytes(self.real_w * bp)
-        for y in range(self.real_h):
+        x0, y0, bw, bh = turn_block(self.turn, self.dev_w, self.dev_h, int(box[0]), int(box[1]),
+                                    int(box[2]) - int(box[0]), int(box[3]) - int(box[1]))
+        x1, y1 = min(self.dev_w, x0 + bw), min(self.dev_h, y0 + bh)
+        x0, y0 = max(0, x0), max(0, y0)
+        row = bytes(self.dev_w * bp)
+        for y in range(self.dev_h):
             at = (y + self.yo) * self.stride + self.xo * bp
             if y < y0 or y >= y1:
                 self.f.seek(at)
@@ -660,15 +790,11 @@ class Framebuffer:
             if x0 > 0:
                 self.f.seek(at)
                 self.f.write(row[:x0 * bp])
-            if x1 < self.real_w:
+            if x1 < self.dev_w:
                 self.f.seek(at + x1 * bp)
-                self.f.write(row[:(self.real_w - x1) * bp])
+                self.f.write(row[:(self.dev_w - x1) * bp])
 
     def close(self):
-        self.mem, mapping, self.mapping = None, getattr(self, "mapping", None), None
-        if mapping is not None:
-            try:
-                mapping.close()
-            except (BufferError, ValueError):
-                pass                                   # (a picture of it still about: let it go by itself)
+        self.close_memory()
+        self.mem = None
         self.f.close()

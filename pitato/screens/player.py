@@ -10,8 +10,8 @@ import time
 from ..theme import ACCENT, BODY, LINE, MUTED, ROW, TEXT
 from ..config import SCREEN_MODES
 from ..util import clock, probe_length
-from ..screen import (aplay_device, bt_output_name, bt_outputs, slow_pi, sound_cards, sound_device, sound_moves,
-                      sound_name, sound_place, usb_name)
+from ..screen import (aplay_device, bt_output_name, bt_outputs, screen_turn, slow_pi, sound_cards, sound_device,
+                      sound_moves, sound_name, sound_place, usb_name)
 from ..radio import rb_get
 from ..tv import hls_pick, is_hls
 from ..library import (
@@ -296,12 +296,12 @@ class PlayerScreen:
             self.settle_play, self.settle_ask, self.pause_said = False, 0.0, None
 
     def screen_dims(self):
-        """The real screen's size (the menus are drawn 480 lines high and scaled to it)."""
+        """The real screen's size, as it's seen (the menus are drawn 480 lines high and scaled to it)."""
         return getattr(self.fb, "real_w", 640), getattr(self.fb, "real_h", 480)
 
     def video_args(self):
         w, h = self.screen_dims()
-        args = VIDEO_PLAYER + video_scale(self.setting("screen"), self.vsize, w, h)
+        args = VIDEO_PLAYER + video_scale(self.setting("screen"), self.vsize, w, h, turn=screen_turn())
         if (w, h) != (640, 480) and slow_pi():
             args += ["-sws", "0"]              # the quicker way up to a big screen
         return args
