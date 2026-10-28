@@ -43,23 +43,34 @@ class PhotoScreen:
             self.thumbs.pop(next(iter(self.thumbs)))
 
     def thumb_loop(self):
+        """Thumbnails for Photos, made one after another while a list shows (the pictures on screen first), and kept
+        on disk. Once every picture has one it's done: loading Photos starts it again."""
         from PIL import Image, ImageOps
         os.makedirs(os.path.join(CACHE_DIR, "thumbs"), exist_ok=True)
-        failed = set()
+        have, need, failed = set(), set(), set()      # (each picture looked for on disk once)
         pi = self.tab_index("photos")
         while self.active:
             if self.proc_owns_screen() or self.view not in ("list", "help"):
                 time.sleep(0.5)
                 continue
             items = self.tab_items(pi)
-            start = self.tops.get(pi, 0) * self.grid_cols()
-            order = list(range(start, len(items))) + list(range(0, start))
-            todo = next((items[k]["src"] for k in order
-                         if items[k]["src"] not in failed and not self.has_thumb(items[k]["src"])),
-                        None)
+            start = min(self.tops.get(pi, 0) * self.grid_cols(), len(items))
+            todo, left = None, 0
+            for k in list(range(start, len(items))) + list(range(0, start)):
+                src = items[k]["src"]
+                if src in have or src in failed:
+                    continue
+                if src not in need:
+                    if self.has_thumb(src):
+                        have.add(src)
+                        continue
+                    need.add(src)
+                left += 1
+                todo = todo or src
+            self.thumbs_left = left
             if todo is None:
-                time.sleep(1)
-                continue
+                break
+            need.discard(todo)
             try:
                 im = Image.open(todo)
                 im.draft("RGB", (self.THUMB[0] * 2, self.THUMB[1] * 2))
@@ -67,10 +78,12 @@ class PhotoScreen:
                 im = ImageOps.fit(im, self.THUMB, Image.BILINEAR)
                 im.save(os.path.join(CACHE_DIR, "thumbs", cache_name(todo, ".jpg")), quality=85)
                 self.keep_thumb(todo, im)
+                have.add(todo)
                 if self.tab == pi:
                     self.dirty = True
             except Exception:
                 failed.add(todo)
+        self.thumbs_left = 0
 
     # photos
     def open_photo(self, paths, i):

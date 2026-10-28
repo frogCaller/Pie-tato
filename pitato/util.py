@@ -4,7 +4,6 @@ import hashlib
 import json
 import os
 import re
-import subprocess
 import time
 import urllib.request
 
@@ -102,18 +101,6 @@ def clock(sec):
     sec = int(max(sec, 0))
     h, m, s = sec // 3600, sec // 60 % 60, sec % 60
     return f"{h}:{m:02}:{s:02}" if h else f"{m}:{s:02}"
-
-
-def probe_length(path):
-    try:
-        r = subprocess.run(
-            ["nice", "-n", "15", "mplayer", "-identify", "-frames", "0",
-             "-vo", "null", "-ao", "null", path],
-            capture_output=True, text=True, timeout=30)
-        m = re.search(r"^ID_LENGTH=([\d.]+)", r.stdout, re.M)
-        return float(m.group(1)) if m else 0.0
-    except (OSError, subprocess.TimeoutExpired):
-        return 0.0
 
 
 def cache_name(path, ext):

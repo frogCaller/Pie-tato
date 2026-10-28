@@ -3,6 +3,7 @@
   theme.py          colours, fonts and the accent
   config.py         the static folder, settings files, saved settings
   util.py           small helpers: files, kinds of file, text, numbers
+  lengths.py        how long songs and videos are: their own headers, else ffprobe
   net.py            machines on your network: addresses, requests
   system.py         this Pi's numbers, and WiFi
   gpicase.py        the GPi Case it's in (the 2W, or the GPi Case 2), and the GPi Case 2's dock

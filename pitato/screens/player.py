@@ -9,7 +9,8 @@ import time
 
 from ..theme import ACCENT, BODY, LINE, MUTED, ROW, TEXT
 from ..config import SCREEN_MODES
-from ..util import clock, probe_length
+from ..util import clock
+from ..lengths import probe_length
 from ..screen import (aplay_device, bt_output_name, bt_outputs, screen_turn, slow_pi, sound_cards, sound_device,
                       sound_moves, sound_name, sound_place, usb_name)
 from ..radio import rb_get
@@ -82,27 +83,32 @@ class PlayerScreen:
                 p.kill()
 
     def probe_loop(self):
+        """The lengths of the songs and videos not known yet (the Music and Videos lists show them), found one after
+        another while media mode's up, though not while a video or a game has the screen. Each is tried once: a
+        file that's gone, or can't be read, isn't tried again and again."""
+        tried = set()
         while self.active:
-            if self.proc_owns_screen():
-                time.sleep(1)
-                continue
-            todo = None
-            for i, tab in enumerate(LIBRARY):
-                if tab["type"] == "files":
-                    todo = next((it for it in self.tab_items(i)
-                                 if self.length(it) is None), None)
-                    if todo:
-                        break
-            if todo is None:
+            todo = [it for i, tab in enumerate(LIBRARY) if tab["type"] == "files" for it in self.tab_items(i)
+                    if it["src"] not in tried and self.length(it) is None]
+            if not todo:
                 break
-            n = probe_length(todo["src"])
-            try:
-                mtime = os.path.getmtime(todo["src"])
-            except OSError:
-                continue
-            with self.lock:
-                self.state["dur"][todo["key"]] = [mtime, n]
-            self.dirty = True
+            for k, it in enumerate(todo):
+                while self.active and self.proc_owns_screen():
+                    time.sleep(1)
+                if not self.active:
+                    break
+                self.probe_left = len(todo) - k
+                tried.add(it["src"])
+                n = probe_length(it["src"])
+                try:
+                    mtime = os.path.getmtime(it["src"])
+                except OSError:
+                    continue                           # (gone meanwhile)
+                with self.lock:
+                    self.state["dur"][it["key"]] = [mtime, n]
+                if self.view == "list" and LIBRARY[self.tab]["type"] == "files":
+                    self.dirty = True                  # (only the Music and Videos lists show them)
+        self.probe_left = 0
         self.save_state()
 
     # -- Bluetooth headphones, a USB speaker: the sound goes where they are ------------------------------------

@@ -128,6 +128,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.prog = self.prog_name = None   # the Simulator's cmatrix, hollywood, nyancat, cacafire or htop, while on
         self.cm_colour, self.cm_bold, self.cm_speed = 0, 0, 4
         self.prober = self.thumber = self.sysloop = None
+        self.probe_left = self.thumbs_left = 0   # songs and videos whose lengths are being found; photos' thumbnails
         self.thumbs = {}            # path -> small PIL image (most recent ~300)
         self.cwd = home_dir()
         self.dir_sel = {}           # folder -> selected row
@@ -621,9 +622,13 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.load_tab(self.tab)
 
     def system_loop(self):
+        """System's numbers, looked at again every 2 seconds while it's open (the first time after half a second:
+        how busy the CPU is needs two looks)."""
         si = self.tab_index("system")
+        wait = 0.5
         while self.active and self.tab == si:
-            time.sleep(2)
+            time.sleep(wait)
+            wait = 2
             if self.active and self.tab == si and self.view == "list" and not self.proc_owns_screen():
                 self.items[si] = self.system_rows()
                 self.dirty = True
@@ -740,6 +745,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             fcntl.ioctl(self.ttyfd, 0x4B3A, 1)   # KDSETMODE KD_GRAPHICS: no text/cursor
         except OSError:
             pass
+        self.console_cursor(False)                     # (...and its cursor off, which its blinking asks after)
         self.dirty = True
         if self.playing_now():                         # what's playing, for a moment
             self.pop_now()
@@ -782,6 +788,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             except OSError:
                 pass
             self.ttyfd = None
+            self.console_cursor(True)                  # (the console as it was, cursor and all)
         if self.fb:
             self.fb.close()
             self.fb = None
@@ -1023,7 +1030,21 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         rows = []
         if self.updater.shown():
             rows.append(item("act:update", "Update software", "action", "update", sub=self.updater.words()))
-        return rows + system_info()
+        return rows + system_info(self.background())
+
+    def background(self):
+        """What Pie-tato's busy with by itself, [(what, how far)]: System says so, under how busy the CPU is."""
+        out = []
+        sh = self.shrinker
+        if sh.current:
+            more = len([p for p in sh.queue if p != sh.current])
+            out.append(("Converting videos" if more else "Converting video",
+                        f"{sh.pct}% · {title_of(sh.current)}" + (f" · {more} more after it" if more else "")))
+        if self.probe_left:
+            out.append(("Reading lengths", f"{self.probe_left} songs and videos left"))
+        if self.thumbs_left:
+            out.append(("Making thumbnails", f"{self.thumbs_left} photos left"))
+        return out
 
     def update_found(self):
         """(The updater's thread) it's looked for a newer version: System shows what it found."""

@@ -261,7 +261,9 @@ Plex signs in with a code at plex.tv/link. Jellyfin signs in with a Quick Connec
 your phone or computer, open your profile, then Quick Connect, and type the code.
 
 If a video is too big for the Pi to play smoothly (a 1080p film on a Pi Zero, or one in HEVC), the Pi
-makes it smaller by itself in the background, in place of the original.
+makes it smaller by itself in the background, in place of the original. On a Pi Zero a film can take
+hours: it pauses while you watch or play something, carries on where it left off if you turn the Pi
+off, and System shows how far it's got and how busy the CPU is.
 
 ## License
 

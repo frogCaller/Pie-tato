@@ -29,6 +29,7 @@ PROG_OWN = {"cacafire": "/usr/local/lib/pitato/cacafire"}   # setup.sh's own bui
 PROG_QUIT = {"cacafire": "\x03"}   # its own way out, typed (cmatrix's: q; cacafire's: Ctrl+C)
 KD_TEXT, KD_GRAPHICS = 0, 1
 KDSETMODE, VT_GETSTATE, VT_ACTIVATE = 0x4B3A, 0x5603, 0x5606
+CURSOR_SHOW, CURSOR_HIDE = b"\x1b[?25h", b"\x1b[?25l"   # the console's text cursor, on and off
 
 
 def prog_tty():
@@ -257,7 +258,9 @@ class ProgScreen:
             os.close(fd)
 
     def prog_mode(self, mode):
-        """Media mode's console in text mode (theirs, while one's on) or graphics mode (media mode's)."""
+        """Media mode's console in text mode (theirs, while one's on) or graphics mode (media mode's). Its text
+        cursor goes with it: on for theirs, as in the terminal, and off for the menus (console_cursor)."""
+        self.console_cursor(mode == KD_TEXT)
         try:
             if self.ttyfd is not None and PROG_TTY is None:
                 fcntl.ioctl(self.ttyfd, KDSETMODE, mode)
@@ -269,6 +272,27 @@ class ProgScreen:
                 os.close(fd)
         except OSError:
             pass
+
+    def console_cursor(self, show):
+        """Media mode's console's text cursor on or off. In graphics mode the console draws nothing, but its
+        cursor's blinking is the kernel's own timer, which only asks whether the cursor's on: something that starts
+        it again (a screen that comes and goes on HDMI, say) has it blink over the menus. Off, it never does.
+        Never waits: a console a keyboard's Ctrl+S has held is let go first, and one that still won't take it is
+        left as it is."""
+        try:
+            fd = os.open(prog_tty(), os.O_WRONLY | os.O_NOCTTY | os.O_NONBLOCK)
+        except OSError:
+            return
+        try:
+            try:
+                termios.tcflow(fd, termios.TCOON)
+            except termios.error:
+                pass
+            os.write(fd, CURSOR_SHOW if show else CURSOR_HIDE)
+        except OSError:
+            pass
+        finally:
+            os.close(fd)
 
     def prog_front(self, wait=False):
         """Media mode's console in front. In text mode a keyboard can switch to another console (Alt+F1, say),

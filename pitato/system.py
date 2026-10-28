@@ -4,6 +4,7 @@ import re
 import shutil
 import socket
 import subprocess
+import time
 
 from .util import human_size, item
 
@@ -84,6 +85,10 @@ def nm_why(err):
 
 
 HOT_C = 70                                     # status bar warns above this
+SLOW_EVERY = 10.0      # seconds: what takes a program to find out (power, WiFi, the address) is looked at this often
+PROC_STAT = "/proc/stat"   # how long the CPU's spent working, and not, since the Pi started
+_cpu_was = None        # /proc/stat's CPU line when System last looked: (busy, all, when)
+_slow = {}             # what took a program to find out: name -> (when, what it said)
 
 
 def system_stopping():
@@ -135,6 +140,36 @@ def wifi_bars(q):
     return 4 if q >= 55 else 3 if q >= 40 else 2 if q >= 25 else 1
 
 
+def cpu_busy():
+    """How busy the CPU's been since System last looked (a few seconds ago), as a share of all its cores, in percent:
+    None the first time, with nothing to go by. (The load average, which it showed before, counts what's waiting
+    as well as what's working, so it said 100% when the CPU wasn't.)"""
+    global _cpu_was
+    try:
+        with open(PROC_STAT) as f:
+            ticks = [int(x) for x in f.readline().split()[1:9]]   # user nice system idle iowait irq softirq steal
+    except (OSError, ValueError):
+        return None
+    if len(ticks) < 4:
+        return None
+    idle = ticks[3] + (ticks[4] if len(ticks) > 4 else 0)       # (idle, or waiting for the SD card)
+    now, was = time.monotonic(), _cpu_was
+    _cpu_was = (sum(ticks) - idle, sum(ticks), now)
+    if not was or now - was[2] > 30 or _cpu_was[1] <= was[1]:
+        return None
+    return max(0.0, min(100.0, 100.0 * (_cpu_was[0] - was[0]) / (_cpu_was[1] - was[1])))
+
+
+def now_and_then(name, look, every=SLOW_EVERY):
+    """look(), or what it said less than every seconds ago (System's numbers are looked at every few seconds)."""
+    when, what = _slow.get(name, (None, None))
+    now = time.monotonic()
+    if when is None or now - when >= every:
+        what = look()
+        _slow[name] = (now, what)
+    return what
+
+
 def throttle_text():
     out = run_out(["vcgencmd", "get_throttled"])
     m = re.search(r"0x([0-9a-fA-F]+)", out)
@@ -150,7 +185,9 @@ def throttle_text():
     return "OK", False
 
 
-def system_info():
+def system_info(background=()):
+    """System's rows: this Pi's numbers (background: what Pie-tato's busy with, [(what, how far)], said under how busy
+    the CPU is), then its buttons."""
     rows = []
 
     def add(label, value, warn=False):
@@ -159,11 +196,13 @@ def system_info():
     t = cpu_temp()
     add("CPU temperature", f"{t:.1f} °C" if t is not None else "unknown",
         t is not None and t >= HOT_C)
-    load = os.getloadavg()[0]
+    busy = cpu_busy()
     freq = read_file("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq")
-    add("CPU", f"{min(load * 100 / (os.cpu_count() or 1), 100):.0f}% busy"
+    add("CPU", (f"{busy:.0f}% busy" if busy is not None else "…")
         + (f" · {int(freq) // 1000} MHz" if freq.isdigit() else ""))
-    text, bad = throttle_text()
+    for what, far in background:
+        add(what, far)
+    text, bad = now_and_then("power", throttle_text)
     add("Power", text, bad)
 
     mem = {}
@@ -177,7 +216,7 @@ def system_info():
     add("Storage", f"{human_size(du.used)} used, {human_size(du.free)} free",
         du.free < 1 << 30)
 
-    link = run_out(["iw", "dev", "wlan0", "link"])
+    link = now_and_then("wifi", lambda: run_out(["iw", "dev", "wlan0", "link"]))
     ssid = re.search(r"SSID: (.+)", link)
     sig = re.search(r"signal: (-?\d+)", link)
     if ssid:
@@ -185,7 +224,7 @@ def system_info():
     else:
         q = wifi_quality()
         add("WiFi", "connected" if q else "not connected", not q)
-    ips = run_out(["hostname", "-I"]).split()
+    ips = now_and_then("ip", lambda: run_out(["hostname", "-I"])).split()
     add("IP address", ips[0] if ips else "none")
     add("Hostname", socket.gethostname())
 
