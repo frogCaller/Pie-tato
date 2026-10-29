@@ -471,7 +471,7 @@ class Ears:
 
     @staticmethod
     def tidy():
-        """What a Pie-tato stopped part way left behind: half-fetched files, a model half unpacked."""
+        """What a Pietato stopped part way left behind: half-fetched files, a model half unpacked."""
         for path in glob.glob(os.path.join(LISTEN_DIR, ".*-*")):
             pid = re.search(r"-(\d+)[.-]", os.path.basename(path))
             try:

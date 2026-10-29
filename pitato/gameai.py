@@ -1,13 +1,15 @@
 """An AI player for the game that's playing: a decision model on your bot's computer (Ollama, as Snake's AI)
-looks at the game's screen and picks what to do. Any game: the model picks the next button to press, from what it
-sees (pitato/anygame.py), coached by your Bot's model (pitato/coach.py: what to aim for and how, worked out from the
-screen now and then, and kept for next time beside the game's saves, with your tips: Games/Saves/<game>
-.ai-notes.txt). Pokémon Emerald has a player of its own (pitato/emerald.py): the model picks at each moment that
-needs a decision, and it does the rest from the game's memory, a button at a time. The model is assumed to see (the
-game's screen goes with each pick); one that turns out not to is asked without it from then on. It plays on a
-thread of its own while the game runs (the game never waits for it: only the picking is slow), waits while the
-game's menu is up, and stops when it's turned off there (pitato/screens/games.py) or the game ends. What it saw
-and picked goes in a log beside the game's saves (Games/Saves/<game>.ai.log): send that when it gets stuck."""
+looks at the game's screen and picks what to do. Any game (pitato/anygame.py), coached by your Bot's model
+(pitato/coach.py: what kind of game it is and how it's played, what to aim for and how, worked out from what it knows
+and from the screen now and then, and kept for next time beside the game's saves, with your tips: Games/Saves/<game>
+.ai-notes.txt): an action game (racing, a platformer, fighting, a shooter) is played by instinct, many times a second
+(pitato/instincts.py), the model saying when and which way; any other, a move at a time, the model picking each.
+Pokémon Emerald has a player of its own (pitato/emerald.py): it knows the story, and does what it can from the game's
+memory, a button at a time; the model picks at each moment that needs a decision. The model is assumed to see (the
+game's screen goes with each pick); one that turns out not to is asked without it from then on. It plays on a thread
+of its own while the game runs (the game never waits for it: only the picking is slow), waits while the game's menu
+is up, and stops when it's turned off there (pitato/screens/games.py) or the game ends. What it saw and picked goes
+in a log beside the game's saves (Games/Saves/<game>.ai.log): send that when it gets stuck."""
 import base64
 import io as _io
 import json
@@ -29,6 +31,7 @@ GIVE_UP_AFTER = 5            # picks the model missed in a row: then it plays on
 ASK_AGAIN_EVERY = 20         # ...every this many picks
 TAP_DOWN, TAP_GAP = 0.05, 0.06   # seconds a tapped button's down, and before the next
 SHOT_WAIT = 1.5              # seconds the game has to give its picture (it answers between frames, or paused)
+SHOT_AGAIN = 2.0             # ...and when it hasn't, three times in a row, seconds before it's asked again
 SEE_SIZE = 512               # pixels across, at most, of the game's screen as the model's shown it
 SAME_SIZE = (32, 24)         # ...and the small grey copy that tells whether the screen changed
 CELLS = (64, 48)             # ...and the one that tells something new from what's been seen (pitato/anygame.py)
@@ -123,20 +126,29 @@ class GameIO:
         self.shot_path = self.mem_path[:-4] + ".ppm"
         self.peeks = 0
         self.held, self.pushed = set(), set()
+        self.sticks = {}                            # each stick axis pushed: how far (what the game was last sent)
         self.misses, self.picks, self.asked_first = 0, 0, False
         self.blind = False                          # the model was shown the screen and can't look at pictures
         self.last_by = ""                           # who made the last pick: "model", or "own" (it couldn't say)
         self.shots_missed = 0                       # the game's picture asked for and not given, in a row
+        self.shot_at = 0.0                          # (when it was last asked for)
         self.logged_choices = None
 
     # -- the game -----------------------------------------------------------------------------------------
     def live(self):
-        """Waits while the game's menu is up; Stop if the AI player's been turned off or the game's ended."""
+        """Waits while the game's menu is up; Stop if the AI player's been turned off or the game's ended. (The game
+        lets go of every button while its menu's up: so does this.)"""
+        waited = False
         while True:
             if self.ai.stopping.is_set() or self.run.ended:
                 raise emerald.Stop()
             if self.run.state != "paused":
+                if waited:
+                    self.held.clear()
+                    self.pushed.clear()
+                    self.sticks.clear()
                 return
+            waited = True
             self.ai.stopping.wait(0.2)
 
     def snapshot(self):
@@ -172,8 +184,9 @@ class GameIO:
     def look(self):
         """The game's screen now (a Look), or None: it didn't give its picture."""
         self.live()
-        if self.shots_missed >= 3 and self.picks % 10:
+        if self.shots_missed >= 3 and time.monotonic() - self.shot_at < SHOT_AGAIN:
             return None                             # (it hasn't been: asked again now and then)
+        self.shot_at = time.monotonic()
         what, rest = self.run.ask("shot " + self.shot_path, ("shot",), SHOT_WAIT)
         if what != "shot" or rest != "ok":
             self.shots_missed += 1
@@ -223,6 +236,7 @@ class GameIO:
         """A stick pushed (lx ly: the left one; -127 to 127, up and left minus), or let go (0)."""
         self.live()
         (self.pushed.add if value else self.pushed.discard)(axis)
+        self.sticks[axis] = int(value)
         self.run.stick(axis, int(value))
 
     def let_go(self):
@@ -230,17 +244,39 @@ class GameIO:
             self.release(b)
         for axis in list(self.pushed):
             self.pushed.discard(axis)
+            self.sticks.pop(axis, None)
             self.run.stick(axis, 0)
+
+    def hold_only(self, buttons, sticks=None):
+        """Just these buttons held, and these sticks pushed ({axis: -127 to 127}), all else let go: the game's sent
+        only what's changed (a player's next moment, many times a second)."""
+        self.live()
+        buttons, sticks = set(buttons), {a: int(v) for a, v in (sticks or {}).items() if v}
+        for b in self.held - buttons:
+            self.release(b)
+        for b in buttons - self.held:
+            self.held.add(b)
+            self.run.press(b)
+        for axis in self.pushed - set(sticks):
+            self.pushed.discard(axis)
+            self.sticks.pop(axis, None)
+            self.run.stick(axis, 0)
+        for axis, v in sticks.items():
+            if self.sticks.get(axis) != v:
+                self.pushed.add(axis)
+                self.sticks[axis] = v
+                self.run.stick(axis, v)
 
     def wait(self, secs):
         if self.ai.stopping.wait(secs) or self.run.ended:
             raise emerald.Stop()
 
     # -- the model ----------------------------------------------------------------------------------------
-    def decide(self, kind, says, state, choices, fallback, picture=None):
+    def decide(self, kind, says, state, choices, fallback, picture=None, quiet=False):
         """The model's pick of choices ({key: words}), or fallback if it can't say (it's logged either way). The
         game's screen goes with it, as the model's assumed to see: picture, a Look taken already (False: none),
-        or one taken now. A model that can't look at pictures is asked without, from then on."""
+        or one taken now. A model that can't look at pictures is asked without, from then on. quiet: the game's
+        menu isn't told it's thinking (it's asked while the game's played: pitato/anygame.py)."""
         if fallback not in choices:
             fallback = next(iter(choices))
         self.picks += 1
@@ -250,7 +286,8 @@ class GameIO:
         if ask:
             if not self.blind:
                 seen = (picture if picture is not None else self.look()) or None
-            self.status("Thinking (the first time, it wakes up)…" if not self.asked_first else "Thinking…")
+            if not quiet or not self.asked_first:
+                self.status("Thinking (the first time, it wakes up)…" if not self.asked_first else "Thinking…")
             try:
                 got, seen = self.ask_model(says, state, choices, seen)
                 self.asked_first = True

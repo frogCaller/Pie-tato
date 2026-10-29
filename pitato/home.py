@@ -67,7 +67,7 @@ def home_layout(n, cols):
 
 
 HOME_ICONS = {    # tab name -> (its colour: its tile's tint, a line about it)
-    "Home Assistant": ((92, 128, 184), "Your TV remote, lights and Pi-hole"),
+    "Home": ((92, 128, 184), "Your TV remote, lights and Pi-hole"),
     "TV": ((70, 122, 204), "Plex, Jellyfin, cartoons, films, news, sports, streams"),
     "Music": ((186, 104, 160), "Your music in ~/Music"),
     "Radio": ((132, 108, 214), "Internet radio"),
@@ -83,7 +83,7 @@ HOME_ICONS = {    # tab name -> (its colour: its tile's tint, a line about it)
     "System": ((128, 135, 148), "Temperature, WiFi, storage"),
     "Settings": ((134, 140, 152), "WiFi, Bluetooth, background, sound, controllers"),
 }
-HOME_LABELS = {"Home Assistant": "Home Asst."}   # if a name doesn't fit under its tile: this
+HOME_LABELS = {}   # a name -> a shorter one, for a name that doesn't fit under its tile (none, now)
 TILE_TOP, TILE_BOTTOM = (40, 45, 55), (23, 27, 34)   # a tile's dark glass, before its tint
 GLYPH_TOP, GLYPH_BOTTOM = (238, 240, 244), (176, 182, 192)   # the glyphs: light grey, lit from above
 AMBER = (238, 166, 72)
@@ -151,7 +151,7 @@ def draw_icon(name, size=84, card=True, lit=False):
     def ring(draw, cx, cy, r, fill):
         draw.ellipse(B(cx - r, cy - r, cx + r, cy + r), fill=fill)
 
-    if name == "Home Assistant":                   # a house, a light on
+    if name == "Home":                             # a house, a light on
         d.polygon(P((24, 124), (126, 36), (228, 124)), fill=255)
         d.rounded_rectangle(B(56, 112, 196, 210), radius=R(10), fill=255)
         do.rounded_rectangle(B(104, 138, 148, 180), radius=R(6), fill=AMBER)
@@ -296,7 +296,7 @@ def draw_icon(name, size=84, card=True, lit=False):
 
 # ---- Cards: coloured glyphs on dark cards --------------------------------------------------------------------
 GLYPH_COLOURS = {    # an app's glyph's own colour
-    "Home Assistant": (63, 116, 222), "TV": (58, 128, 234), "Music": (238, 72, 138), "Radio": (132, 88, 230),
+    "Home": (63, 116, 222), "TV": (58, 128, 234), "Music": (238, 72, 138), "Radio": (132, 88, 230),
     "Photos": (52, 196, 170), "Videos": (222, 52, 52), "Weather": (250, 204, 40), "Games": (74, 196, 90),
     "Files": (64, 140, 236), "Camera": (104, 112, 126), "Bot": (59, 130, 246), "Simulator": (64, 190, 100),
     "Finance": (247, 147, 26), "System": (148, 156, 170), "Settings": (34, 168, 226),
@@ -329,7 +329,7 @@ def draw_glyph(name, size=52):
     def ring(cx, cy, r, fill):
         d.ellipse(B(cx - r, cy - r, cx + r, cy + r), fill=fill)
 
-    if name == "Home Assistant":                   # a house, a light on
+    if name == "Home":                             # a house, a light on
         d.polygon(P((24, 124), (126, 36), (228, 124)), fill=colour)
         d.rounded_rectangle(B(56, 112, 196, 210), radius=R(10), fill=colour)
         d.rounded_rectangle(B(78, 132, 116, 170), radius=R(6), fill=(246, 196, 60))
@@ -455,7 +455,7 @@ def draw_glyph(name, size=52):
 
 # ---- Bright: bright tiles, white glyphs ----------------------------------------------------------------------
 BRIGHT_TILES = {    # an app's tile's colour
-    "Home Assistant": (36, 54, 96), "TV": (62, 112, 204), "Music": (200, 82, 118), "Radio": (126, 96, 200),
+    "Home": (36, 54, 96), "TV": (62, 112, 204), "Music": (200, 82, 118), "Radio": (126, 96, 200),
     "Photos": (38, 146, 136), "Videos": (196, 84, 72), "Weather": (60, 150, 212), "Games": (58, 152, 96),
     "Files": (76, 114, 154), "Camera": (64, 72, 86), "Bot": (214, 132, 56), "Simulator": (30, 38, 46),
     "Finance": (8, 10, 10), "System": (88, 96, 110), "Settings": (112, 120, 134),
@@ -483,7 +483,7 @@ def draw_bright_icon(name, size=72):
     def B(x0, y0, x1, y1):
         return (x0 * k, y0 * k, x1 * k, y1 * k)
 
-    if name == "Home Assistant":                   # a house, a light on
+    if name == "Home":                             # a house, a light on
         d.polygon(P((30, 124), (126, 42), (222, 124)), fill=white)
         d.rounded_rectangle(B(60, 110, 192, 206), radius=int(10 * k), fill=white)
         d.rounded_rectangle(B(80, 128, 118, 166), radius=int(6 * k), fill=(255, 211, 94))

@@ -1,15 +1,19 @@
-"""The AI player's coach (pitato/anygame.py): your Bot's model (Settings > Bot) looks at the game's screen now and
-then, the way someone picking up a game for the first time would, and works out what's going on, what to aim for and
-how to get there, and what the controls do. The decision model picks each move, following that. The coach thinks on
-a thread of its own, so the game never waits for it: every so often, and soon after the player gets stuck (its moves
-keep bringing nothing new), when it's told what the player's been doing and asked for something different.
+"""The AI player's coach (pitato/anygame.py): your Bot's model (Settings > Bot) knows a lot of games, and uses what
+it knows. The first time, it says what it knows of this one: what kind of game it is (a racing game, a platformer,
+fighting, a shooter, sports, a puzzle, an RPG, an adventure), what each button does in it, and how a good player
+plays it, so the player plays it that way (a racer drives by instinct, many times a second: pitato/instincts.py).
+Then now and then it looks at the game's screen and works out what's going on, what to aim for and how to get there,
+and the decision model picks each move, following that. The coach thinks on a thread of its own, so the game never
+waits for it: every so often, and soon after the player gets stuck (its moves keep bringing nothing new), when it's
+told what the player's been doing and asked for something different.
 
 What it works out about a game is kept for next time, in a notes file beside the game's saves (Games/Saves/
-<game>.ai-notes.txt), with a place for tips of yours: the controls, what to aim for, how to get past a part. Two
-lines in it are the coach's own, the first that starts Controls: and the first that starts Goal:, and it keeps those
-up to date; every other line is yours, left just as it is (and all but # lines are tips, Tips: in front or not). It's
-read again whenever it's changed, so tips added while the game's played count straight away, and they're read even
-with no Bot model (the decision model's told them, and the controls worked out before)."""
+<game>.ai-notes.txt), with a place for tips of yours: the controls, what to aim for, how to get past a part. Its own
+lines in it are the first that start Kind:, Buttons:, How:, Controls: and Goal:, and it keeps those up to date (a
+Kind: line you write, it goes by: racing, platformer, fighting, shooter, sports, puzzle, rpg, adventure or other);
+every other line is yours, left just as it is (and all but # lines are tips, Tips: in front or not). It's read again
+whenever it's changed, so tips added while the game's played count straight away, and they're read even with no Bot
+model (the decision model's told them, and what was worked out before)."""
 import json
 import os
 import re
@@ -18,6 +22,7 @@ import threading
 import time
 
 from .bot import FRIEND_THINK, CantSee, OllamaError, cant_see, ollama_call
+from .instincts import KINDS, kind_of
 
 EVERY = 40.0                 # seconds between its looks while the player gets on
 GAP = 12.0                   # ...and at least this long after its last, when the player's stuck
@@ -29,23 +34,37 @@ SAYS_MOST = 400              # characters of each thing it says, at most
 TIPS_MOST = 1500             # characters of your tips it's told
 NOTES_MOST = 1 << 20         # bytes of the notes file, at most, it reads (a bigger one it reads the start of, and
                              # leaves as it is)
-OWN_LINE = re.compile(r"\s*(controls|goal)\s*:\s?(.*)$", re.I)   # its own two lines' starts
+OWN = ("Kind", "Buttons", "How", "Controls", "Goal")   # its own lines in the notes, in the order it adds them
+OWN_LINE = re.compile(r"\s*(kind|buttons|how|controls|goal)\s*:\s?(.*)$", re.I)   # their starts
 FIELDS = ("screen", "goal", "plan", "controls")
+CARD = ("kind", "buttons", "how")             # what it knows of the game (asked once: kept in the notes)
 SCHEMA = {"type": "object", "properties": {k: {"type": "string"} for k in FIELDS}, "required": list(FIELDS)}
-ROLE = ("You coach a player that is playing {game} on the {system}. The player can't plan ahead or remember much: "
-        "every second or two it presses one thing, following what you tell it. It can press a button, push a "
-        "direction for a moment or hold it a second, push a direction with one of the first two buttons (a jump or "
-        "an attack on the move), or wait. Now and then you look at the game's screen the way someone who has never "
-        "played this game would: work out what's going on, what the game wants, and how to get there; and when "
-        "the player's stuck, think of something different to try. Reply with JSON only.")
+CARD_SCHEMA = {"type": "object", "properties": dict({k: {"type": "string"} for k in CARD + FIELDS},
+                                                    kind={"type": "string", "enum": list(KINDS)}),
+               "required": list(CARD + FIELDS)}
+ROLE = ("You coach a player that is playing {game} on the {system}. You know video games, and very likely this one: "
+        "use what you know of it (what kind of game it is, what each button does in it, what the goal is, and how "
+        "good players play it) along with what you see on its screen. The player can't plan ahead or remember much. "
+        "In an action game (racing, a platformer, fighting, a shooter) it plays by instinct, many times a second: it "
+        "drives, runs and jumps, fights or shoots by itself, and you say when that's what to do and which way to go. "
+        "Otherwise, every second or two it presses one thing, following what you tell it: a button, a direction for "
+        "a moment or held a second, a direction with one of the first two buttons (a jump or an attack on the "
+        "move), or nothing. Now and then you look at the game's screen and work out what's going on, what to aim "
+        "for and how to get there; when the player's stuck, think of something different to try. Reply with JSON "
+        "only.")
 ASK = ('Reply with JSON: "screen": what\'s on the screen, in a sentence. "goal": what to aim for right now, in a few '
        'words. "plan": the next few things to do, in a sentence or two, naming the buttons and directions to press. '
        '"controls": what\'s known about this game\'s controls so far, in a sentence (keep what\'s still true).')
+ASK_CARD = (' And what you know of this game: "kind": what kind of game it is, one of ' + ", ".join(KINDS) + '. '
+            '"buttons": what each of its buttons does in this game, as Button: what it does, separated by '
+            'semicolons, with the button names above (A, B, Cross...). "how": how a good player plays it, in a '
+            'sentence or two.')
 STUCK_SAYS = (" Think of what a person would try instead: a button it hasn't used (one may pick things up, use them "
               "or throw them), going another way, or doing something with what's around it.")
-NOTES_HEAD = ("# The AI player's notes on this game: it reads them each time it plays. The Controls: and Goal: lines\n"
-              "# are its own, kept up to date as it works things out. The rest is yours: write tips anywhere (the\n"
-              "# controls, what to aim for, how to get past a part where it's stuck) and it leaves them as they are.\n")
+NOTES_HEAD = ("# The AI player's notes on this game: it reads them each time it plays. The Kind:, Buttons:, How:,\n"
+              "# Controls: and Goal: lines are its own, kept up to date as it works things out (change Kind: if it's\n"
+              "# wrong). The rest is yours: write tips anywhere (the controls, what to aim for, how to get past a part\n"
+              "# where it's stuck) and it leaves them as they are.\n")
 
 
 def flat(text):
@@ -72,7 +91,7 @@ def tidy(value):
 def salvage(text):
     """What can be read of JSON cut short (an answer that ran out of room): the fields whose values started."""
     got = {}
-    for k in FIELDS:
+    for k in FIELDS + CARD:
         m = re.search(r'"%s"\s*:\s*"((?:[^"\\]|\\.)*)' % k, text, re.I)
         if m:
             raw = m.group(1).rstrip("\\")
@@ -83,24 +102,29 @@ def salvage(text):
     return got
 
 
+def answer(text):
+    """(its answer's JSON: a dict, a string, something else, or None; the text with any reasoning taken out). JSON
+    among other words is found; JSON cut short gives what's there of it."""
+    text = FRIEND_THINK.sub(" ", text or "")
+    text = re.sub(r"^\s*<think>.*", "", text, flags=re.S | re.I).strip()
+    found = re.search(r"\{.*\}", text, re.S)
+    for candidate in (text, found.group(0) if found else ""):
+        try:
+            return json.loads(candidate), text
+        except ValueError:
+            continue
+    if "{" in text:
+        return salvage(text[text.index("{"):]) or None, text
+    return None, text
+
+
 def parse(text):
     """Its answer: {"screen", "goal", "plan", "controls"}, or None when it said nothing to go by. JSON, as asked
     (or JSON among other words, or JSON cut short: what's there of it); words alone, or a string of them, are taken
     as the plan."""
-    text = FRIEND_THINK.sub(" ", text or "")
-    text = re.sub(r"^\s*<think>.*", "", text, flags=re.S | re.I).strip()
-    got = None
-    found = re.search(r"\{.*\}", text, re.S)
-    for candidate in (text, found.group(0) if found else ""):
-        try:
-            got = json.loads(candidate)
-            break
-        except ValueError:
-            continue
-    if got is None and "{" in text:
-        got = salvage(text[text.index("{"):]) or None
-        if got is None:                                # (JSON it couldn't finish, with nothing in it to go by)
-            return None
+    got, text = answer(text)
+    if got is None and "{" in text:                    # (JSON it couldn't finish, with nothing in it to go by)
+        return None
     if isinstance(got, str):
         text, got = got, None
     if isinstance(got, dict):
@@ -113,9 +137,27 @@ def parse(text):
     return {"screen": "", "goal": "", "plan": words, "controls": ""} if words else None
 
 
+def parse_card(text):
+    """What it said it knows of the game, in its answer: {"kind" (one of KINDS), "buttons", "how"}, those it said;
+    {} if none."""
+    got, _ = answer(text)
+    if not isinstance(got, dict):
+        return {}
+    low = {str(k).strip().lower(): v for k, v in got.items()}
+    out = {k: tidy(low.get(k)) for k in CARD}
+    out["kind"] = kind_of(out["kind"]) or ""
+    return {k: v for k, v in out.items() if v}
+
+
+def readable(text):
+    """A notes file's text as read to write back (any bytes that weren't UTF-8 kept as they were), made plain to
+    read (those a ?)."""
+    return text.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
+
+
 def notes_parts(text):
-    """(your tips, {"Controls", "Goal"} worked out before) from a notes file: its own two lines (the first that
-    starts Controls: and the first Goal:), and every other line but # lines a tip (Tips: in front or not)."""
+    """(your tips, {"Kind", "Buttons", "How", "Controls", "Goal"} worked out before, those there) from a notes file:
+    its own lines (the first that starts each), and every other line but # lines a tip (Tips: in front or not)."""
     tips, own = [], {}
     for line in text.splitlines():
         if line.lstrip().startswith("#"):
@@ -129,20 +171,22 @@ def notes_parts(text):
     return "\n".join(tips).strip(), {k: v for k, v in own.items() if v}
 
 
-def notes_with(text, controls, goal):
-    """A notes file's text with its own two lines saying controls and goal: in place of the first that starts
-    Controls: and the first Goal: (or added at the end), every other line just as it was. None (no file yet): a
-    new one, its heading, a Tips line for yours, and them."""
+def notes_with(text, own):
+    """A notes file's text with its own lines saying what's in own ({"Kind", "Buttons", "How", "Controls", "Goal"}:
+    those with something to say): in place of the first line that starts each (or added at the end), every other
+    line just as it was. None (no file yet): a new one, its heading, a Tips line for yours, and them."""
+    own = {k: v for k, v in own.items() if v}
     if text is None:
-        return NOTES_HEAD + f"Tips: \nControls: {controls}\nGoal: {goal}\n"
+        return NOTES_HEAD + "Tips: \n" + "".join(f"{k}: {own[k]}\n" for k in OWN if k in own)
     lines, done = text.splitlines(), set()
     for i, line in enumerate(lines):
         m = None if line.lstrip().startswith("#") else OWN_LINE.match(line)
-        if m and m.group(1).capitalize() not in done:
-            key = m.group(1).capitalize()
-            lines[i] = f"{key}: {controls if key == 'Controls' else goal}"
+        key = m.group(1).capitalize() if m else None
+        if key and key not in done:
             done.add(key)
-    lines += [f"{k}: {v}" for k, v in (("Controls", controls), ("Goal", goal)) if k not in done]
+            if key in own:
+                lines[i] = f"{key}: {own[key]}"
+    lines += [f"{k}: {own[k]}" for k in OWN if k in own and k not in done]
     return "\n".join(lines) + "\n"
 
 
@@ -150,7 +194,8 @@ class Coach:
     """Your Bot's model, coaching the AI player: start() it with the game's name, system and controls; see() what the
     player's seen and done as it goes; nudge() when it's stuck; stop(). advice: {"screen", "goal", "plan",
     "controls"} once it's said (None till then); tips: yours; controls(): what's known about the controls, now or
-    from before. With no model, it only reads the notes (your tips, and what was worked out before)."""
+    from before; card(): what's known of the game (its kind, what its buttons do, how it's played well). With no
+    model, it only reads the notes (your tips, and what was worked out before)."""
 
     def __init__(self, server, model, notes_path, log=lambda entry: None, paused=lambda: False):
         self.server, self.model, self.notes_path = server, (model or "").strip(), notes_path
@@ -158,6 +203,7 @@ class Coach:
         self.game = self.system = self.buttons = ""
         self.advice, self.advised_at = None, 0.0
         self.tips, self.known = "", {}
+        self.said_card = {}                   # what it said of the game (kept in the notes too, if they can be)
         self.notes_seen = None                # the notes file's (mtime, size) when read: read again when they change
         self.notes_failed = False
         self.blind = False                    # its model was shown the screen and can't look at pictures
@@ -193,6 +239,14 @@ class Coach:
         said = (self.advice or {}).get("controls")
         return said or flat(self.known.get("Controls", ""))
 
+    def card(self):
+        """What's known of the game, from the notes (what it said of it, the first time; or a Kind: line of yours):
+        {"kind": one of KINDS, or "" if it's not known, "buttons": what each does, "how": how it's played well}."""
+        known, said = self.known, self.said_card
+        return {"kind": kind_of(known.get("Kind")) or said.get("kind", ""),
+                "buttons": flat(known.get("Buttons", "")) or said.get("buttons", ""),
+                "how": flat(known.get("How", "")) or said.get("how", "")}
+
     # -- thinking --------------------------------------------------------------------------------------------------
     def main(self):
         last, rest_until = None, 0.0
@@ -218,18 +272,20 @@ class Coach:
                 rest_until = last + RESTS[1 if self.fails >= FAILS_LONG else 0]
 
     def think(self, look, story, first=False):
-        """Looks at the screen and says what to do: True once it has (it's kept, logged and noted for next time)."""
+        """Looks at the screen and says what to do (and, while it's not known, what it knows of the game): True once
+        it has (it's kept, logged and noted for next time)."""
         self.read_notes()
         sees = look is not None and not self.blind
         timeout = FIRST_TIMEOUT if first else TIMEOUT
+        card = not self.card()["kind"]             # (what kind of game it is: asked till it's known)
         t0 = time.monotonic()
         try:
             try:
-                text = self.ask(self.prompt(story, sees), [look.data] if sees else None, timeout)
+                text = self.ask(self.prompt(story, sees, card), [look.data] if sees else None, timeout, card)
             except CantSee:
                 self.blind, sees = True, False
                 self.log({"event": f"{self.model} can't look at pictures: it coaches without seeing the screen"})
-                text = self.ask(self.prompt(story, False), None, timeout)
+                text = self.ask(self.prompt(story, False, card), None, timeout, card)
         except Exception as ex:                    # (it says why in the log; the player plays on)
             if self.stopping.is_set():
                 return True
@@ -244,19 +300,24 @@ class Coach:
                       "ms": ms})
             return False
         self.advice, self.advised_at = advice, time.monotonic()
-        self.write_notes(advice)
+        said = parse_card(text) if card else {}
+        self.said_card.update(said)
+        if said.get("kind"):
+            self.log({"event": f"{self.model} says it's a {said['kind']} game", "buttons": said.get("buttons"),
+                      "how": said.get("how")})
+        self.write_notes(advice, said)
         self.log(dict({"kind": "coach"}, **{k: v or None for k, v in advice.items()},
                       saw="x".join(map(str, look.size)) if sees else None, stuck=story.get("stale") if
                       story.get("stuck") else None, ms=ms))
         return True
 
-    def prompt(self, story, sees):
+    def prompt(self, story, sees, card=False):
         """What it's asked: the game, your tips, what was worked out before and what it said last, the player's last
-        moves and what came of each, and whether it's stuck."""
+        moves and what came of each, and whether it's stuck (and, card: what it knows of the game)."""
         lines = [f"The game: {self.game}, on the {self.system}. Its buttons: {self.buttons}."]
         if self.tips:
             lines.append(f"Tips from the person whose game it is (trust these): {self.tips}")
-        before = " ".join(f"{k}: {flat(self.known[k])}" for k in ("Controls", "Goal") if self.known.get(k))
+        before = " ".join(f"{k}: {flat(self.known[k])}" for k in OWN if self.known.get(k))
         if before:
             lines.append(f"Worked out in earlier games: {before}")
         if self.advice:
@@ -267,8 +328,9 @@ class Coach:
             lines.append("The player's last moves, oldest first, and what came of each:\n"
                          + "\n".join(f"- {m}" for m in story["moves"]))
         if story.get("stuck"):
-            said = (f"It's stuck: its last {story.get('stale')} moves got it nowhere (the screen keeps looking as it "
-                    "has before)") + (f", doing mostly {story['mostly']}" if story.get("mostly") else "") + "."
+            said = story.get("stuck_words") or (
+                (f"It's stuck: its last {story.get('stale')} moves got it nowhere (the screen keeps looking as it "
+                 "has before)") + (f", doing mostly {story['mostly']}" if story.get("mostly") else "") + ".")
             if story.get("off"):
                 said += " Off its list for now: " + ", ".join(story["off"]) + "."
             if story.get("untried"):
@@ -276,15 +338,16 @@ class Coach:
             lines.append(said + STUCK_SAYS)
         lines.append("The attached picture is the game's screen right now." if sees else
                      "You can't see the screen this time: go by the game and what's said here.")
-        lines.append(ASK)
+        lines.append(ASK + (ASK_CARD if card else ""))
         return "\n".join(lines)
 
-    def ask(self, prompt, images, timeout):
-        """Its model's answer (text): asked for JSON in the shape wanted, with no reasoning first; an older Ollama
-        or a model that doesn't do one of those is asked again without it. CantSee: shown a picture, it can't look."""
+    def ask(self, prompt, images, timeout, card=False):
+        """Its model's answer (text): asked for JSON in the shape wanted (card: with what it knows of the game), with
+        no reasoning first; an older Ollama or a model that doesn't do one of those is asked again without it.
+        CantSee: shown a picture, it can't look."""
         body = {"model": self.model, "system": ROLE.format(game=self.game, system=self.system), "prompt": prompt,
-                "stream": False, "think": False, "format": SCHEMA, "keep_alive": "30m",
-                "options": {"temperature": 0.5, "num_predict": 600}}
+                "stream": False, "think": False, "format": CARD_SCHEMA if card else SCHEMA, "keep_alive": "30m",
+                "options": {"temperature": 0.5, "num_predict": 800 if card else 600}}
         if images:
             body["images"] = list(images)
         while True:
@@ -307,8 +370,8 @@ class Coach:
 
     # -- the notes file ----------------------------------------------------------------------------------------------
     def read_notes(self):
-        """Your tips, and what was worked out before (Controls, Goal), from the notes file: read again when it's
-        changed."""
+        """Your tips, and what was worked out before (its own lines: Kind, Buttons, How, Controls, Goal), from the
+        notes file: read again when it's changed."""
         with self.lock:
             try:
                 st = os.stat(self.notes_path)
@@ -328,13 +391,14 @@ class Coach:
             self.tips = flat(tips)[:TIPS_MOST]
             self.notes_seen = sig
 
-    def write_notes(self, advice):
-        """What it's worked out (the controls, its goal) into its two lines of the notes file, for next time: the
-        file read afresh first, and every other line in it (yours) left just as it is. Written under a name of its
-        own, then put in place; owned like the Saves folder, so it's yours to edit. A file too big to read whole is
-        left as it is."""
-        controls = advice.get("controls") or flat(self.known.get("Controls", ""))
-        goal = advice.get("goal") or flat(self.known.get("Goal", ""))
+    def write_notes(self, advice, card=None):
+        """What it's worked out (the controls, its goal; and what it said of the game: its kind, its buttons, how
+        it's played) into its own lines of the notes file, for next time: the file read afresh first, and every
+        other line in it (yours) left just as it is. What it said of the game goes in only where the file hasn't a
+        line for it already (one there, yours or its own, stays as it is). Written under a name of its own, then put
+        in place; owned like the Saves folder, so it's yours to edit. A file too big to read whole is left as it is.
+        Your tips, and the file's own lines, are taken as it now is."""
+        said = dict(card or {}, controls=advice.get("controls"), goal=advice.get("goal"))
         with self.lock:
             folder = os.path.dirname(self.notes_path)
             tmp = None
@@ -346,7 +410,10 @@ class Coach:
                         text = f.read()
                 except FileNotFoundError:
                     text = None
-                new = notes_with(text, controls, goal)
+                fresh = notes_parts(readable(text))[1] if text else {}
+                own = {k: (fresh.get(k) or said.get(k.lower())) if k in ("Kind", "Buttons", "How")
+                       else (said.get(k.lower()) or fresh.get(k)) for k in OWN}
+                new = notes_with(text, {k: v or "" for k, v in own.items()})
                 if new == text:
                     return
                 st = os.stat(folder)
@@ -363,7 +430,8 @@ class Coach:
                 tmp = None
                 st = os.stat(self.notes_path)
                 self.notes_seen = (st.st_mtime_ns, st.st_size)
-                self.known = {k: v for k, v in (("Controls", controls), ("Goal", goal)) if v}
+                tips, self.known = notes_parts(readable(new))
+                self.tips = flat(tips)[:TIPS_MOST]
             except (OSError, ValueError) as ex:
                 if not self.notes_failed:
                     self.notes_failed = True

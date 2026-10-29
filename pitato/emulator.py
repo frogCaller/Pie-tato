@@ -1358,7 +1358,7 @@ class Session:
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="A game, for Pie-tato's Games tab.")
+    ap = argparse.ArgumentParser(description="A game, for Pietato's Games tab.")
     ap.add_argument("--core", required=True)
     ap.add_argument("--game", required=True)
     ap.add_argument("--exts", default=".gb,.gbc,.gba,.nes,.sfc,.smc")

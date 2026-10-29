@@ -88,7 +88,7 @@ def unturn_image(img, turn):
 def set_terminal_turn(degrees, path=None):
     """The terminal (the kernel's text on the screen) turned too: True if it could be. Only a console in text mode
     takes it: the kernel passes over one in graphics mode, as media mode's is while the menus are up. So it's done as
-    Pie-tato starts and when the setting changes (for the consoles in text mode then), and again whenever media
+    Pietato starts and when the setting changes (for the consoles in text mode then), and again whenever media
     mode's own console goes to text mode (terminal_turn_now: a Simulator program on it, or back to the terminal).
     The Pi's own messages as it starts up stay as they are."""
     global TERMINAL_TURNED
@@ -407,12 +407,45 @@ def sound_name(route):
     return next((n for c, n in sound_cards() if c == route), None) or _usb_seen.get(route) or "the Pi"
 
 
+HDMI_CARD = re.compile(r"vc4hdmi\d?")          # the Pi's own HDMI sound (a card for each HDMI port)
+HDMI_AES = "4.130.0.1"     # its channel status, as ALSA's own way there sets it: a consumer's, PCM, the rate left to
+                           # the IEC958 encoder to fill in
+ALSA_OWN = ("/etc/asound.conf", "~/.asoundrc", "/etc/alsa/conf.d/*.conf", "/usr/share/alsa/alsa.conf.d/*.conf")
+
+
+def alsa_first_card():
+    """The card ALSA's default plays through, as it is out of the box: the kernel's first (its id). None when ALSA's
+    been told otherwise (ALSA_CARD, /etc/asound.conf, ~/.asoundrc, a conf.d file that names a default)."""
+    if os.environ.get("ALSA_CARD") or os.environ.get("ALSA_PCM_CARD"):
+        return None
+    for pattern in ALSA_OWN:
+        for path in glob.glob(os.path.expanduser(pattern)):
+            try:
+                with open(path, errors="replace") as f:
+                    text = f.read()
+            except OSError:
+                continue
+            if re.search(r"pcm\.!?default\b|defaults\.pcm\.!?card\b", text):
+                return None
+    m = re.search(r"^\s*0\s+\[(\S+)\s*\]", read_file(os.path.join(ASOUND, "cards")), re.M)
+    return m.group(1) if m else None
+
+
 def sound_device(choice, route=None):
     """mplayer's -ao for Settings > Sound (or for a route already worked out); plain ALSA is the fallback either
-    way."""
+    way. The Pi's own HDMI sound goes to the port as directly as ALSA has it (hdmi:, its IEC958 encoder and the
+    port), not ALSA's usual way there (default:, with plug and softvol in front of the encoder): when the sound runs
+    dry for a moment (a stream's sound late), mplayer catches up by telling ALSA to skip ahead, and alsa-lib's IEC958
+    encoder goes back instead (a bug of its since 2014). What's in front of it is then out of step with it, and
+    alsa-lib stops mplayer dead the next time it's asked how full it is ("pcm_plugin.c: snd_pcm_plugin_status:
+    Assertion `status->appl_ptr == *pcm->appl.ptr' failed"). Straight to the encoder, nothing's out of step: mplayer
+    makes the sound what the port takes itself."""
     route = sound_route(choice) if route is None else route
     if route == "bluetooth":
         return f"alsa:device={BT_SOUND},alsa"
+    card = route or alsa_first_card() or ""
+    if HDMI_CARD.fullmatch(card):
+        return f"alsa:device=hdmi={card}.0.{HDMI_AES},alsa"   # hdmi:CARD,DEV,AES0..3 (mplayer reads . as , and = as :)
     return f"alsa:device=default={route},alsa" if route else "alsa"
 
 

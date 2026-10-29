@@ -1,4 +1,5 @@
 """Playing videos, music and radio, and what's playing now."""
+import collections
 import os
 import random
 import re
@@ -14,7 +15,7 @@ from ..lengths import probe_length
 from ..screen import (aplay_device, bt_output_name, bt_outputs, screen_turn, slow_pi, sound_cards, sound_device,
                       sound_moves, sound_name, sound_place, usb_name)
 from ..radio import rb_get
-from ..tv import hls_pick, is_hls
+from ..tv import HLS_LENIENT, hls_lenient, hls_pick, hls_turned_down, is_hls, lavf_knows_now
 from ..library import (
     AUDIO_PLAYER, LIBRARY, LISTEN_KINDS, LOCAL_CACHE, NET_CACHE, PLAYER_NICE, RADIO_CACHE, resolve,
     SCREEN_KINDS, VIDEO_PLAYER, video_scale)
@@ -26,6 +27,9 @@ MUSIC_BACK_SECS = 2.0  # music a game or a video stopped: back this long after i
 SOUND_LOOK = 2.0      # seconds between looks at where the sound should go, while something plays
 PLAYER_SETTLE_ASK = 0.4   # a player started paused and silent: seconds between telling it to pause, till it has
 PLAYER_SETTLE_MAX = 60.0  # ...and how long that goes on (a stream that never starts)
+PLAYER_SAID = 12          # lines of what the player said last, for the log when it stops soon after it starts
+LIVE_AGAIN = 3            # a live channel that stops by itself after it's been playing is tuned in again, up to this
+LIVE_AGAIN_SECS = 120.0   # ...many times in this long (one that keeps stopping is let go)
 
 
 def quiet_child():
@@ -241,7 +245,10 @@ class PlayerScreen:
         self.cmd(f'pausing_keep_force osd_show_text "{text}" {ms}')    # (paused, it stays paused)
 
     def reader(self, p):
+        said = getattr(p, "said", None)
         for line in p.stdout:
+            if said is not None and not line.startswith("ANS_") and line.strip() and "LIRC" not in line:
+                said.append(line.strip())           # (why it stopped, should it stop soon after it starts)
             if p is not self.proc:
                 continue
             if "StreamTitle='" in line:            # song name from internet radio
@@ -294,12 +301,61 @@ class PlayerScreen:
         self.muted = self.settling = False
         self.proc = subprocess.Popen(
             args + [target], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL, text=True, bufsize=1,
+            stderr=subprocess.PIPE, text=True, bufsize=1, errors="replace",
             preexec_fn=lambda: os.nice(PLAYER_NICE))
+        self.proc.said = collections.deque(maxlen=PLAYER_SAID)
         threading.Thread(target=self.reader, args=(self.proc,), daemon=True).start()
+        threading.Thread(target=self.errors, args=(self.proc,), daemon=True).start()
         if paused:                                     # (paused as soon as it'll listen: settle_tick)
             self.muted = self.settling = self.paused = True
             self.settle_play, self.settle_ask, self.pause_said = False, 0.0, None
+
+    @staticmethod
+    def errors(p):
+        """What the player says went wrong (its stderr): kept with the rest it said."""
+        said = getattr(p, "said", None)
+        for line in getattr(p, "stderr", None) or ():
+            if said is not None and line.strip() and "LIRC" not in line:
+                said.append(line.strip())
+
+    def player_report(self, p, what):
+        """A player that stopped soon after it started: why, in the log (journalctl -u pitato), with the last of what
+        it said."""
+        rc = getattr(p, "returncode", None)
+        how = (f"killed by signal {-rc}" + (" (out of memory?)" if rc == -9 else "")) if rc is not None and rc < 0 \
+            else f"exit code {rc}"
+        said = list(getattr(p, "said", ()))[-6:]
+        print(f"player: {what} stopped {time.monotonic() - self.started:.1f} s in ({how})"
+              + (": " + " | ".join(said) if said else ""), flush=True)
+
+    def lenient_again(self, p):
+        """A stream FFmpeg turned down at once for its pieces' links (it only says so when it can be told not to mind):
+        played again straight away, with it told; and the streams after it are told from the start."""
+        cmd = list(getattr(p, "args", None) or ())
+        if len(cmd) < 2 or HLS_LENIENT[1] in cmd or not hls_turned_down(getattr(p, "said", ())):
+            return False
+        lavf_knows_now("extension_picky")
+        self.start_paused = self.muted                 # (paused and silent, as that one was)
+        try:
+            self.spawn(cmd[:-1] + HLS_LENIENT, cmd[-1])
+        finally:
+            self.start_paused = False
+        return True
+
+    def live_again(self, now):
+        """A live channel that stopped by itself after it had been playing (the stream dropped, the player quit):
+        tuned in again, as a TV would, unless it's stopped that often lately (then it's let go, saying so)."""
+        it = self.cur
+        if not self.active or not it or not self.queue:
+            return False
+        key = it.get("key") or it["src"]
+        self.live_stops = [(k, t) for k, t in self.live_stops if now - t < LIVE_AGAIN_SECS]
+        if sum(k == key for k, _ in self.live_stops) >= LIVE_AGAIN:
+            self.toast("That channel keeps stopping. Try it again later", 5)
+            return False
+        self.live_stops.append((key, now))
+        self.play(self.queue, self.qi, start=0, note="Reconnecting")
+        return True
 
     def screen_dims(self):
         """The real screen's size, as it's seen (the menus are drawn 480 lines high and scaled to it)."""
@@ -345,7 +401,8 @@ class PlayerScreen:
             self.view = "list"
             self.toast("Couldn't load that. Check the WiFi connection.")
             return
-        if kind == "live" and not plexlive and is_hls(target):     # the version that suits the Pi
+        hls = is_hls(target)
+        if kind == "live" and not plexlive and hls:     # the version that suits the Pi
             target = hls_pick(target)
         net = "://" in target
         args = list(AUDIO_PLAYER if kind in LISTEN_KINDS else self.video_args())
@@ -355,6 +412,8 @@ class PlayerScreen:
             args += PLEX_CACHE
         else:
             args += NET_CACHE if net else ([] if kind == "audio" else LOCAL_CACHE)
+        if hls and net and kind not in LISTEN_KINDS:
+            args += hls_lenient()                      # (whatever its pieces' links end in)
         args += ["-volume", str(self.volume)]
         if start:
             args += ["-ss", str(int(max(start - 3, 0)))]

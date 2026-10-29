@@ -25,7 +25,7 @@ TEXT_EXTS = {".txt", ".md", ".log", ".csv", ".tsv", ".json", ".yaml", ".yml",
              ".java", ".srt", ".service", ".rules", ".env", ".lua"}
 
 
-UA = {"User-Agent": "pie-tato/1.0 (Raspberry Pi media player)"}
+UA = {"User-Agent": "pietato/1.0 (Raspberry Pi media player)"}
 
 
 # ---- helpers -----------------------------------------------------------------

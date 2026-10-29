@@ -26,8 +26,8 @@ FONT_MONO_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
 
 
 def bundled_font(name, instead):
-    """A typeface that comes with Pie-tato, in its static/fonts folder (where setup.sh puts the code, or the
-    Pie-tato folder itself); the system's `instead` if it isn't there."""
+    """A typeface that comes with Pietato, in its static/fonts folder (where setup.sh puts the code, or the
+    Pietato folder itself); the system's `instead` if it isn't there."""
     for static in (os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static"),
                    os.environ.get("PITATO_STATIC", "").strip()):
         path = os.path.join(static, "fonts", name) if static else ""

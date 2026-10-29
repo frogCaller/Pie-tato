@@ -7,7 +7,7 @@
 <meta name="referrer" content="no-referrer">
 <meta name="theme-color" content="#0b0d12" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f3f5f8" media="(prefers-color-scheme: light)">
-<title>Pie-tato</title>
+<title>Pietato</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%2360aae4'/%3E%3Crect x='7' y='9' width='18' height='12' rx='2.5' fill='none' stroke='white' stroke-width='2'/%3E%3Cpath d='m14 12.5 4 2.5-4 2.5z' fill='white'/%3E%3C/svg%3E">
 <style>
   /* Atkinson Hyperlegible (Braille Institute; SIL Open Font License, static/fonts/OFL.txt):
@@ -551,6 +551,79 @@
   }
   .toast.show { display: block; }
 
+  /* ---- settings: the Pi's Settings, and each app's own, as one column to read down ---- */
+  .settings { display: grid; grid-template-columns: 196px minmax(0, 800px); gap: 40px; justify-content: center; align-items: start; }
+  .set-index { position: sticky; top: calc(var(--top) + 28px); display: flex; flex-direction: column; gap: 2px; }
+  .set-index button {
+    border: 0; background: none; padding: 7px 12px; border-radius: 10px; text-align: left;
+    color: var(--muted); font-size: 14.5px; font-weight: 600; white-space: nowrap;
+  }
+  @media (hover: hover) { .set-index button:hover { color: var(--text); background: var(--hover); } }
+  .set-index button[aria-current="true"] { color: var(--text); background: var(--raised); }
+  .set-list { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+  .set-sec {
+    padding: 4px 24px 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 22px;
+    scroll-margin-top: calc(var(--top) + 24px);
+  }
+  .set-sec > header { padding: 18px 0 6px; }
+  .set-sec h2 { font-size: 18px; font-weight: 700; color: var(--text); }
+  .set-sec > header p { margin: 4px 0 0; font-size: 13.5px; color: var(--muted); max-width: 60ch; }
+  .set-row {
+    display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 10px 24px; align-items: center;
+    padding: 14px 0; border-top: 1px solid var(--line);
+  }
+  .set-sec > header + .set-row { border-top: 0; }
+  .set-row.wide { grid-template-columns: minmax(0, 1fr); }
+  .set-l { min-width: 0; }
+  .set-l b { display: block; font-size: 15px; font-weight: 600; }
+  .set-note { display: block; margin-top: 3px; font-size: 13px; color: var(--muted); }
+  .set-status { display: block; margin-top: 3px; font-size: 13px; color: var(--muted); }
+  .set-status.ok { color: var(--ok); }
+  .set-status.bad { color: var(--bad); }
+  .set-status.busy { color: var(--accent); }
+  .set-c { min-width: 0; display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; align-items: center; }
+  .set-row.wide .set-c { justify-content: flex-start; }
+  .set-c .seg { flex-wrap: wrap; }
+  .set-c .select-wrap { width: min(100%, 320px); }
+  .set-c .in-row { width: 100%; max-width: 460px; }
+  .set-c .in-row .btn { height: 40px; }
+  .set-c .stack { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 460px; }
+  .set-c .stack .label { margin: 0; }
+  .set-c .stack > .in { flex: none; }
+  .set-c .stack > .btn, .set-c .stack > .btn2 { align-self: flex-start; }
+  .set-ask { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px 14px; font-size: 13.5px; color: var(--body); }
+  .btn2 {
+    height: 36px; padding: 0 15px; border-radius: 10px; border: 1px solid var(--line-2); background: none;
+    font-weight: 650; font-size: 14px; color: var(--text); white-space: nowrap; flex: none;
+  }
+  .btn2:hover { border-color: var(--line-3); background: var(--hover); }
+  .btn2:disabled { opacity: .5; cursor: default; background: none; }
+  .btn2.bad { color: var(--bad); }
+  .btn2.armed { border-color: rgba(var(--bad-rgb), .6); background: rgba(var(--bad-rgb), .12); color: var(--bad); }
+  .swatches { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
+  .swatch { width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 1px var(--line-2) inset; }
+  .swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text); }
+  .set-pics { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: 8px; max-height: 284px; overflow-y: auto; padding: 4px; }
+  .set-pics .fr-thumb[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--accent); }
+  .set-pics .fr-note { grid-column: 1 / -1; }
+  .set-here { font-size: 15px; font-weight: 600; }
+  .set-here.ok { color: var(--ok); }
+  .nets { list-style: none; margin: 6px 0 0; padding: 0; width: 100%; }
+  .net { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 0; border-top: 1px solid var(--line); min-width: 0; }
+  .net .nn { flex: 1; min-width: 0; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .net .tag { font-size: 13px; color: var(--muted); white-space: nowrap; }
+  .net .tag.ok { color: var(--ok); }
+  .net svg { color: var(--muted); }
+  .net form { flex-basis: 100%; }
+  .bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; flex: none; }
+  .bars i { width: 3px; border-radius: 1px; background: var(--line-3); }
+  .bars i.on { background: var(--body); }
+  .places { display: flex; flex-direction: column; width: 100%; max-width: 460px; }
+  .places button { border: 0; border-top: 1px solid var(--line); background: none; padding: 10px 2px; text-align: left; font-size: 14.5px; color: var(--text); }
+  .places button:hover { color: var(--accent); }
+  .signin-code { font-size: 28px; font-weight: 750; letter-spacing: .16em; font-variant-numeric: tabular-nums; color: var(--text); }
+  .set-busy svg { display: inline-block; vertical-align: -3px; margin-right: 6px; animation: spin .9s linear infinite; }
+
   @media (hover: none) { .acts { opacity: 1; } .go2 { opacity: 1; } .kbd-hint { display: none; } }
   @media (max-width: 1180px) {
     main { padding: 24px; }
@@ -604,8 +677,19 @@
     .add { position: static; max-height: none; }
     .queue { max-height: 50vh; }
     .browse { min-height: 60vh; }
+    .settings { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    .set-index {
+      position: sticky; top: var(--top); z-index: 5; flex-direction: row; gap: 6px; overflow-x: auto; scrollbar-width: none;
+      margin: -16px -16px 14px; padding: 12px 16px; border-bottom: 1px solid var(--line);
+      background: rgba(23, 21, 27, .92); background: color-mix(in srgb, var(--room) 92%, transparent);
+      -webkit-backdrop-filter: saturate(140%) blur(14px); backdrop-filter: saturate(140%) blur(14px);
+    }
+    .set-index::-webkit-scrollbar { display: none; }
+    .set-index button { flex: none; border: 1px solid var(--line-2); border-radius: 999px; padding: 6px 13px; font-size: 13.5px; }
+    .set-index button[aria-current="true"] { border-color: transparent; }
+    .set-sec { padding: 2px 16px 6px; border-radius: 18px; scroll-margin-top: calc(var(--top) + 70px); }
     .dock {
-      position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(3, 1fr);
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(4, 1fr);
       padding: 6px 10px calc(6px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line);
       background: rgba(23, 21, 27, .9); background: color-mix(in srgb, var(--room) 90%, transparent);
       -webkit-backdrop-filter: saturate(140%) blur(14px); backdrop-filter: saturate(140%) blur(14px);
@@ -625,6 +709,8 @@
     .pathbar { padding: 12px 12px 6px; }
     .list { padding: 0 4px 10px; }
     .browse { border-radius: 18px; }
+    .set-row { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+    .set-c, .swatches, .set-ask { justify-content: flex-start; }
   }
   @media (max-width: 380px) { .ring { --d: 196px; } .ring .ok { width: 80px; height: 80px; } }
 </style>
@@ -634,13 +720,14 @@
   <div class="brand">
     <span class="logo" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="12.5" rx="2.5"/><path d="M8.5 21h7"/><path d="m10.5 8.8 4 2.45-4 2.45z" fill="currentColor"/></svg></span>
     <div class="who">
-      <b id="name">Pie-tato</b>
+      <b id="name">Pietato</b>
       <div class="status"><i class="dot" id="dot"></i><span id="status">Connecting…</span></div>
     </div>
   </div>
   <nav class="views" aria-label="Views">
     <button class="vbtn" type="button" data-view="screen" aria-current="false">Screen</button>
     <button class="vbtn" type="button" data-view="files" aria-current="false">Files</button>
+    <button class="vbtn" type="button" data-view="settings" aria-current="false">Settings</button>
   </nav>
 </header>
 
@@ -655,7 +742,7 @@
         </div>
       </div>
       <div class="tv-foot">
-        <div class="seg" role="group" aria-label="What the Pi shows">
+        <div class="seg" id="modeSeg" role="group" aria-label="What the Pi shows">
           <button type="button" data-mode="media" aria-pressed="false">Media mode</button>
           <button type="button" data-mode="terminal" aria-pressed="false">Terminal</button>
         </div>
@@ -799,10 +886,16 @@
   </section>
 </main>
 
+<main class="settings" id="settingsView" hidden>
+  <nav class="set-index" id="setIndex" aria-label="Settings"></nav>
+  <div class="set-list" id="setList"></div>
+</main>
+
 <nav class="dock" aria-label="Views">
   <button type="button" data-view="screen" aria-current="false"><span class="ic-remote"></span>Remote</button>
   <button type="button" data-view="library" aria-current="false"><span class="ic-library"></span>Library</button>
   <button type="button" data-view="files" aria-current="false"><span class="ic-files"></span>Files</button>
+  <button type="button" data-view="settings" aria-current="false"><span class="ic-settings"></span>Settings</button>
 </nav>
 <div class="toast" id="toast" role="status"></div>
 
@@ -852,10 +945,12 @@ const ICONS = {
   library: I('<rect x="3.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.8"/>', 22),
   files: I('<path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2h9A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/>', 22),
   pc: I('<rect x="3" y="4" width="18" height="12.5" rx="2"/><path d="M8.5 20h7M12 16.5V20"/>'),
+  settings: I('<path d="M4 6.5h9M17.5 6.5H20M4 12h3M11.5 12H20M4 17.5h11M19.5 17.5H20"/><circle cx="15.2" cy="6.5" r="2.2"/><circle cx="9.2" cy="12" r="2.2"/><circle cx="17.2" cy="17.5" r="2.2"/>', 22),
+  lock: I('<rect x="5" y="11" width="14" height="9.5" rx="2"/><path d="M8.5 11V7.5a3.5 3.5 0 0 1 7 0V11"/>', 15),
 };
 ICONS.pdf = ICONS.documents;
 ICONS.games = ICONS.pad;
-for (const [cls, key] of [["ic-back", "backKey"], ["ic-home", "home"], ["ic-remote", "remote"], ["ic-library", "library"], ["ic-files", "files"]]) {
+for (const [cls, key] of [["ic-back", "backKey"], ["ic-home", "home"], ["ic-remote", "remote"], ["ic-library", "library"], ["ic-files", "files"], ["ic-settings", "settings"]]) {
   for (const n of $$("." + cls)) n.outerHTML = ICONS[key];
 }
 
@@ -977,7 +1072,7 @@ async function loadInfo() {
   }
 }
 function setTitle() {
-  document.title = (S.info ? S.info.name : "Pie-tato") + (S.view === "files" ? " · files" : " · screen");
+  document.title = (S.info ? S.info.name : "Pietato") + (S.view === "files" ? " · files" : S.view === "settings" ? " · settings" : " · screen");
 }
 function luminance(rgb) {
   const f = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
@@ -1007,20 +1102,22 @@ function showView(v) {
   S.view = v;
   store.set("view", v);
   document.body.dataset.view = v;
-  $("#screenView").hidden = v === "files";
+  $("#screenView").hidden = v === "files" || v === "settings";
   $("#filesView").hidden = v !== "files";
+  $("#settingsView").hidden = v !== "settings";
   for (const b of $$(".vbtn")) b.setAttribute("aria-current", String(b.dataset.view === (v === "library" ? "screen" : v)));
   for (const b of $$(".dock button")) b.setAttribute("aria-current", String(b.dataset.view === v));
   setTitle();
-  if (v !== "files") loadCatalog();
+  if (v === "settings") setPoll();
+  else if (v !== "files") loadCatalog();
   poll();
 }
 function route() {
   const first = location.hash.slice(1).split("/")[0];
-  if (first === "screen" || first === "library") showView(first);
+  if (first === "screen" || first === "library" || first === "settings") showView(first);
   else if (!first) {
     const v = store.get("view", "screen");
-    if (v === "files") { showView("files"); loadList(); } else showView(v === "library" ? "library" : "screen");
+    if (v === "files") { showView("files"); loadList(); } else showView(v === "library" || v === "settings" ? v : "screen");
   } else { showView("files"); loadList(); }
 }
 function goView(v) {
@@ -1042,7 +1139,7 @@ async function poll() {                                   // (in Files, now and 
   let st = null;
   try { st = await api("/api/pi/state"); SCR.fails = 0; }
   catch (e) { SCR.fails++; }
-  const files = S.view === "files";
+  const files = S.view === "files" || S.view === "settings";        // (no picture of the screen to show)
   if (st) {
     SCR.state = st;
     drawState(st);
@@ -1108,7 +1205,7 @@ function drawState(st) {
   $("#dot").className = "dot on";
   $("#status").textContent = media ? st.where || "Media mode" : "Terminal";
   document.body.classList.toggle("tv-dark", !media);
-  for (const b of $$(".seg button")) b.setAttribute("aria-pressed", String(b.dataset.mode === st.mode));
+  for (const b of $$("#modeSeg button")) b.setAttribute("aria-pressed", String(b.dataset.mode === st.mode));
   if (st.size && st.size[0] && st.size[1]) $("#tv").style.aspectRatio = st.size[0] + " / " + st.size[1];
   const m = $("#tvMsg");
   if (media) { m.hidden = true; m.dataset.for = ""; }
@@ -1134,7 +1231,7 @@ function drawOffline() {
   m.dataset.for = "offline";
   m.textContent = "";
   m.append(el("b", "", "The Pi's screen isn't answering"),
-    el("span", "", "Check that Pie-tato is running on the Pi: sudo systemctl status pitato"));
+    el("span", "", "Check that Pietato is running on the Pi: sudo systemctl status pitato"));
   m.hidden = false;
   $("#player").hidden = true;
 }
@@ -1174,7 +1271,7 @@ async function setMode(to) {
   try { await pi("mode", { to }); } catch (e) { toast(e.message); }
   kick(150);
 }
-for (const b of $$(".seg button")) b.onclick = () => setMode(b.dataset.mode);
+for (const b of $$("#modeSeg button")) b.onclick = () => setMode(b.dataset.mode);
 
 // ---- the remote ----------------------------------------------------------------------
 let chain = Promise.resolve(), inFlight = 0;
@@ -1188,7 +1285,7 @@ function press(name, repeat) {
 async function homeButton() {
   try {
     if (SCR.state && SCR.state.mode === "terminal") await pi("mode", { to: "media" });
-    else await pi("open", { app: "Home" });
+    else await pi("open", { home: true });
   } catch (e) { toast(e.message); }
   kick(150);
 }
@@ -1224,7 +1321,7 @@ const KEYS = {
   Escape: "b", Backspace: "b", x: "x", X: "x", y: "y", Y: "y", "[": "l", "]": "r",
 };
 document.addEventListener("keydown", (e) => {
-  if (S.view === "files" || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (S.view === "files" || S.view === "settings" || e.ctrlKey || e.metaKey || e.altKey) return;
   const t = e.target;
   if (t.closest && t.closest("input, textarea, select, [contenteditable]")) return;
   const name = KEYS[e.key];
@@ -1656,7 +1753,7 @@ function drawApps() {
   ++libToken;
   box.textContent = "";
   const grid = el("div", "grid apps");
-  const tiles = [{ name: "Home", about: "The home screen", home: true }].concat(L.cat.apps);
+  const tiles = [{ name: "Home screen", about: "All the apps", home: true }].concat(L.cat.apps);
   for (const a of tiles) {
     const b = button("app");
     let pic;
@@ -1670,7 +1767,7 @@ function drawApps() {
     b.onclick = async () => {
       try {
         if (a.name === "Terminal") await pi("mode", { to: "terminal" });
-        else await pi("open", { app: a.name });
+        else await pi("open", a.home ? { home: true } : { app: a.name });
       } catch (e) { toast(e.message); }
       kick(100);
     };
@@ -2704,7 +2801,7 @@ function drEnd(e) {
   drTouched(true);
 }
 window.addEventListener("keydown", (e) => {        // (before the remote's keys: these are the drawing's)
-  if (L.tab !== "draw" || S.view === "files" || !DR.canvas || !DR.canvas.isConnected) return;
+  if (L.tab !== "draw" || S.view === "files" || S.view === "settings" || !DR.canvas || !DR.canvas.isConnected) return;
   const t = e.target;
   if (t.closest && t.closest("input, textarea, select, [contenteditable]")) return;
   const mod = (e.ctrlKey || e.metaKey) && !e.altKey, key = e.key.toLowerCase();
@@ -3061,6 +3158,491 @@ async function drawDraw() {
   if (!DR.looked) drLast();
   drBot(token);
 }
+
+// ---- settings: everything the Pi's Settings has, and each app's own (passwords and tokens never come here) ---------
+const SET = { data: null, error: "", timer: 0, armed: {}, ask: {}, open: {}, typed: {}, places: null, placesQ: "" };
+const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const SET_MORE = {                                      // what's on this page already, where it is
+  id: "elsewhere", title: "Elsewhere", about: "", rows: [
+    { key: "go_pads", label: "Controllers and Bluetooth", kind: "link", button: "On the Remote page",
+      note: "Setting up buttons, swapping A and B, and pairing" },
+    { key: "go_cams", label: "Cameras", kind: "link", button: "On the Cameras tab",
+      note: "Adding one by its address, and turning its picture" },
+  ],
+};
+async function setPoll() {
+  clearTimeout(SET.timer);
+  if (S.view !== "settings" || document.hidden) return;
+  try { SET.data = await api("/api/pi/settings"); SET.error = ""; }
+  catch (e) { SET.error = e.message; }
+  drawSettings();
+  SET.timer = setTimeout(setPoll, setBusy() ? 1500 : 5000);
+}
+function setKick(ms = 250) { clearTimeout(SET.timer); SET.timer = setTimeout(setPoll, ms); }
+function setBusy() {                                     // (something under way: asked about more often)
+  for (const sec of (SET.data && SET.data.sections) || []) {
+    for (const r of sec.rows) {
+      if (r.tone === "busy" || (r.kind === "wifi" && r.busy)) return true;
+      if (r.kind === "signin" && (r.state === "code" || r.state === "busy")) return true;
+    }
+  }
+  return false;
+}
+async function setSave(key, value, ctl, quiet) {    // (what the Pi said, or null: it didn't take it)
+  if (ctl) ctl.disabled = true;
+  let ok = null;
+  try {
+    const r = await pi("settings", { key, value });
+    if (!quiet || (r && r.said)) toast((r && r.said) || "Saved");
+    ok = r || {};
+  } catch (e) {
+    toast(e.message);
+    for (const n of $$("#setList > .set-sec")) delete n.dataset.sig;   // (each row as it really is again)
+  }
+  if (ctl && ctl.isConnected) ctl.disabled = false;
+  setKick(200);
+  return ok;
+}
+// something that can't be taken back: pressed once it asks, pressed again within 4 seconds it's done
+function armedButton(label, key, go, cls) {
+  const on = () => SET.armed[key] > Date.now();
+  const b = button("btn2 " + (cls || ""), label);
+  const show = () => { const a = on(); b.textContent = a ? "Sure? Press again" : label; b.classList.toggle("armed", a); };
+  const later = () => setTimeout(() => { if (b.isConnected) show(); }, Math.max(0, SET.armed[key] - Date.now()) + 60);
+  show();
+  if (on()) later();                                    // (drawn again while it's asking: it still stops asking)
+  b.onclick = () => {
+    if (on()) { delete SET.armed[key]; go(b); return; }
+    SET.armed[key] = Date.now() + 4000;
+    show(); later();
+  };
+  return b;
+}
+function setRow(r, wide) {
+  const row = el("div", "set-row" + (wide ? " wide" : ""));
+  row.dataset.key = r.key;
+  const l = el("div", "set-l"), c = el("div", "set-c");
+  if (r.label) l.append(el("b", "", r.label));
+  if (r.note) l.append(el("span", "set-note", r.note));
+  if (r.status) {
+    const st = el("span", "set-status " + (r.tone || ""));
+    if (r.tone === "busy") { st.classList.add("set-busy"); st.innerHTML = ICONS.spin; }
+    st.append(document.createTextNode(r.status));
+    l.append(st);
+  }
+  row.append(l, c);
+  return [row, c, l];
+}
+function setInput(placeholder, max, secret, keep) {
+  const inp = el("input", "in");
+  inp.placeholder = placeholder || ""; inp.maxLength = max || 200;
+  if (secret) { inp.type = "password"; inp.autocomplete = "new-password"; }
+  else { inp.autocomplete = "off"; inp.spellcheck = false; inp.autocapitalize = "off"; }
+  if (keep) {                                           // (what you typed, kept until it's saved)
+    if (SET.typed[keep] !== undefined) inp.value = SET.typed[keep];
+    inp.addEventListener("input", () => { SET.typed[keep] = inp.value; });
+  }
+  return inp;
+}
+function unfocus(box) {                                // (sent: its section may change again now)
+  if (box.contains(document.activeElement)) document.activeElement.blur();
+}
+function setChoose(r, v, ctl) {
+  if (ctl && ctl.tagName === "SELECT") ctl.blur();      // (picked: its section can be drawn again now)
+  if (r.key === "wallpaper" && v === "Picture" && !r.picture) { SET.open.pics = true; drawSettings(); return; }
+  if (r.confirm) { SET.ask[r.key] = v; drawSettings(); return; }     // (asked first: the Pi restarts for it)
+  setSave(r.key, v, ctl && ctl.tagName === "SELECT" ? ctl : null);
+}
+function setPics(r) {                                   // your pictures, for the background
+  const box = el("div", "set-pics");
+  box.append(el("p", "fr-note", "Looking for pictures…"));
+  api("/api/recent?n=60").then((j) => {
+    box.textContent = "";
+    if (!j.pictures.length) box.append(el("p", "fr-note", "There are no pictures on the Pi yet. Add some in Files."));
+    for (const p of j.pictures) {
+      const t = button("fr-thumb", "");
+      t.title = p.path; t.setAttribute("aria-label", "Use " + p.name);
+      t.setAttribute("aria-pressed", String(r.value === "Picture" && p.name === r.picture));
+      const img = new Image();
+      img.loading = "lazy"; img.alt = "";
+      img.src = "/api/thumb?" + qs({ folder: "pictures", path: p.path });
+      t.append(img);
+      t.onclick = async () => { if (await setSave("picture", { folder: "pictures", path: p.path }, t)) delete SET.open.pics; };
+      box.append(t);
+    }
+  }).catch((e) => { box.textContent = ""; box.append(el("p", "fr-note", e.message)); });
+  return box;
+}
+function setBars(signal) {
+  const b = el("span", "bars");
+  b.title = signal + "%"; b.setAttribute("aria-label", "Signal " + signal + "%");
+  const on = signal >= 75 ? 4 : signal >= 50 ? 3 : signal >= 25 ? 2 : 1;
+  for (let k = 0; k < 4; k++) { const i = el("i", k < on ? "on" : ""); i.style.height = (5 + k * 3) + "px"; b.append(i); }
+  return b;
+}
+function wifiForm(ssid, hidden) {
+  const f = el("form", "stack");
+  const keep = hidden ? "wifi.hidden" : "wifi.net:" + ssid;
+  const name = hidden ? setInput("Network name", 64, false, keep + ":name") : null;
+  const pw = setInput(hidden ? "Password (empty if it has none)" : "Its password", 128, true, keep);
+  const go = button("btn", "Connect");
+  go.type = "submit";
+  if (name) f.append(name);
+  f.append(pw, go);
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    const id = hidden ? name.value.trim() : ssid;
+    if (!id) { name.focus(); return; }
+    if (await setSave("wifi", { do: "connect", ssid: id, password: pw.value, hidden }, go, true)) {
+      delete SET.open[hidden ? "hidden" : "net:" + ssid];
+      delete SET.typed[keep]; delete SET.typed[keep + ":name"];
+      unfocus(f);
+      toast("Connecting to " + id + "…");
+    }
+  };
+  return f;
+}
+function setGo(key) {
+  if (key === "go_cams") { L.tab = "cameras"; store.set("ltab", "cameras"); goView("library"); return; }
+  goView("screen");
+  setTimeout(() => {
+    const t = $("#remoteCard .pads");
+    if (t) t.scrollIntoView({ block: "start", behavior: REDUCED ? "auto" : "smooth" });
+  }, 60);
+}
+const SET_DRAW = {
+  choice(r) {
+    const [row, c] = setRow(r);
+    const names = r.names || {};
+    const name = (v) => names[v] || v;
+    if (r.colours) {                                    // colours: a swatch each
+      const sw = el("div", "swatches");
+      sw.setAttribute("role", "group"); sw.setAttribute("aria-label", r.label);
+      for (const v of r.choices) {
+        const b = button("swatch", "");
+        b.style.setProperty("--c", r.colours[v]);
+        b.title = v; b.setAttribute("aria-label", v);
+        b.setAttribute("aria-pressed", String(v === r.value));
+        b.onclick = async () => {
+          if (v === r.value) return;
+          if (await setSave(r.key, v, null, r.key === "accent") && r.key === "accent") {
+            if (S.info) S.info.accent = r.colours[v];
+            setAccent(r.colours[v]);
+          }
+        };
+        sw.append(b);
+      }
+      c.append(sw);
+      return row;
+    }
+    if (SET.ask[r.key] !== undefined) {                 // a choice that restarts the Pi: asked first
+      const ask = el("div", "set-ask");
+      const go = button("btn", "Restart at " + name(SET.ask[r.key]));
+      go.onclick = async () => { const v = SET.ask[r.key]; delete SET.ask[r.key]; await setSave(r.key, v, go); };
+      const no = button("linkbtn", "Cancel");
+      no.onclick = () => { delete SET.ask[r.key]; drawSettings(); };
+      ask.append(el("span", "", r.confirm), go, no);
+      c.append(ask);
+      return row;
+    }
+    const short = !r.list && r.choices.length > 0 && r.choices.length <= 4 && r.choices.every((v) => String(name(v)).length <= 13);
+    if (short) {
+      const seg = el("div", "seg");
+      seg.setAttribute("role", "group"); seg.setAttribute("aria-label", r.label);
+      for (const v of r.choices) {
+        const b = button("", name(v));
+        b.setAttribute("aria-pressed", String(v === r.value));
+        b.onclick = () => { if (v !== r.value) setChoose(r, v, b); };
+        seg.append(b);
+      }
+      c.append(seg);
+    } else {
+      const w = el("div", "select-wrap");
+      const sel = el("select");
+      sel.setAttribute("aria-label", r.label);
+      const shown = r.key === "wallpaper" && SET.open.pics ? "Picture" : r.value;   // (a picture being picked)
+      if (!r.choices.length) { const o = el("option", "", r.empty || "None yet"); o.value = ""; sel.append(o); sel.disabled = true; }
+      else if (!r.choices.includes(shown)) {            // (none picked yet)
+        const o = el("option", "", "Pick one"); o.value = ""; o.disabled = o.selected = true; sel.append(o);
+      }
+      for (const v of r.choices) { const o = el("option", "", name(v)); o.value = v; o.selected = v === shown; sel.append(o); }
+      sel.onchange = () => setChoose(r, sel.value, sel);
+      w.append(sel);
+      c.append(w);
+    }
+    if (r.key === "wallpaper" && (r.value === "Picture" || SET.open.pics)) {
+      const other = button("linkbtn", SET.open.pics ? "Cancel" : "Another picture");
+      other.onclick = () => { SET.open.pics = !SET.open.pics; drawSettings(); };
+      c.append(other);
+      if (SET.open.pics) row.append(setPics(r));
+    }
+    return row;
+  },
+  text(r) {
+    const [row, c] = setRow(r);
+    const f = el("form", "in-row");
+    const was = r.value || "";
+    const inp = setInput(r.placeholder, r.max, false, r.key);
+    if (SET.typed[r.key] === undefined) inp.value = was;
+    inp.setAttribute("aria-label", r.label);
+    const save = button("btn", "Save");
+    save.type = "submit"; save.hidden = inp.value === was;
+    inp.oninput = () => {
+      if (inp.value === was) delete SET.typed[r.key];
+      save.hidden = inp.value === was;
+    };
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      if (inp.value === was) return;
+      if (await setSave(r.key, inp.value.trim(), save)) { delete SET.typed[r.key]; inp.blur(); }
+    };
+    f.append(inp, save);
+    c.append(f);
+    return row;
+  },
+  secret(r) {
+    const [row, c, l] = setRow(r);
+    l.append(el("span", "set-status" + (r.set ? " ok" : ""), r.set ? "Saved" : "Not set"));
+    const f = el("form", "in-row");
+    const inp = setInput(r.set ? "Put in a new one" : "Paste it here", r.max, true, r.key);
+    inp.setAttribute("aria-label", r.label);
+    const save = button("btn", "Save");
+    save.type = "submit"; save.hidden = !inp.value;
+    inp.oninput = () => { if (!inp.value) delete SET.typed[r.key]; save.hidden = !inp.value; };
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      if (!inp.value) return;
+      if (await setSave(r.key, inp.value, save)) { delete SET.typed[r.key]; inp.value = ""; inp.blur(); }
+    };
+    f.append(inp, save);
+    c.append(f);
+    if (r.set) c.append(armedButton("Take it off", r.key, async (b) => {
+      const said = await setSave(r.key, "", b, true);
+      if (said && !said.said) toast("Taken off");
+    }, "bad"));
+    return row;
+  },
+  action(r) {
+    const [row, c] = setRow(r);
+    const go = (b) => setSave(r.key, true, b, true);
+    const b = r.confirm ? armedButton(r.button, r.key, go, r.tone === "bad" ? "bad" : "") : button("btn2", r.button);
+    if (!r.confirm) b.onclick = () => go(b);
+    if (r.confirm) b.title = r.confirm;
+    b.disabled = !!r.disabled;
+    c.append(b);
+    return row;
+  },
+  info(r) {
+    const [row, c] = setRow(r);
+    if (r.value) c.append(el("span", "set-here", r.value));
+    return row;
+  },
+  form(r) {
+    const [row, c] = setRow(r);
+    const f = el("form", "stack");
+    const ins = {};
+    for (const x of r.fields) {
+      const inp = setInput(x.placeholder, 200, x.secret, r.key + "." + x.name);
+      inp.setAttribute("aria-label", x.label);
+      ins[x.name] = inp;
+      f.append(inp);
+    }
+    const go = button("btn", r.button);
+    go.type = "submit";
+    f.append(go);
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const v = {};
+      for (const k in ins) v[k] = ins[k].value;
+      if (await setSave(r.key, v, go, true)) unfocus(f);
+    };
+    c.append(f);
+    return row;
+  },
+  wifi(r) {
+    const [row, c] = setRow({ key: r.key, status: r.status, tone: r.tone,
+      label: r.here ? "Connected to " + r.here : r.radio ? "Not connected" : "WiFi is off on the Pi",
+      note: "If this page reaches the Pi over its WiFi, it loses it for a moment while it changes networks." }, true);
+    if (!r.radio) {
+      const on = button("btn2", "Turn WiFi on");
+      on.disabled = r.busy;
+      on.onclick = () => setSave("wifi", { do: "radio", on: true }, on, true);
+      c.append(on);
+      return row;
+    }
+    const look = button("btn2", r.nets.length ? "Look again" : "Look for networks");
+    look.disabled = r.busy;
+    look.onclick = () => setSave("wifi", { do: "look" }, look, true);
+    const other = button("linkbtn", "A hidden network…");
+    other.onclick = () => { SET.open.hidden = !SET.open.hidden; drawSettings(); };
+    const off = armedButton("Turn WiFi off", "wifi:off", (b) => setSave("wifi", { do: "radio", on: false }, b, true), "bad");
+    off.disabled = r.busy;
+    c.append(look, off, other);
+    if (SET.open.hidden) c.append(wifiForm("", true));
+    if (r.nets.length) {
+      const ul = el("ul", "nets");
+      for (const n of r.nets) {
+        const li = el("li", "net");
+        li.append(el("span", "nn", n.ssid));
+        if (n.secure) { const k = el("span"); k.innerHTML = ICONS.lock; k.title = "It has a password"; li.append(k); }
+        li.append(setBars(n.signal));
+        if (n.active || n.saved) li.append(el("span", "tag" + (n.active ? " ok" : ""), n.active ? "Connected" : "Saved"));
+        if (!n.active) {
+          const go = button("btn2", "Connect");
+          go.disabled = r.busy;
+          go.onclick = () => {
+            if (n.secure && !n.saved) { SET.open["net:" + n.ssid] = !SET.open["net:" + n.ssid]; drawSettings(); }
+            else setSave("wifi", { do: "connect", ssid: n.ssid }, go, true);
+          };
+          li.append(go);
+        }
+        if (n.saved) li.append(armedButton("Forget", "forget:" + n.ssid, (b) => setSave("wifi", { do: "forget", ssid: n.ssid }, b, true), "bad"));
+        if (SET.open["net:" + n.ssid]) li.append(wifiForm(n.ssid, false));
+        ul.append(li);
+      }
+      c.append(ul);
+    }
+    return row;
+  },
+  place(r) {
+    const [row, c] = setRow({ key: r.key, label: r.label, note: r.value || "Not set", status: r.status, tone: r.tone });
+    const st = el("div", "stack");
+    const find = button("btn2", "Find me");
+    find.title = "From the Pi's internet address";
+    find.onclick = () => setSave("location", "find", find, true);
+    const f = el("form", "in-row");
+    const inp = setInput("Or type a town", 80);
+    inp.value = SET.placesQ;
+    inp.setAttribute("aria-label", "Town or city");
+    const go = button("btn2", "Search");
+    go.type = "submit";
+    f.append(inp, go);
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const q = inp.value.trim();
+      if (!q) return;
+      go.disabled = true;
+      try {
+        const j = await api("/api/pi/places?" + qs({ q }));
+        SET.places = j.places; SET.placesQ = q;
+        if (!j.places.length) toast("Nothing found for “" + q + "”");
+      } catch (err) { toast(err.message); }
+      go.disabled = false;
+      inp.blur();
+      drawSettings();
+    };
+    st.append(find, f);
+    if (SET.places && SET.places.length) {
+      const list = el("div", "places");
+      for (const p of SET.places) {
+        const b = button("", p.label);
+        b.onclick = async () => { if (await setSave("location", p, b)) { SET.places = null; SET.placesQ = ""; } };
+        list.append(b);
+      }
+      st.append(list);
+    }
+    c.append(st);
+    return row;
+  },
+  signin(r) {
+    const plex = r.key === "plex";
+    const [row, c] = setRow({ key: r.key, status: r.problem || (r.state === "busy" ? "Signing in…" : ""),
+      tone: r.problem ? "bad" : r.state === "busy" ? "busy" : "",
+      label: r.state === "in" ? "Signed in" + (r.who ? " to " + r.who : "") : r.state === "code" ? "Type this code" : "Not signed in" });
+    if (r.state === "in") c.append(armedButton("Sign out", r.key + ":out", (b) => setSave(r.key, "signout", b), "bad"));
+    else if (r.state === "code") {
+      const box = el("div", "stack");
+      box.append(el("span", "signin-code", r.code),
+        el("span", "set-note", plex ? "Go to plex.tv/link on your phone or computer, and type it there."
+          : "In Jellyfin, open your profile, then Quick Connect, and type it there."));
+      c.append(box);
+    } else {
+      const b = button("btn", "Sign in");
+      b.disabled = r.state === "busy";
+      b.onclick = () => setSave(r.key, "signin", b, true);
+      c.append(b);
+    }
+    return row;
+  },
+  link(r) {
+    const [row, c] = setRow(r);
+    const b = button("btn2", r.button);
+    b.onclick = () => setGo(r.key);
+    c.append(b);
+    return row;
+  },
+};
+function drawSettings() {
+  const list = $("#setList"), index = $("#setIndex");
+  if (!SET.data) {
+    list.textContent = ""; index.textContent = ""; delete index.dataset.sig;
+    noteInto(list, SET.error ? "Can't get the settings" : "Loading…", SET.error || "");
+    return;
+  }
+  const secs = SET.data.sections.concat([SET_MORE]);
+  const isig = secs.map((x) => x.id + "\t" + x.title).join("\n");
+  if (index.dataset.sig !== isig) {
+    index.dataset.sig = isig;
+    index.textContent = "";
+    for (const x of secs) {
+      const b = button("", x.title);
+      b.dataset.sec = x.id;
+      b.onclick = () => {
+        const t = document.getElementById("set-" + x.id);
+        if (t) t.scrollIntoView({ block: "start", behavior: REDUCED ? "auto" : "smooth" });
+        setIndexOn(x.id);
+      };
+      index.append(b);
+    }
+  }
+  for (const n of list.querySelectorAll(":scope > .note")) n.remove();
+  const local = JSON.stringify([SET.ask, SET.open, SET.places, SET.placesQ]);
+  let prev = null;
+  for (const x of secs) {
+    let node = document.getElementById("set-" + x.id);
+    const sig = JSON.stringify(x) + local;
+    const typing = node && node.contains(document.activeElement) && document.activeElement.matches("input, select");
+    if (!node) {
+      node = el("section", "set-sec");
+      node.id = "set-" + x.id;
+      node.setAttribute("aria-label", x.title);
+    }
+    if (node.dataset.sig !== sig && !typing) {          // (not while you're typing in it)
+      node.dataset.sig = sig;
+      node.textContent = "";
+      const h = el("header");
+      h.append(el("h2", "", x.title));
+      if (x.about) h.append(el("p", "", x.about));
+      node.append(h);
+      for (const r of x.rows) if (SET_DRAW[r.kind]) node.append(SET_DRAW[r.kind](r));
+    }
+    if (prev ? prev.nextElementSibling !== node : list.firstElementChild !== node) {
+      if (prev) prev.after(node); else list.prepend(node);
+    }
+    prev = node;
+  }
+  for (const n of Array.from(list.children)) if (!secs.some((x) => "set-" + x.id === n.id)) n.remove();
+  const keys = new Set(secs.flatMap((x) => x.rows.map((r) => r.key)));
+  for (const k of Object.keys(SET.typed)) if (!keys.has(k.split(".")[0])) delete SET.typed[k];
+  setIndexFromScroll();
+}
+function setIndexOn(id) {
+  for (const b of $$("#setIndex button")) {
+    const on = b.dataset.sec === id;
+    if (on === (b.getAttribute("aria-current") === "true")) continue;
+    b.setAttribute("aria-current", String(on));
+    const bar = b.parentElement;
+    if (on && bar.scrollWidth > bar.clientWidth) bar.scrollTo({ left: b.offsetLeft - 16, behavior: REDUCED ? "auto" : "smooth" });
+  }
+}
+function setIndexFromScroll() {
+  const line = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--top")) + 100;
+  let cur = null;
+  for (const n of $$("#setList > .set-sec")) if (n.getBoundingClientRect().top <= line) cur = n;
+  cur = cur || $("#setList > .set-sec");
+  if (cur) setIndexOn(cur.id.slice(4));
+}
+window.addEventListener("scroll", () => { if (S.view === "settings") setIndexFromScroll(); }, { passive: true });
 
 // ---- files: what's on the Pi --------------------------------------------------------------
 function drawDest() {
@@ -3617,6 +4199,7 @@ async function gather(picked) {
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) return;
   poll();
+  if (S.view === "settings") setPoll();
   if (L.cat && L.tab === "cameras") drawLibrary();         // the pictures again
   if (L.cat && L.tab === "friend") friendPoll(libToken, 0);  // (what you were typing stays)
 });

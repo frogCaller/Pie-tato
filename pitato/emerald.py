@@ -1,10 +1,15 @@
 """Pokémon Emerald (the US game), played by a decision model on your bot's computer (pitato/gameai.py runs this
 while the game plays). Everything comes from the game's own memory as it plays: where you are and what's around
-you (the map's tiles, its doors and roads, its people), your Pokémon, a battle, the text on the screen and the
-menu that's up. At each moment that needs a decision (a battle's next move, a yes or no, where to go next) the
-model's asked, from a short description and a few choices; the rest (text, menus, walking a path) this does
-itself, a button at a time, watching the game as it goes. Addresses and layouts are from pret's decompilation
-of the game (github.com/pret/pokeemerald)."""
+you (the map's tiles, its doors and roads, its people and the things you can look at), your Pokémon, a battle, the
+text on the screen and the menu that's up, and how far the story's got (its flags and vars). It knows the story:
+the next thing to do (get out of the truck, set the clock, meet your rival, save Professor Birch, and on, badge by
+badge), where (the map, and who or what to see there), and how strong your team should be first; it walks there by
+itself, the shortest way it knows, healing when your team's badly hurt and training in tall grass when it's too
+weak for the next Gym. The model's asked at each moment that needs a decision (a battle's next move, a yes or no,
+which Pokémon to start with, where to go when the way isn't known), from a short description and a few choices,
+with what people just said; the rest (the title screen, text, menus, the clock, walking a path) this does itself,
+a button at a time, watching the game as it goes. Addresses and layouts are from pret's decompilation of the game
+(github.com/pret/pokeemerald)."""
 import json
 import random
 import struct
@@ -68,6 +73,15 @@ TASK_YES_NO, TASK_MULTICHOICE = 0x080E215C, 0x080E2058
 TASK_PARTY_SELECTION = 0x081B3730            # the party menu's little SHIFT / SUMMARY / CANCEL menu
 TASK_REPLACE_MOVE = 0x081C174C               # the summary screen, picking a move to forget
 TASK_START_MENU = 0x0809FA34                 # Task_ShowStartMenu (the menu up)
+CB2_TITLE = 0x080AAB2C                       # the title screen (title_screen.c's MainCB2)
+CB2_MAIN_MENU = 0x0802F6B0                   # the main menu (CONTINUE, NEW GAME...), and Professor Birch's talk before
+                                             # a new game (boy or girl, your name: A takes what's offered)
+CB2_WALL_CLOCK = 0x08134C9C                  # your room's clock, being set (or looked at)
+TASK_SET_CLOCK, TASK_CONFIRM_CLOCK, TASK_VIEW_CLOCK = 0x08134CE8, 0x08134E30, 0x08134F40
+CB2_STARTER = 0x081341E0                     # Professor Birch's bag: your first Pokémon picked
+TASK_CHOOSE_STARTER, TASK_CONFIRM_STARTER = 0x0813425C, 0x08134400
+STARTERS = (("treecko", "Treecko (Grass type)"), ("torchic", "Torchic (Fire type)"),
+            ("mudkip", "Mudkip (Water type, later Water and Ground)"))
 
 # the cartridge's tables
 SPECIES_NAMES, SPECIES_NAME_LEN, SPECIES_COUNT = 0x083185C8, 11, 412
@@ -85,8 +99,18 @@ OP_YES_NO, OP_LEARN_MOVE, OP_STOP_LEARNING, OP_NICKNAME = 0x67, 0x5A, 0x5B, 0xF3
 BATTLE_DOUBLE, BATTLE_TRAINER, BATTLE_SAFARI = 1 << 0, 1 << 3, 1 << 7
 
 # save block 1
-SB1_POS, SB1_LOCATION, SB1_DYNAMIC_WARP, SB1_MONEY, SB1_FLAGS = 0x00, 0x04, 0x14, 0x490, 0x1270
-SB2_ENCRYPTION_KEY = 0xAC
+SB1_POS, SB1_LOCATION, SB1_DYNAMIC_WARP, SB1_MONEY, SB1_FLAGS, SB1_VARS = 0x00, 0x04, 0x14, 0x490, 0x1270, 0x139C
+SB2_GENDER, SB2_ENCRYPTION_KEY = 0x08, 0xAC
+VARS_START = 0x4000
+
+# the story's own progress, early on (include/constants/vars.h)
+VAR_LITTLEROOT_TOWN_STATE = 0x4050           # 1 met your rival, 2 off to save Birch, 3 the Pokédex
+VAR_RUSTBORO_CITY_STATE = 0x405A             # 1 Roxanne beaten, 2 the Devon Goods stolen
+VAR_ROUTE101_STATE = 0x4060                  # 2 Birch being chased
+VAR_BIRCH_LAB_STATE = 0x4084                 # 3 told to see your rival, 4 back for the Pokédex
+VAR_PETALBURG_GYM_STATE = 0x4085             # 2 and up: your dad's seen you (and Wally caught his first Pokémon)
+VAR_LITTLEROOT_RIVAL_STATE = 0x408D          # 3 met your rival
+VAR_LITTLEROOT_INTRO_STATE = 0x4092          # 3 in your house, 6 the clock set, 7 the TV seen
 
 # flags
 TRAINER_FLAGS_START = 0x500
@@ -95,6 +119,19 @@ FLAG_BADGE = tuple(0x867 + i for i in range(8))
 FLAG_DEFEATED_RIVAL_ROUTE103, FLAG_RECOVERED_DEVON_GOODS, FLAG_DELIVERED_DEVON_GOODS = 0x82, 0x8F, 0x95
 FLAG_RECEIVED_POKENAV, FLAG_DELIVERED_STEVEN_LETTER = 0xBC, 0xBD
 FLAG_DEFEATED_EVIL_TEAM_MT_CHIMNEY, FLAG_RECEIVED_HM_SURF = 0x8B, 0x7A
+FLAG_VISITED_DEWFORD_TOWN, FLAG_VISITED_SLATEPORT_CITY = 0x871, 0x877
+
+# the story's people and things, by their scripts (pokeemerald.sym): (a boy's, a girl's) where it's your house or your
+# rival's
+SCR_WALL_CLOCK = (0x08292781, 0x0829278D)    # your room's clock (Brendan's house, May's)
+SCR_RIVALS_POKE_BALL = (0x081F9334, 0x081F8481)   # the Poké Ball in your rival's room (May's house, Brendan's)
+SCR_BIRCHS_BAG, SCR_BIRCH, SCR_ROUTE103_RIVAL = 0x081EBE16, 0x081FA25A, 0x081EC3C1
+SCR_NORMAN, SCR_ROXANNE, SCR_RUSTURF_GRUNT, SCR_MR_STONE = 0x082049F1, 0x08212F31, 0x0822D0C2, 0x0821256C
+SCR_BRINEY_HOUSE, SCR_DEWFORD_BRINEY, SCR_BRAWLY, SCR_STEVEN = 0x08229D67, 0x081E9511, 0x081FC7C2, 0x0822DC7B
+SCR_STERN, SCR_WATTSON, SCR_MAXIE, SCR_FLANNERY = 0x0820BB00, 0x0820DEEB, 0x0822EE0B, 0x081FE78C
+SCR_WALLYS_DAD, SCR_WINONA, SCR_TATE_LIZA, SCR_JUAN = 0x08204278, 0x082165C8, 0x08220898, 0x08224F44
+HOUSES = ("Littleroot Town, Brendan's House", "Littleroot Town, May's House")   # a boy's, a girl's
+LAB = "Littleroot Town, Professor Birch's Lab"
 
 # the map's tiles
 MAP_OFFSET = 7                                # the map's own tiles start this far in, with the roads around
@@ -159,6 +196,10 @@ SAME_PICK = (3, 8)           # picked this many times in the last so many, here:
                              # in circles)
 CANT_DO = {"BUY", "SELL"}    # a menu's choices that open screens it can't use yet (a shop's)
 ERRORS_MOST = 40             # looks in a row that didn't make sense (memory caught mid-change): then it stops
+HEAL_AT = 0.6                # your team this hurt (of its HP, all told): off to heal
+SAID = 4                     # things people said lately, told to the model
+TRIED_FOR = 120.0            # seconds something that didn't work isn't offered again, where it didn't
+BG_FACING = {1: NORTH, 2: SOUTH, 3: EAST, 4: WEST}   # a thing to look at that's seen facing only one way (else any)
 
 SAYS_WALK = ("You are playing Pokémon Emerald. Pick what to do next. Work toward the goal; heal at a "
              "Pokémon Center when your Pokémon are badly hurt; battle wild Pokémon and trainers to get stronger "
@@ -171,49 +212,107 @@ SAYS_ANSWER = ("You are playing Pokémon Emerald and the game asks a question. A
                "progress: yes to healing, to gifts, and to what moves the story on; no to giving nicknames.")
 SAYS_LEARN = ("In Pokémon Emerald, your Pokémon can learn a new move but already knows four. Keep the best four: "
               "strong, accurate attacks of different types (one matching its own type is best).")
+SAYS_STARTER = ("You are starting Pokémon Emerald and picking your first Pokémon, your partner for the whole game. "
+                "Pick the one that makes the game easiest: the first Gyms are Rock, Fighting, Electric and Fire "
+                "types.")
 
-# what to aim for, story step by story step: (done once this flag's set, what to do, the map to get to)
-GOALS = (
-    (FLAG_SYS_POKEMON_GET, "Get your first Pokémon: help Professor Birch on Route 101, just north of "
-     "Littleroot Town.", "Route 101"),
-    (FLAG_DEFEATED_RIVAL_ROUTE103, "Find your rival on Route 103, north of Oldale Town, and battle them.",
-     "Route 103"),
-    (FLAG_SYS_POKEDEX_GET, "Go back to Professor Birch's Lab in Littleroot Town for your Pokédex.",
-     "Littleroot Town, Professor Birch's Lab"),
-    (FLAG_BADGE[0], "Earn the Stone Badge from Roxanne (Rock type) at the Rustboro City Gym. On the way, visit "
-     "your dad at the Petalburg City Gym. The way: Oldale Town, Route 102, Petalburg City, Route 104, Petalburg "
-     "Woods, Route 104, Rustboro City.", "Rustboro City, Gym"),
-    (FLAG_RECOVERED_DEVON_GOODS, "Team Aqua stole the Devon Goods in Rustboro City: chase them east along "
-     "Route 116 into Rusturf Tunnel and get the goods back.", "Rusturf Tunnel"),
-    (FLAG_RECEIVED_POKENAV, "Take the Devon Goods back to the Devon Corporation in Rustboro City and meet its "
-     "president on the top floor.", "Rustboro City, Devon Corp 3F"),
-    (FLAG_BADGE[1], "Sail with Mr. Briney (his cottage is on Route 104, south of Petalburg Woods) to Dewford Town "
-     "and earn the Knuckle Badge from Brawly (Fighting type).", "Dewford Town, Gym"),
-    (FLAG_DELIVERED_STEVEN_LETTER, "Deliver the letter to Steven deep in Granite Cave, north of Dewford Town.",
-     "Granite Cave, Stevens Room"),
-    (FLAG_DELIVERED_DEVON_GOODS, "Sail with Mr. Briney to Slateport City and give the Devon Goods to Captain "
-     "Stern at the Oceanic Museum.", "Slateport City, Oceanic Museum 2F"),
-    (FLAG_BADGE[2], "Go north from Slateport City along Route 110 to Mauville City and earn the Dynamo Badge from "
-     "Wattson (Electric type).", "Mauville City, Gym"),
-    (FLAG_DEFEATED_EVIL_TEAM_MT_CHIMNEY, "Go north on Route 111, through the Fiery Path to Route 113, Fallarbor "
-     "Town and Meteor Falls; then take the cable car on Route 112 up Mt. Chimney and stop Team Magma.",
-     "Mt. Chimney"),
-    (FLAG_BADGE[3], "Go down Jagged Pass from Mt. Chimney to Lavaridge Town and earn the Heat Badge from Flannery "
-     "(Fire type).", "Lavaridge Town, Gym 1F"),
-    (FLAG_BADGE[4], "Go back to Petalburg City and earn the Balance Badge from your dad, Norman (Normal type).",
-     "Petalburg City, Gym"),
-    (FLAG_RECEIVED_HM_SURF, "Visit Wally's house in Petalburg City for HM03 Surf.", "Petalburg City, Wally's House"),
-    (FLAG_BADGE[5], "Surf east of Mauville to Route 118, then Route 119 and the Weather Institute, to Fortree City; "
-     "Steven on Route 120 gives you the Devon Scope. Earn the Feather Badge from Winona (Flying type).",
-     "Fortree City, Gym"),
-    (FLAG_BADGE[6], "On to Lilycove City, Mt. Pyre and Team Aqua's hideout, then surf east to Mossdeep City and "
-     "earn the Mind Badge from Tate and Liza (Psychic type).", "Mossdeep City, Gym"),
-    (FLAG_BADGE[7], "After the Space Center, dive into the Seafloor Cavern, then save Sootopolis City (the Cave of "
-     "Origin, Sky Pillar) and earn the Rain Badge from Juan (Water type).", "Sootopolis City, Gym 1F"),
-    (FLAG_SYS_GAME_CLEAR, "Go through Victory Road to Ever Grande City and beat the Pokémon League.",
-     "Ever Grande City, Pokémon League 1F"),
+
+def flagged(flag):
+    return lambda m: m.flag(flag)
+
+
+def begun(m):
+    """You've your first Pokémon: the story's past its start (a save from later on)."""
+    return m.flag(FLAG_SYS_POKEMON_GET)
+
+
+# the story, step by step: (done, what to do, where (a map's name: {you} your house, {rival} your rival's), who or
+# what to see there (its script: one, or a boy's and a girl's; or ("tile", x, y): a place to walk to, where something
+# happens), what that's called, how strong your team should be first (its best Pokémon's level: a little under the
+# Gym Leader's best)). The next step's the first that isn't done.
+STORY = (
+    (lambda m: m.var(VAR_LITTLEROOT_INTRO_STATE) >= 3 or begun(m),
+     "Get out of the moving truck: walk out of its open back, on the right.", "Littleroot Town", None, "", None),
+    (lambda m: m.var(VAR_LITTLEROOT_INTRO_STATE) >= 6 or begun(m),
+     "Go upstairs to your room and set the clock on the wall.", "{you} 2F", SCR_WALL_CLOCK,
+     "Set the clock on the wall", None),
+    (lambda m: m.var(VAR_LITTLEROOT_INTRO_STATE) >= 7 or begun(m),
+     "Go back downstairs: your mom wants you to see something on TV.", "{you} 1F", None, "", None),
+    (lambda m: m.var(VAR_LITTLEROOT_RIVAL_STATE) >= 3 or m.var(VAR_LITTLEROOT_TOWN_STATE) >= 1 or begun(m),
+     "Go next door to Professor Birch's house and meet his child, your new neighbor, upstairs in their room.",
+     "{rival} 2F", SCR_RIVALS_POKE_BALL, "Look at the Poké Ball in the room", None),
+    (lambda m: m.var(VAR_ROUTE101_STATE) >= 2 or begun(m),
+     "Go north out of Littleroot Town onto Route 101: someone's calling for help.", "Route 101", None, "", None),
+    (begun, "Professor Birch is being chased by a wild Pokémon! Open his bag on the ground, pick a Pokémon and save "
+     "him.", "Route 101", SCR_BIRCHS_BAG, "Open Professor Birch's bag", None),
+    (lambda m: m.var(VAR_BIRCH_LAB_STATE) >= 3 or m.flag(FLAG_DEFEATED_RIVAL_ROUTE103),
+     "Go to Professor Birch's Lab in Littleroot Town and talk to him.", LAB, SCR_BIRCH, "Talk to Professor Birch",
+     None),
+    (flagged(FLAG_DEFEATED_RIVAL_ROUTE103), "Find your rival on Route 103, north of Oldale Town, and battle them.",
+     "Route 103", SCR_ROUTE103_RIVAL, "Battle your rival", None),
+    (flagged(FLAG_SYS_POKEDEX_GET), "Go back to Professor Birch's Lab in Littleroot Town for your Pokédex.", LAB,
+     SCR_BIRCH, "Talk to Professor Birch", None),
+    (lambda m: m.var(VAR_PETALBURG_GYM_STATE) >= 2 or m.flag(FLAG_BADGE[0]),
+     "Go west from Oldale Town along Route 102 to Petalburg City, and talk to your dad, Norman, at the Petalburg "
+     "City Gym.", "Petalburg City, Gym", SCR_NORMAN, "Talk to your dad", None),
+    (flagged(FLAG_BADGE[0]), "Earn the Stone Badge from Roxanne (Rock type) at the Rustboro City Gym. The way: west "
+     "from Petalburg City onto Route 104, north through Petalburg Woods, then north to Rustboro City.",
+     "Rustboro City, Gym", SCR_ROXANNE, "Battle Roxanne, the Gym Leader", 13),
+    (lambda m: m.var(VAR_RUSTBORO_CITY_STATE) != 1 or m.flag(FLAG_RECOVERED_DEVON_GOODS), "Walk west from the Gym in "
+     "Rustboro City, toward the Pokémon Center: something's happening.", "Rustboro City", ("tile", 23, 22),
+     "Walk west from the Gym", None),
+    (flagged(FLAG_RECOVERED_DEVON_GOODS), "Team Aqua stole the Devon Goods in Rustboro City: chase them east along "
+     "Route 116 into Rusturf Tunnel and get the goods back.", "Rusturf Tunnel", SCR_RUSTURF_GRUNT,
+     "Battle the Team Aqua grunt", None),
+    (flagged(FLAG_RECEIVED_POKENAV), "Take the Devon Goods back to the Devon Corporation in Rustboro City and meet "
+     "its president on the top floor.", "Rustboro City, Devon Corp 3F", SCR_MR_STONE, "Talk to the president", None),
+    (lambda m: m.flag(FLAG_VISITED_DEWFORD_TOWN) or m.flag(FLAG_BADGE[1]), "Ask Mr. Briney in his cottage on Route "
+     "104 (south of Petalburg Woods, by the sea) to sail you to Dewford Town.", "Route 104, Mr. Briney's House",
+     SCR_BRINEY_HOUSE, "Talk to Mr. Briney", None),
+    (flagged(FLAG_BADGE[1]), "Earn the Knuckle Badge from Brawly (Fighting type) at the Dewford Town Gym.",
+     "Dewford Town, Gym", SCR_BRAWLY, "Battle Brawly, the Gym Leader", 17),
+    (flagged(FLAG_DELIVERED_STEVEN_LETTER), "Deliver the letter to Steven deep in Granite Cave, north of Dewford "
+     "Town.", "Granite Cave, Stevens Room", SCR_STEVEN, "Give Steven the letter", None),
+    (lambda m: m.flag(FLAG_VISITED_SLATEPORT_CITY) or m.flag(FLAG_DELIVERED_DEVON_GOODS), "Ask Mr. Briney, by the "
+     "dock in Dewford Town, to sail you to Slateport City.", "Dewford Town", SCR_DEWFORD_BRINEY, "Talk to Mr. Briney",
+     None),
+    (flagged(FLAG_DELIVERED_DEVON_GOODS), "Give the Devon Goods to Captain Stern at the Oceanic Museum in Slateport "
+     "City.", "Slateport City, Oceanic Museum 2F", SCR_STERN, "Talk to Captain Stern", None),
+    (flagged(FLAG_BADGE[2]), "Go north from Slateport City along Route 110 to Mauville City and earn the Dynamo Badge "
+     "from Wattson (Electric type).", "Mauville City, Gym", SCR_WATTSON, "Battle Wattson, the Gym Leader", 22),
+    (flagged(FLAG_DEFEATED_EVIL_TEAM_MT_CHIMNEY), "Go north on Route 111, through the Fiery Path to Route 113, "
+     "Fallarbor Town and Meteor Falls; then take the cable car on Route 112 up Mt. Chimney and stop Team Magma.",
+     "Mt. Chimney", SCR_MAXIE, "Battle Maxie, Team Magma's leader", 25),
+    (flagged(FLAG_BADGE[3]), "Go down Jagged Pass from Mt. Chimney to Lavaridge Town and earn the Heat Badge from "
+     "Flannery (Fire type).", "Lavaridge Town, Gym 1F", SCR_FLANNERY, "Battle Flannery, the Gym Leader", 27),
+    (flagged(FLAG_BADGE[4]), "Go back to Petalburg City and earn the Balance Badge from your dad, Norman (Normal "
+     "type).", "Petalburg City, Gym", SCR_NORMAN, "Battle your dad, Norman", 29),
+    (flagged(FLAG_RECEIVED_HM_SURF), "Visit Wally's house in Petalburg City for HM03 Surf.",
+     "Petalburg City, Wally's House", SCR_WALLYS_DAD, "Talk to Wally's dad", None),
+    (flagged(FLAG_BADGE[5]), "Surf east of Mauville to Route 118, then Route 119 and the Weather Institute, to "
+     "Fortree City; Steven on Route 120 gives you the Devon Scope. Earn the Feather Badge from Winona (Flying type).",
+     "Fortree City, Gym", SCR_WINONA, "Battle Winona, the Gym Leader", 31),
+    (flagged(FLAG_BADGE[6]), "On to Lilycove City, Mt. Pyre and Team Aqua's hideout, then surf east to Mossdeep City "
+     "and earn the Mind Badge from Tate and Liza (Psychic type).", "Mossdeep City, Gym", SCR_TATE_LIZA,
+     "Battle Tate and Liza, the Gym Leaders", 40),
+    (flagged(FLAG_BADGE[7]), "After the Space Center, dive into the Seafloor Cavern, then save Sootopolis City (the "
+     "Cave of Origin, Sky Pillar) and earn the Rain Badge from Juan (Water type).", "Sootopolis City, Gym 1F",
+     SCR_JUAN, "Battle Juan, the Gym Leader", 44),
+    (flagged(FLAG_SYS_GAME_CLEAR), "Go through Victory Road to Ever Grande City and beat the Pokémon League.",
+     "Ever Grande City, Pokémon League 1F", None, "", 50),
 )
 GOAL_DONE = "You've beaten the Pokémon League. Explore, catch and train as you like."
+
+
+def story_step(m):
+    """The story's next step, from the game's flags and vars: {words, place, script, does, level}."""
+    boy = m.male()
+    you, rival = HOUSES if boy else HOUSES[::-1]
+    for done, words, place, script, does, level in STORY:
+        if not done(m):
+            return {"words": words, "place": place.format(you=you, rival=rival), "does": does, "level": level,
+                    "script": script[0 if boy else 1] if isinstance(script, tuple) and len(script) == 2 else script}
+    return {"words": GOAL_DONE, "place": None, "script": None, "does": "", "level": None}
 
 
 def supported(rom):
@@ -288,6 +387,14 @@ class Mem:
         sb1 = self.u32(G_SAVEBLOCK1_PTR)
         return bool(self.u8(sb1 + SB1_FLAGS + flag // 8) & (1 << (flag % 8)))
 
+    def var(self, var):
+        """One of the story's vars (VAR_...)."""
+        return self.u16(self.u32(G_SAVEBLOCK1_PTR) + SB1_VARS + 2 * (var - VARS_START))
+
+    def male(self):
+        """You're playing a boy (Brendan; else May)."""
+        return self.u8(self.u32(G_SAVEBLOCK2_PTR) + SB2_GENDER) == 0
+
 
 def code(addr):
     """A function's address as the game stores it (the low bit says thumb code): without that bit."""
@@ -321,6 +428,7 @@ class Rom:
                     self.maps[(g, n)] = 0
         self.by_name = {name: (g, n) for g, names in enumerate(MAP_NAMES) for n, name in enumerate(names)}
         self.graph = None
+        self.grass = {}                            # (group, num): it has tall grass
 
     def species(self, s):
         if s not in self.names:
@@ -378,6 +486,11 @@ class Rom:
 
     def warps_of(self, header):
         """A map's doors and exits: [(x, y, (group, num))] in its own coordinates."""
+        return [w[:3] for w in self.links_of(header)]
+
+    def links_of(self, header):
+        """A map's doors and exits, and which of the other map's they come out at: [(x, y, (group, num), its
+        number there)]."""
         out = []
         try:
             events = self.m.u32(header + 4)        # (struct MapEvents: the counts, then the people, the warps...)
@@ -385,11 +498,56 @@ class Rom:
             for i in range(count):
                 a = table + 8 * i
                 x, y = self.m.s16(a), self.m.s16(a + 2)
-                num, group = self.m.u8(a + 6), self.m.u8(a + 7)
-                out.append((x, y, (group, num)))
+                warp, num, group = self.m.u8(a + 5), self.m.u8(a + 6), self.m.u8(a + 7)
+                out.append((x, y, (group, num), warp))
         except BadAddress:
             pass
         return out
+
+    def way_around(self, here, door, to):
+        """Going through a door of here's (its number) into another map comes out somewhere else on here, by
+        another of its doors (as a wood between two parts of a route): a way round to the part of here that
+        can't be walked to."""
+        try:
+            mine = self.warps_of(self.maps.get(here, 0))
+            x0, y0 = mine[door][:2]
+            ends = [mine[w][:2] for _, _, dest, w in self.links_of(self.maps.get(to, 0))
+                    if dest == here and w < len(mine)]
+        except (BadAddress, IndexError):
+            return False
+        return any(abs(x - x0) + abs(y - y0) > 3 for x, y in ends)
+
+    def signs_of(self, header):
+        """A map's things to look at (signs, a clock, a TV...): [(x, y, which way you face to look (0: any),
+        script)] in its own coordinates. (Hidden items and secret bases aren't.)"""
+        out = []
+        try:
+            events = self.m.u32(header + 4)        # (struct MapEvents: the bg events' count at +3, them at +0x10)
+            count, table = self.m.u8(events + 3), self.m.u32(events + 0x10)
+            for i in range(min(count, 64)):
+                a = table + 12 * i
+                kind = self.m.u8(a + 5)
+                if kind <= 4:
+                    out.append((self.m.u16(a), self.m.u16(a + 2), BG_FACING.get(kind, 0), self.m.u32(a + 8)))
+        except BadAddress:
+            pass
+        return out
+
+    def grassy(self, key):
+        """A map has tall grass (for wild Pokémon), from its layout's tiles."""
+        if key not in self.grass:
+            found = False
+            try:
+                layout = self.m.u32(self.maps.get(key, 0))
+                w, h, blocks = self.m.s32(layout), self.m.s32(layout + 4), self.m.u32(layout + 0xC)
+                if 0 < w * h <= 0x10000:
+                    attrs = self.metatile_attrs(layout)
+                    tiles = struct.unpack(f"<{w * h}H", self.m.bytes(blocks, 2 * w * h))
+                    found = any(attrs[t & 0x3FF] in GRASS for t in tiles if (t & 0x3FF) < len(attrs))
+            except (BadAddress, struct.error):
+                pass
+            self.grass[key] = found
+        return self.grass[key]
 
     def connections_of(self, header):
         """A map's roads on to the next: [(direction, offset, (group, num))]."""
@@ -573,6 +731,8 @@ class Field:
         self.warps = [(x + MAP_OFFSET, y + MAP_OFFSET, to) for x, y, to in rom.warps_of(self.header)] \
             if self.header else []
         self.roads = rom.connections_of(self.header) if self.header else []
+        self.signs = [(x + MAP_OFFSET, y + MAP_OFFSET, d, script) for x, y, d, script in rom.signs_of(self.header)] \
+            if self.header else []
 
     def read_templates(self):
         """The map's people as placed (by their number): their script, for whether a trainer's been beaten."""
@@ -586,6 +746,10 @@ class Field:
         except BadAddress:
             pass
         return out
+
+    def script_of(self, person):
+        """The script someone runs when you talk to them (their number's, as placed), or None."""
+        return self.templates.get(person["local_id"])
 
     def trainer_flag(self, person):
         """An unbeaten trainer's flag, or None: not a trainer, or beaten."""
@@ -714,6 +878,10 @@ class Emerald:
         self.goal_cache = {}
         self.walks = deque(maxlen=SAME_PICK[1])     # (where, pick): the last few, out walking
         self.move_tried = None                      # (battler, move slot, when): a move just picked
+        self.said = deque(maxlen=SAID)              # what people said lately (the game's messages)
+        self.came_in = {}                           # each map: where you came in, last time (x, y)
+        self.taken = {}                             # (a map, a way out of it): how often it's been taken
+        self.starter = None                         # the first Pokémon picked (its place in the bag: 0 to 2)
 
     # -- the loop ---------------------------------------------------------------------------------------------------
     def play(self):
@@ -779,6 +947,24 @@ class Emerald:
             return ("naming",)
         if cb2 == CB2_BAG:
             return ("wait_then", "b")
+        if cb2 == CB2_TITLE:
+            return ("tap", "start", "Starting the game")
+        if cb2 == CB2_MAIN_MENU:                   # (CONTINUE, or NEW GAME with no save; then Birch's talk)
+            return ("tap", "a", "Starting the game")
+        if cb2 == CB2_WALL_CLOCK:                  # (the time as it is: A, then YES)
+            if TASK_SET_CLOCK in tasks:
+                return ("tap", "a", "Setting the clock")
+            if TASK_CONFIRM_CLOCK in tasks:
+                return ("yes", "Setting the clock")
+            if TASK_VIEW_CLOCK in tasks:
+                return ("tap", "b", "Done with the clock")
+            return ("wait",)
+        if cb2 == CB2_STARTER:
+            if TASK_CHOOSE_STARTER in tasks:
+                return ("starter", tasks[TASK_CHOOSE_STARTER])
+            if TASK_CONFIRM_STARTER in tasks:
+                return ("yes", "Choosing your first Pokémon")
+            return ("wait",)
         if cb2 == CB2_OVERWORLD:
             if TASK_YES_NO in tasks:
                 return ("question",)
@@ -819,9 +1005,35 @@ class Emerald:
         self.io.wait(TEXT_EVERY)
 
     def on_text(self, m):
-        self.io.status("Reading: " + m.text(G_STRING_VAR4, 200)[:60])
+        words = m.text(G_STRING_VAR4, 300)
+        if words and (not self.said or self.said[-1] != words):
+            self.said.append(words)                # (what people say: the model's told the last few)
+        self.io.status("Reading: " + words[:60])
         self.io.tap("a")
         self.io.wait(TEXT_EVERY)
+
+    def on_yes(self, m, what):
+        """A yes or no that's to be yes (the clock's time, the Pokémon picked): the cursor to YES, A."""
+        self.io.status(what)
+        self.move_cursor(lambda: self.io.peek_u8(S_MENU + 2), 0)
+        self.io.tap("a")
+        self.io.wait(0.4)
+
+    def on_starter(self, m, data):
+        """Professor Birch's bag: the model picks your first Pokémon (once); the cursor there, A."""
+        if self.starter is None:
+            choices = dict(STARTERS)
+            pick = self.io.decide("starter", SAYS_STARTER, {"choosing": "your first Pokémon"}, choices, "mudkip")
+            self.starter = [k for k, _ in STARTERS].index(pick)
+            self.remember("Chose " + choices[pick].split(" (")[0] + " as your first Pokémon")
+        now = data[0]
+        self.io.status("Choosing " + STARTERS[self.starter][1].split(" (")[0])
+        if now == self.starter:
+            self.io.tap("a")
+            self.io.wait(0.6)
+            return
+        self.io.tap("right" if now < self.starter else "left")
+        self.io.wait(0.4)
 
     def on_battle_wait(self, m):
         """A battle going on by itself (moves, text): A now and then, which hurries its text along (after a fresh
@@ -1116,7 +1328,7 @@ class Emerald:
 
     # -- out walking ---------------------------------------------------------------------------------------------------
     def state(self, m):
-        """What the model's told, whatever it's deciding: the goal, where you are, your team."""
+        """What the model's told, whatever it's deciding: the goal, where you are, your team, what people said."""
         try:
             f = Field(m, self.rom)
             where = f.name
@@ -1126,28 +1338,71 @@ class Emerald:
         sb1, sb2 = m.u32(G_SAVEBLOCK1_PTR), m.u32(G_SAVEBLOCK2_PTR)
         money = m.u32(sb1 + SB1_MONEY) ^ m.u32(sb2 + SB2_ENCRYPTION_KEY)
         badges = sum(m.flag(f) for f in FLAG_BADGE)
-        return {"goal": self.goal(m)[0], "where": where, "badges": badges, "money": money,
-                "team": [party_line(p) for p in team], "recently": list(self.recent)}
+        step = self.step(m)
+        out = {"goal": step["words"], "where": where, "badges": badges, "money": money,
+               "team": [party_line(p) for p in team], "recently": list(self.recent)}
+        if self.said:
+            out["people said, lately"] = list(self.said)
+        if self.weak(team, step):
+            out["note"] = (f"Your team's not strong enough for that yet: train it in tall grass till your best "
+                           f"Pokémon's level {step['level']}.")
+        return out
+
+    def step(self, m):
+        """The story's next step (story_step())."""
+        return story_step(m)
 
     def goal(self, m):
-        """(what to do next, the map to get to) by the story's flags."""
-        for flag, words, place in GOALS:
-            if not m.flag(flag):
-                return words, place
-        return GOAL_DONE, None
+        """(what to do next, the map to get to) by the story's flags and vars."""
+        step = self.step(m)
+        return step["words"], step["place"]
+
+    def weak(self, team, step):
+        """Your team's too weak for the story's next step: its best Pokémon's below the level it should be."""
+        best = max((p["level"] for p in team if not p["egg"]), default=0)
+        return bool(step.get("level")) and best > 0 and best < step["level"]
+
+    def aim(self, m, f, team, step):
+        """Where it's heading now, and why: ("heal", a Pokémon Center) when your team's badly hurt; ("train", the
+        nearest map with tall grass) when it's too weak for what's next; else ("story", the story's next place).
+        The map's name, or None (nowhere known)."""
+        if hurt(team) > HEAL_AT:
+            near = self.nearest_map(f, lambda key, name: name.endswith("Pokémon Center 1F"))
+            if near:
+                return "heal", near
+        if self.weak(team, step):                  # (outdoors: a route, the woods; here, if it's grassy itself)
+            near = self.nearest_map(f, lambda key, name: "," not in name and self.rom.grassy(key), most=4)
+            if near:
+                return "train", near
+        return "story", step["place"]
+
+    def nearest_map(self, f, want, most=8):
+        """The nearest map (by doors and roads; this one first) that's wanted (want(its (group, num), its name)),
+        within most of them away; or None."""
+        dist = self.rom.distances_to(f.where)
+        for key in sorted(dist, key=dist.get):
+            if dist[key] > most:
+                break
+            if want(key, self.rom.map_name(*key)):
+                return self.rom.map_name(*key)
+        return None
 
     def on_walk(self, m):
-        """Free to walk: what to do next, out of what's around (doors and roads, people, grass, places not yet
-        seen), the model's pick; then this walks there and does it."""
+        """Free to walk: what to do next. The story's next thing, if it's here; else the way toward where it is (or
+        first to heal, or to train in tall grass); and only when that's not known, the model picks from what's
+        around (doors and roads, people, grass, places not yet seen). Then this walks there and does it."""
         f = Field(m, self.rom)
         if f.where != self.last_where:
             self.last_where = f.where
+            self.came_in[f.where] = (f.x, f.y)
             self.remember(f"Arrived in {f.name}")
         seen = self.seen.setdefault(f.where, set())
         for dx in range(-7, 8):
             for dy in range(-5, 6):
                 seen.add((f.x + dx, f.y + dy))
-        options = self.options(m, f)
+        step = self.step(m)
+        team = party(m, self.rom)
+        options = self.options(m, f, step, team)
         if not options:
             self.io.status("Looking around")
             self.wander(f)
@@ -1156,9 +1411,13 @@ class Emerald:
         tired = {k for k in lately if lately.count(k) >= SAME_PICK[0] and k not in ("explore", "grass")}
         if set(options) - tired:
             options = {k: o for k, o in options.items() if k not in tired}
-        choices = {k: o["words"] for k, o in options.items()}
-        state = self.state(m) | {"here": f.name}
-        pick = self.io.decide("walk", SAYS_WALK, state, choices, self.fallback(m, f, options))
+        pick, why = self.sure(f, options, step, team)
+        if pick is None:
+            choices = {k: o["words"] for k, o in options.items()}
+            state = self.state(m) | {"here": f.name}
+            pick = self.io.decide("walk", SAYS_WALK, state, choices, self.fallback(m, f, options))
+        else:
+            self.io.log(kind="walk", pick=pick, by=why, words=options[pick]["words"])
         self.walks.append((f.where, pick))
         o = options[pick]
         self.io.status(o["words"][:60])
@@ -1166,15 +1425,48 @@ class Emerald:
         ok = self.carry_out(f, o)
         if not ok:
             self.tried[(f.where, pick)] = time.monotonic()
+        elif o["kind"] in ("door", "road"):
+            key = (f.where, self.exit_key(o))
+            self.taken[key] = self.taken.get(key, 0) + 1
+
+    def exit_key(self, o):
+        return ("door", o["x"], o["y"]) if o["kind"] == "door" else ("road", o["dir"])
+
+    def exit_rank(self, f, o):
+        """Which way out to take first, of those toward where it's heading: not the way it came in, then one it's
+        taken least from here, then the nearest. (So a way that led nowhere new is left for another next time.)"""
+        came = self.came_in.get(f.where)
+        back = came is not None and o["kind"] == "door" and abs(o["x"] - came[0]) + abs(o["y"] - came[1]) <= 2
+        return back, self.taken.get((f.where, self.exit_key(o)), 0), o.get("steps", 0)
+
+    def sure(self, f, options, step, team):
+        """A pick that needs no asking, and why: healing (your team's badly hurt and there's a nurse or a Pokémon
+        Center), the story's thing to do here, training in the grass (your team's too weak for what's next), or the
+        nearest way toward where it's heading. (None, ""): there's none (the model picks)."""
+        if hurt(team) > HEAL_AT:
+            heal = [k for k, o in options.items() if o.get("heal")]
+            if heal:
+                return min(heal, key=lambda k: options[k].get("steps", 0)), "heal"
+        story = [k for k, o in options.items() if o.get("story")]
+        if story:
+            return story[0], "story"
+        if self.weak(team, step) and "grass" in options:
+            return "grass", "train"
+        toward = [k for k, o in options.items() if o.get("toward")] or \
+            [k for k, o in options.items() if o.get("around")]
+        if toward:
+            pick = min(toward, key=lambda k: self.exit_rank(f, options[k]))
+            return pick, options[pick].get("toward") or options[pick]["around"]
+        return None, ""
 
     def fallback(self, m, f, options):
         """What it does if the model can't say: heal if badly hurt, else toward the goal, else look around."""
         team = party(m, self.rom)
-        if hurt(team) > 0.6:
+        if hurt(team) > HEAL_AT:
             for k, o in options.items():
                 if o.get("heal"):
                     return k
-        goal = [k for k, o in options.items() if o.get("toward")]
+        goal = [k for k, o in options.items() if o.get("toward") or o.get("story")]
         if goal:
             return goal[0]
         for k in ("explore", "grass"):
@@ -1182,42 +1474,78 @@ class Emerald:
                 return k
         return random.choice(list(options))
 
-    def options(self, m, f):
-        """{key: {words, kind, ...}}: what's within reach, the model's choices."""
+    def options(self, m, f, step=None, team=None):
+        """{key: {words, kind, ...}}: what's within reach, the model's choices: the story's thing to do here (if
+        it's here), doors and roads (those toward where it's heading marked so), people, trainers and items,
+        obstacles a field move clears, the water, tall grass, and places not yet seen."""
+        step = step or self.step(m)
+        team = party(m, self.rom) if team is None else team
         doors = {(x, y) for x, y, _ in f.warps}
         seen_map, tiles = f.reach(avoid=doors)
         out = {}
-        goal_words, goal_place = self.goal(m)
-        dist = self.goal_distances(goal_place)
+        why, place = self.aim(m, f, team, step)
+        dist = self.goal_distances(place)
         here_d = dist.get(f.where)
-        recently = {k for (where, k), t in self.tried.items() if where == f.where and time.monotonic() - t < 120}
-        team = party(m, self.rom)
+        heading = {"story": "toward your goal", "heal": "toward a Pokémon Center",
+                   "train": "toward tall grass, to train"}[why]
+        recently = {k for (where, k), t in self.tried.items() if where == f.where and time.monotonic() - t < TRIED_FOR}
         knows = {mv for p in team for mv, _ in p["moves"]}
+
+        def closer(to):                          # (a way toward where it's heading: its map nearer, or there)
+            there = dist.get(to)
+            return there is not None and (here_d is None or there < here_d)
+        # the story's thing to do here: someone to talk to, something to look at (a clock...), or a place to walk to
+        tile = step["script"] if isinstance(step["script"], tuple) else None
+        if tile and step["place"] == f.name:
+            x, y = tile[1] + MAP_OFFSET, tile[2] + MAP_OFFSET
+            if (x, y) in tiles and (x, y) != (f.x, f.y):
+                out["story"] = {"words": f"{step['does']} ({way(x - f.x, y - f.y)}, {tiles[(x, y)][0]} steps): the "
+                                         f"story's next step", "kind": "spot", "target": (x, y), "story": True,
+                                "steps": tiles[(x, y)][0]}
+        elif step["script"]:
+            for p in f.people:
+                spot = self.talk_spot(f, p, tiles) if f.script_of(p) == step["script"] else None
+                if spot is not None:
+                    out["story"] = {"words": f"{step['does']} ({way(p['x'] - f.x, p['y'] - f.y)}, "
+                                             f"{tiles[spot[:2]][0]} steps): the story's next step", "kind": "talk",
+                                    "person": p["local_id"], "target": spot, "story": True,
+                                    "steps": tiles[spot[:2]][0]}
+                    break
+            for x, y, facing, script in f.signs:
+                spot = self.look_spot(f, x, y, facing, tiles) if script == step["script"] and "story" not in out \
+                    else None
+                if spot is not None:
+                    out["story"] = {"words": f"{step['does']} ({way(x - f.x, y - f.y)}, {tiles[spot[:2]][0]} "
+                                             f"steps): the story's next step", "kind": "look", "target": spot,
+                                    "story": True, "steps": tiles[spot[:2]][0]}
         # doors, stairs, exits
         for i, (x, y, to) in enumerate(f.warps):
-            if to == (127, 127):                   # (back where you came in from)
-                to = f.came_from
+            if to == (127, 127):                   # (back where you came in from: the moving truck, out to town)
+                to = self.rom.by_name.get("Littleroot Town", to) if f.name == "Inside Of Truck" else f.came_from
             name = self.rom.map_name(*to)
             target = self.warp_approach(f, x, y, tiles)
             if target is None:
                 continue
             steps = tiles[target[:2]][0]
-            toward = here_d is not None and dist.get(to, 99) < here_d
-            heal = "Pokémon Center" in name
-            words = f"Go to {name} ({way(x - f.x, y - f.y)}, {steps} steps)" + (" (toward your goal)" if toward else "")
+            toward = why if closer(to) else ""
+            around = why if (not toward and here_d is not None and dist.get(to) == here_d + 1
+                             and self.rom.way_around(f.where, i, to)) else ""
+            heal = name.endswith("Pokémon Center 1F")   # (not its upstairs)
+            words = f"Go to {name} ({way(x - f.x, y - f.y)}, {steps} steps)" + (
+                f" ({heading})" if toward else f" (a way round, {heading})" if around else "")
             out[f"door{i}"] = {"words": words, "kind": "door", "x": x, "y": y, "target": target, "to": to,
-                               "toward": toward, "heal": heal}
+                               "toward": toward, "around": around, "heal": heal, "steps": steps}
         # roads on to the next map
         for d, _, to in f.roads:
             target = self.road_target(f, d, tiles)
             if target is None:
                 continue
             name = self.rom.map_name(*to)
-            toward = here_d is not None and dist.get(to, 99) < here_d
+            toward = why if closer(to) else ""
             steps = tiles[target][0]
-            words = f"Go {WORD[d]} to {name} ({steps} steps)" + (" (toward your goal)" if toward else "")
+            words = f"Go {WORD[d]} to {name} ({steps} steps)" + (f" ({heading})" if toward else "")
             out[f"road{d}"] = {"words": words, "kind": "road", "dir": d, "target": target, "to": to,
-                               "toward": toward}
+                               "toward": toward, "steps": steps}
         # people, trainers, items
         people = []
         for p in f.people:
@@ -1238,7 +1566,7 @@ class Emerald:
             else:
                 words = f"Talk to the person ({where})"
             out[f"talk{p['local_id']}"] = {"words": words, "kind": "talk", "person": p["local_id"], "target": spot,
-                                           "heal": p["gfx"] == GFX_NURSE}
+                                           "heal": p["gfx"] == GFX_NURSE, "steps": steps}
         # obstacles a field move clears
         for p in f.people:
             gfx = p["gfx"]
@@ -1256,7 +1584,7 @@ class Emerald:
                 out["surf"] = {"words": f"Surf on the water ({way(shore[0] - f.x, shore[1] - f.y)})",
                                "kind": "surf", "target": shore}
         # tall grass
-        grass = self.nearest(f, tiles, lambda x, y: f.behaviour(x, y) in (MB_TALL_GRASS, MB_LONG_GRASS))
+        grass = self.nearest(f, tiles, lambda x, y: f.behaviour(x, y) in GRASS)
         if grass is not None:
             out["grass"] = {"words": "Walk in the tall grass to find wild Pokémon (to train or catch)",
                             "kind": "grass", "target": grass}
@@ -1320,6 +1648,18 @@ class Emerald:
                     best = (sx, sy, d)
         return best
 
+    def look_spot(self, f, x, y, facing, tiles):
+        """Where to stand to look at something (a clock on the wall, a sign), and which way to face: next to it,
+        facing it (from the one side it's seen from, if it's that kind)."""
+        best = None
+        for d, (dx, dy) in STEP.items():
+            if facing and d != facing:
+                continue
+            sx, sy = x - dx, y - dy
+            if (sx, sy) in tiles and (best is None or tiles[(sx, sy)][0] < tiles[best[:2]][0]):
+                best = (sx, sy, d)
+        return best
+
     def shore(self, f, tiles):
         """The nearest place to start surfing from: on land, facing water the game lets you surf on (lower than
         the land, and nothing in the way), and which way it is."""
@@ -1351,7 +1691,7 @@ class Emerald:
                 if self.follow(Field(self.io.snapshot(), self.rom), [target[2]]) != "done":
                     return False
             return self.through(target[3], layout)
-        if kind in ("talk", "surf"):
+        if kind in ("talk", "look", "surf"):
             self.face(target[2])
             self.io.tap("a")
             self.io.wait(0.5)

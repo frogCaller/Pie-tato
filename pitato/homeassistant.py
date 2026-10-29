@@ -6,7 +6,7 @@ import time
 import urllib.error
 import urllib.request
 
-from .config import read_config
+from .config import edit_config, read_config
 
 
 HA_POLL = 3              # seconds between asking Home Assistant how the TV is
@@ -16,6 +16,12 @@ HA_WAKE_AGAIN = 8        # ...asking it to turn on again this often meanwhile (a
 WAKE_AGAIN = ("samsung", "lg")    # which is how Home Assistant wakes them, can go astray)
 HA_LIGHTS_POLL = 5       # ...and how the lights are (all of Home Assistant's states, each time)
 LIGHT_STEP = 10          # percent brighter or dimmer for each press
+HA_FILE = "homeassistant.txt"
+HA_HEAD = ("# Home Assistant, for the TV Remote and Lights: Pietato writes this when you set it up (Home Assistant's\n"
+           "# settings, or the web page's). Keep it private: it has your token. Also, if you like:\n"
+           "#   tv = media_player.living_room_tv     remote = remote.living_room_tv     style = samsung\n"
+           "#   lights = light.kitchen, switch.fan_plug     (found by themselves when they're not here)\n")
+HA_GUESS = "homeassistant.local:8123"   # where Home Assistant usually is, to start the address with
 
 
 # The TV's own buttons, by how its Home Assistant integration names them. Samsung,
@@ -80,6 +86,34 @@ def ha_url(text):
     if url and "://" not in url:
         url = "http://" + url
     return url
+
+
+def save_ha(updates):
+    """Home Assistant's address, token and the rest (as {"url": ..., "token": ...}) into homeassistant.txt, the rest of
+    it kept: yours only, and never shown on the web page."""
+    return edit_config(HA_FILE, updates, head=HA_HEAD, limit=600, private=True)
+
+
+def ha_check(url, token, timeout=8):
+    """Whether Home Assistant at url takes token: (True, its name and version in words) or (False, why not)."""
+    url = ha_url(url)
+    if not url:
+        return False, "Home Assistant's address isn't set"
+    if not token:
+        return False, "The token isn't set"
+    ha = HomeAssistant()
+    ha.url, ha.token = url, token
+    try:
+        ha.call("GET", "/api/", timeout=timeout)
+    except Exception as ex:
+        return False, ha.why(ex)
+    try:
+        cfg = ha.call("GET", "/api/config", timeout=timeout) or {}
+    except Exception:
+        cfg = {}
+    name = str(cfg.get("location_name") or "Home Assistant").strip()[:40]
+    version = str(cfg.get("version") or "").strip()[:20]
+    return True, f"Connected to {name}" + (f" ({version})" if version else "")
 
 
 class HomeAssistant:

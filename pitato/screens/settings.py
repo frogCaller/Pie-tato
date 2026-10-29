@@ -136,6 +136,8 @@ class SettingsScreen:
                 self.set_page, self.confirm = "resolution", (None, 0.0)
                 boot = boot_resolution()               # (the row it's on now: Auto's, or the size's)
                 self.set_sel = next((k for k, (_, _, s) in enumerate(self.settings_rows()) if s == boot), 0)
+            elif key == "homeassistant":
+                self.ha_open()
             elif key == "friend":
                 self.set_page, self.set_sel = "friend", 0
                 self.friend.load(self.friend_files())
@@ -408,6 +410,7 @@ class SettingsScreen:
                 profile = w["saved"].get(args[0], args[0])
                 ok, _, err = nm(["connection", "delete", "id", profile], 15)
                 self.toast(f"Forgot {args[0]}" if ok else nm_why(err), 3)
+                w["said"] = (ok, f"Forgot {args[0]}" if ok else nm_why(err), time.monotonic())   # (for the web page)
             elif what == "connect":
                 ssid, password, hidden = args
                 before = w["saved"] = wifi_saved()
@@ -427,6 +430,7 @@ class SettingsScreen:
                     self.toast(f"Connected to {ssid}", 3)
                 else:
                     self.toast(f"{ssid}: {nm_why(err)}", 5)
+                w["said"] = (ok, f"Connected to {ssid}" if ok else f"{ssid}: {nm_why(err)}", time.monotonic())
             if what != "radio" or w["radio"]:
                 ok, out, _ = nm(["radio", "wifi"], 10)
                 w["radio"] = not ok or out.strip() != "disabled"
@@ -572,6 +576,7 @@ class SettingsScreen:
                      self.pad_summary() if key == "pad" else
                      self.pad_swap_value() if key == "pad_swap" else
                      self.friend_summary() if key == "friend" else
+                     self.ha_value() if key == "homeassistant" else
                      self.sound_value() if key == "sound" else
                      self.res_value() if key == "resolution" else self.setting(key))
             x1 = W - 28
@@ -620,8 +625,8 @@ class SettingsScreen:
         else:
             key = rows[sel][0]
             hints = [("◀▶", "Change"), ("L R", "Tabs"), ("B", "Home")]
-            if key in ("wifi", "bluetooth", "friend", "resolution"):
-                hints = [("A", {"friend": "Set up", "wifi": "Networks",
+            if key in ("wifi", "bluetooth", "friend", "resolution", "homeassistant"):
+                hints = [("A", {"friend": "Set up", "homeassistant": "Set up", "wifi": "Networks",
                                 "bluetooth": "Devices"}.get(key, "Change")),
                          ("L R", "Tabs"), ("B", "Home")]
             elif key == "pad":

@@ -1,5 +1,8 @@
 """The TV tab's shelves: the free old cartoons and films from the Internet Archive, and the words that
 sort live channels into news, sports and the rest."""
+import glob
+import mmap
+import os
 import re
 import urllib.parse
 import urllib.request
@@ -514,6 +517,49 @@ def is_hls(url):
         return urllib.parse.urlsplit(url).path.lower().endswith(".m3u8")
     except ValueError:                   # not a link at all (a typo in streams.txt)
         return False
+
+
+# FFmpeg (mplayer plays streams through its libavformat) turns down a stream whose pieces' links don't end in a kind
+# of file it knows (".../640x360_800000?u=...": some free channels make theirs up as they're asked for), since its
+# 2025 fixes (5.1.7 on). It can be told not to mind. An older one doesn't know how to be told, and doesn't mind
+# anyway; and mplayer plays nothing at all given a word its FFmpeg doesn't know, so it's only said to one that knows.
+HLS_LENIENT = ["-lavfdopts", "o=extension_picky=0"]
+HLS_TURNED_DOWN = ("allowed_segment_extensions", "mismatches allowed extensions")   # (what FFmpeg says, doing it)
+LAVF_LIBS = ("/usr/lib/*/libavformat.so.*", "/usr/lib/libavformat.so.*", "/usr/local/lib/*/libavformat.so.*",
+             "/usr/local/lib/libavformat.so.*")
+_lavf_knows = {}                         # word -> whether the FFmpeg here knows it (looked at once)
+
+
+def lavf_knows(word):
+    """Whether the FFmpeg mplayer plays through knows this word: it's in each libavformat here (mplayer's is one)."""
+    if word not in _lavf_knows:
+        libs = {os.path.realpath(p) for pattern in LAVF_LIBS for p in glob.glob(pattern)}
+
+        def has(path):
+            try:
+                with open(path, "rb") as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as m:
+                    return m.find(word.encode() + b"\0") >= 0
+            except (OSError, ValueError):
+                return False
+        _lavf_knows[word] = bool(libs) and all(has(p) for p in libs)
+    return _lavf_knows[word]
+
+
+def lavf_knows_now(word):
+    """The FFmpeg here has been seen to know this word (it said it)."""
+    _lavf_knows[word] = True
+
+
+def hls_lenient():
+    """mplayer's words for an HLS stream, that FFmpeg's not to mind what its pieces' links end in ([] if its FFmpeg
+    doesn't know them)."""
+    return list(HLS_LENIENT) if lavf_knows("extension_picky") else []
+
+
+def hls_turned_down(said):
+    """Whether what the player said (its last lines) is FFmpeg turning a stream down for its pieces' links: then its
+    FFmpeg knows how to be told not to mind, too."""
+    return any(w in line for line in said for w in HLS_TURNED_DOWN)
 
 
 def hls_pick(url, timeout=8):

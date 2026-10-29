@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
-"""camera.py - this Pi's USB camera, shared on your network for Pie-tato's Camera tab.
+"""camera.py - this Pi's USB camera, shared on your network for Pietato's Camera tab.
 
 It answers the same calls as PiE-ink's camera (/api/camera.jpg, /api/ptz/..., /api/photos),
-so Pie-tato treats this Pi like a PiE-ink one: the live picture, pictures into ~/Pictures,
+so Pietato treats this Pi like a PiE-ink one: the live picture, pictures into ~/Pictures,
 and steering and zoom for a camera that turns (an OBSBOT, a PTZ webcam). Following you, and
 waking an OBSBOT that has fallen asleep, need PiE-ink.
 
-Put it on the Pi with the camera (from the Pie-tato folder):
+Put it on the Pi with the camera (from the Pietato folder):
     sudo bash setup.sh --camera
-then add that Pi's address on Pie-tato's Camera tab (it also shows up there by itself, under
+then add that Pi's address on Pietato's Camera tab (it also shows up there by itself, under
 "On your network"). Opening http://<this Pi>:5433 in a browser shows the picture too.
 
-Settings, all optional, in static/camera-server.txt (the static folder of the Pie-tato folder:
+Settings, all optional, in static/camera-server.txt (the static folder of the Pietato folder:
 setup.sh tells the service where that is; run by hand, it's the one beside the folder this script is in):
-    name =             what Pie-tato calls it (this Pi's name if blank)
+    name =             what Pietato calls it (this Pi's name if blank)
     size = 640x480     the live picture (the camera's biggest is used for pictures you take)
     fps = 15
     device =           /dev/video0 and so on (blank: the first USB camera)
     hosts =            other names you reach this Pi by, if your router gives it one
 
-Pie-tato uses it on its own Pi too, for a USB camera plugged into that Pi (OwnCameras): each one plugged in
+Pietato uses it on its own Pi too, for a USB camera plugged into that Pi (OwnCameras): each one plugged in
 answers the same calls at /usb/<its id>, on 127.0.0.1 only, so it isn't shared on the network.
 """
 import glob
@@ -42,7 +42,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 PORT = 5433
 BEACON_PORT, BEACON_EVERY = 5151, 5.0   # where PiE-inks announce themselves too
 HERE = os.path.dirname(os.path.abspath(__file__))
-TOP = HERE if os.path.isdir(os.path.join(HERE, "static")) else os.path.dirname(HERE)   # (in the Pie-tato folder:
+TOP = HERE if os.path.isdir(os.path.join(HERE, "static")) else os.path.dirname(HERE)   # (in the Pietato folder:
 STATIC = os.path.abspath(os.environ.get("PITATO_STATIC", "").strip()                  # one folder up)
                          or os.path.join(TOP, "static"))
 CONF_FILE = os.path.join(STATIC, "camera-server.txt")
@@ -191,7 +191,7 @@ class Feed:
     """ffmpeg runs while someone is watching; the newest picture is kept for whoever asks."""
 
     def __init__(self, device=""):
-        self.fixed = device         # this node, whatever camera-server.txt says (Pie-tato's own: each USB camera)
+        self.fixed = device         # this node, whatever camera-server.txt says (Pietato's own: each USB camera)
         self.gone = False           # ...and it's been taken out: not started again till it's back
         self.cond = threading.Condition()
         self.starting = threading.Lock()   # one start or stop at a time: a new ffmpeg never meets the old
@@ -578,7 +578,7 @@ class Shutter:
             return name
 
 
-# ---- telling Pie-tato this camera is here ----------------------------------------------------
+# ---- telling Pietato this camera is here ----------------------------------------------------
 def beacon_loop(ptz, port=PORT):
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
@@ -604,19 +604,19 @@ img {{ display: block; width: 100%; border-radius: 10px; background: #1a1f27; }}
 p {{ color: #8b95a3; margin: 10px 2px; }}
 </style></head><body><main>
 <img src="/api/camera/stream" alt="The live picture from {name}">
-<p>{name} &middot; add this Pi's address on Pie-tato's Camera tab</p>
+<p>{name} &middot; add this Pi's address on Pietato's Camera tab</p>
 </main></body></html>"""
 
 
 def shared_about(feed):
-    return {"server": "Pitato camera",                 # (its name from before Pie-tato's: what other Pis look for)
+    return {"server": "Pitato camera",                 # (its name from before Pietato's: what other Pis look for)
             "name": settings().get("name") or socket.gethostname(),
             "hostname": socket.gethostname()}
 
 
 def serve(feed, ptz, shutter, port=PORT, host="", pick=None, about=shared_about):
     """The camera's calls on port (host "": every address; "127.0.0.1": this Pi only). pick(path): (feed, ptz,
-    shutter, the path inside) for a server of several cameras (Pie-tato's own: /usb/<id>/api/...), None for none."""
+    shutter, the path inside) for a server of several cameras (Pietato's own: /usb/<id>/api/...), None for none."""
     if pick is None:
         pick = lambda path: (feed, ptz, shutter, path)   # noqa: E731
 
@@ -754,7 +754,7 @@ def serve(feed, ptz, shutter, port=PORT, host="", pick=None, about=shared_about)
     return server
 
 
-# ---- Pie-tato's own Pi: the USB cameras plugged into it, for its Camera tab and its bot ------------------------
+# ---- Pietato's own Pi: the USB cameras plugged into it, for its Camera tab and its bot ------------------------
 VIDIOC_QUERYCAP = 0x80685600     # what a node is: _IOR('V', 0, struct v4l2_capability), 104 bytes
 CAP_CAPTURE, CAP_DEVICE_CAPS = 0x00000001, 0x80000000
 OWN_PORTS = (5434, 5435, 5436, 5437)   # on 127.0.0.1 only (5433 is this script's, shared): the first that's free
@@ -862,7 +862,7 @@ def own_about(feed):
 
 
 class OwnCameras:
-    """The USB cameras plugged into Pie-tato's own Pi, for its Camera tab and its bot. They aren't shared on the
+    """The USB cameras plugged into Pietato's own Pi, for its Camera tab and its bot. They aren't shared on the
     network (that's what the rest of this script is for): each answers the same calls as a camera on another Pi, at
     /usb/<its id> on 127.0.0.1, and its picture is taken only while someone's watching, as this script's is."""
 

@@ -25,7 +25,7 @@ class WebScreen:
         if not self.active:
             return "Terminal"
         if self.view == "home":
-            return "Home"
+            return "Home screen"                   # (Home alone is the tab of that name)
         if self.view == "learn":
             return "Settings › Controller"
         if self.view == "sketch":
@@ -241,7 +241,7 @@ class WebScreen:
                 return {"ok": True}
             if not self.web_ready():
                 return {"error": "There's no screen to show it on"}
-            if app == "Home":
+            if cmd.get("home") is True:                 # the home screen (the app called Home is a tab)
                 self.go_home()
                 return {"ok": True}
             if app == "Coder":                         # (the Bot at work had its own app once)
@@ -300,6 +300,8 @@ class WebScreen:
             return self.web_camera(cmd)
         if c == "friend":
             return self.web_friend_do(cmd)
+        if c == "settings":                            # (Settings on the web page: one changed)
+            return self.web_settings_do(cmd)
         if c == "sketch":                              # (opened already, by the control server)
             return self.web_sketch(cmd.get("image"))
         return {"error": "Unknown request"}

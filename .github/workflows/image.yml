@@ -1,4 +1,4 @@
-# Pie-tato's SD card images (image/build.sh), made by GitHub for each release and attached to it: one for the GPi
+# Pietato's SD card images (image/build.sh), made by GitHub for each release and attached to it: one for the GPi
 # Case 2W, one for the GPi Case 2, one for a TV or monitor on HDMI. Actions > Image > Run workflow makes them
 # without a release, to try (they're kept with that run for a few days).
 name: Image
@@ -38,7 +38,7 @@ jobs:
         if: github.event_name != 'release'
         uses: actions/upload-artifact@v6
         with:
-          name: pie-tato-images
+          name: pietato-images
           path: ${{ runner.temp }}/images/
           retention-days: 3
           compression-level: 0

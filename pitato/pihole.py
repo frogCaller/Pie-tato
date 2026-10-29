@@ -124,7 +124,7 @@ def count(n):
 
 def save_pihole(url, password):
     """Your Pi-hole and its password, in static/pihole.txt (yours only: never shown on the web page)."""
-    write_setting(PIHOLE_FILE, "# Your Pi-hole, for the Pi-hole page in the Home Assistant tab: Pie-tato writes this\n"
+    write_setting(PIHOLE_FILE, "# Your Pi-hole, for the Pi-hole page in the Home tab: Pietato writes this\n"
                                "# when you sign in there. Keep it private: it has your Pi-hole's password.\n"
                                f"address = {url}\npassword = {password}\n", private=True)
 

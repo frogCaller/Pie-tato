@@ -13,7 +13,7 @@ from .screen import video_target
 
 
 PLEX_FILE = "/var/lib/pitato/plex.json"      # sign-in token (readable by root only)
-PLEX_PRODUCT = "Pie-tato"
+PLEX_PRODUCT = "Pietato"
 
 
 PLEX_CACHE = ["-cache", "4096", "-cache-min", "5"]

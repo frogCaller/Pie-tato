@@ -1,4 +1,4 @@
-"""The Pi-hole page (in the Home Assistant tab): your Pi-hole's dashboard, from Pi-hole itself."""
+"""The Pi-hole page (in the Home tab): your Pi-hole's dashboard, from Pi-hole itself."""
 import math
 import threading
 import time
@@ -129,7 +129,7 @@ class PiholeScreen:
         self.header(img, d)
         ph = self.pihole
         y = self.LIST_TOP + 10
-        d.text((20, y), "Home Assistant  ›  Pi-hole", font=F["small"], fill=MUTED, anchor="lm")
+        d.text((20, y), "Home  ›  Pi-hole", font=F["small"], fill=MUTED, anchor="lm")
         right = W - 20
         where = self.fit(d, ph.where, F["small"], W // 3)
         d.text((right, y), where, font=F["small"], fill=MUTED, anchor="rm")

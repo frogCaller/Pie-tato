@@ -1,4 +1,5 @@
 """Media mode: class Media, with each app's part of it (pitato/screens/) mixed in."""
+import collections
 import fcntl
 import json
 import os
@@ -12,7 +13,7 @@ from .theme import MUTED, set_accent, TEXT
 from .config import (home_dir, HOME_STYLE_WAS, SCREEN_MODES, SETTINGS_DEFAULT, SETTINGS_GONE, STATE_FILE, TURN_DEGREES,
                      web_private)
 from .util import classify, clock, FILE_KINDS, find_files, IMAGE_EXTS, item, looks_like_text, title_of
-from .system import system_info, system_stopping
+from .system import SysHistory, system_info, system_numbers, system_stopping
 from .bluetooth import Bluetooth
 from . import screen as screen_out
 from .screen import Framebuffer, slow_pi
@@ -56,6 +57,7 @@ from .screens.finance import FinanceScreen
 from .screens.remote import RemoteScreen
 from .screens.lights import LightsScreen
 from .screens.pihole import PiholeScreen
+from .screens.sysdash import SysDashScreen
 from .screens.camera import CameraScreen
 from .screens.bot import BotScreen
 from .screens.coder import CoderScreen
@@ -70,6 +72,8 @@ from .screens.web import WebScreen
 from .screens.computers import ComputersScreen, NET
 from .screens.progs import ProgScreen
 from .screens.sketch import SketchScreen
+from .screens.hasettings import HaSettingsScreen
+from .screens.websettings import WebSettingsScreen
 
 _SAVING = threading.Lock()     # (state.json written one at a time: the shrinker's and radio's threads save too)
 
@@ -78,7 +82,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             PhotoScreen, ReadingScreen, ChannelScreen, RadioScreen, FinanceScreen,
             RemoteScreen, LightsScreen, CameraScreen, BotScreen, CoderScreen, SimScreen,
             SnakeScreen, GameScreen, SettingsScreen, BluetoothScreen, ControllerScreen, WeatherScreen, WebScreen,
-            ComputersScreen, ProgScreen, PiholeScreen, SketchScreen):
+            ComputersScreen, ProgScreen, PiholeScreen, SysDashScreen, SketchScreen, HaSettingsScreen,
+            WebSettingsScreen):
     """Media mode: what the screen shows and what the buttons do there. Its state is all here; each
     app's buttons and drawing come from its part (pitato/screens/)."""
 
@@ -109,6 +114,10 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.volume = 80
         self.started = 0.0
         self.retry = None           # (args, target) to try if a stream fails at once
+        self.live_stops = []        # (a live channel's key, when): each time one stopped by itself after playing
+        self.sys_now = {}           # System's numbers, as it last looked (its list and its dashboard show them)
+        self.sys_history = SysHistory()   # ...how busy the CPU was and how hot, the last 5 minutes (its dashboard)
+        self.sys_panel = 0          # ...which of its dashboard's panels is below the chart
         self.next_query = 0.0
         self.next_status = 0.0
         self.status_sig = None
@@ -232,7 +241,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.last_shot = None        # a picture the Camera tab just saved, to select in Photos
         self.hass = HomeAssistant()
         self.lights = HomeLights()   # the Lights page, through the same Home Assistant
-        self.pihole = Pihole()       # the Pi-hole page (in the Home Assistant tab), from Pi-hole itself
+        self.pihole = Pihole()       # the Pi-hole page (in the Home tab), from Pi-hole itself
         self.pihole_done = None      # ...what it said as it was added, for the next step
         self.pihole_panel = 0        # ...its dashboard's list (◀▶): top blocked, top allowed, top clients, query types
         self.lights_scenes = False   # ...showing your scenes
@@ -269,9 +278,12 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.set_sel = 0             # Settings: the row picked
         self.set_page = "root"       # Settings: "root", or one of its pages ("wifi", "friend"...)
         self.wx_menu, self.wx_sel = None, 0   # Weather's settings (START): None, "menu", or "location"
+        self.ha_menu = None          # Home Assistant's settings, over the page they were opened on: {"sel"}
+        self.soon_jobs = collections.deque()   # what another thread wants done on this one (soon: the next tick)
+        self.ha_said = None          # ...what checking it said: ("busy", words), or (whether it worked, words)
         self.loc_results, self.loc_status = [], None   # ...where you are: the towns found, and how it's going
         self.wifi = {"nets": [], "saved": {}, "status": None, "busy": False, "radio": True, "ssid": "",
-                     "ssid_t": 0.0}
+                     "ssid_t": 0.0, "said": None}   # (said: how connecting or forgetting went, for the web page)
         self.bt = Bluetooth()        # Settings > Bluetooth, and the web page's: pitato/bluetooth.py
         self.bt.on_change = self.bt_changed
         self.bt.sound_note = self.bt_sound_note
@@ -495,6 +507,9 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
                 rows.append(dict(item("grp:" + name, name, "child", str(ci),
                                       sub=LIBRARY[ci].get("about", "")),
                                  icon=LIBRARY[ci].get("badge", "")))
+            if tab["name"] == "Home":                      # (its address and token)
+                self.hass.load(self.ha_files())
+                rows.append(dict(item("ha:settings", "Settings", "hasettings", "ha", sub=self.ha_value()), icon="SET"))
             self.items[i] = rows
         elif tab["type"] == "radio":
             if self.radio_stack:
@@ -599,6 +614,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.sels[i] = min(self.sels.get(i, 0), max(n - 1, 0))
 
     def switch_tab(self, d):
+        self.ha_menu = None
         if self.tab_type() == "camera":
             self.camera.stop()
         if self.tab_type() == "finance":
@@ -630,8 +646,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             time.sleep(wait)
             wait = 2
             if self.active and self.tab == si and self.view == "list" and not self.proc_owns_screen():
-                self.items[si] = self.system_rows()
-                self.dirty = True
+                self.system_show(self.system_rows())
 
     def list_dir(self, path):
         if self.is_net(path):
@@ -971,6 +986,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         elif kind == "child":
             self.tab = int(it["src"])
             self.load_tab(self.tab)
+        elif kind == "hasettings":
+            self.ha_open()
         elif kind == "radiodir":
             self.radio_open(it["src"], it["title"])
         elif kind == "chdir":
@@ -1030,10 +1047,22 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         rows = []
         if self.updater.shown():
             rows.append(item("act:update", "Update software", "action", "update", sub=self.updater.words()))
-        return rows + system_info(self.background())
+        self.sys_now = system_numbers(self.background())      # (its dashboard draws them too)
+        return rows + system_info(nums=self.sys_now)
+
+    def system_show(self, rows):
+        """System's rows afresh, you on the row you were on: rows come and go above it (what's being worked on,
+        Update software), and A never lands on another button for it."""
+        si = self.tab_index("system")
+        old, sel = self.items.get(si) or [], self.sels.get(si, 0)
+        key = old[sel]["key"] if 0 <= sel < len(old) else None
+        k = next((i for i, r in enumerate(rows) if r["key"] == key), None)
+        self.items[si] = rows
+        self.sels[si] = k if k is not None else min(sel, max(len(rows) - 1, 0))
+        self.dirty = True
 
     def background(self):
-        """What Pie-tato's busy with by itself, [(what, how far)]: System says so, under how busy the CPU is."""
+        """What Pietato's busy with by itself, [(what, how far)]: System says so, under how busy the CPU is."""
         out = []
         sh = self.shrinker
         if sh.current:
@@ -1050,8 +1079,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         """(The updater's thread) it's looked for a newer version: System shows what it found."""
         si = self.tab_index("system")
         if si is not None and self.tab == si and self.view == "list":
-            self.items[si] = self.system_rows()
-            self.dirty = True
+            self.system_show(self.system_rows())
 
     def show_update(self):
         """The update under way: its screen, till the Pi restarts (or the update doesn't work)."""
@@ -1128,15 +1156,28 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.view = "list"
         self.dirty = True
 
+    def soon(self, job):
+        """job() done on media mode's own thread, at its next tick (from another thread: the web page's, say)."""
+        self.soon_jobs.append(job)
+
     def tick(self):
         """Called every loop: track position, move on when something ends."""
         now = time.monotonic()
+        while self.soon_jobs:
+            job = self.soon_jobs.popleft()
+            try:
+                job()
+            except Exception as ex:                    # (never the main loop's end)
+                print(f"soon: {ex!r}", flush=True)
         if self.net_done or self.net_changed:
             self.net_tick()
         if self.prog is not None:
             self.prog_tick()
         if self.pihole_done is not None:
             self.pihole_tick()
+        if (self.sys_history.tick(now) and self.active and self.view == "list" and self.tab_type() == "system"
+                and self.sys_dash()):
+            self.dirty = True                          # (its dashboard's charts: a new look)
         self.shrinker.hold(bool(self.proc and self.kind in SCREEN_KINDS) or self.game is not None
                            or self.view == "update")
         if self.view == "update":
@@ -1308,6 +1349,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             it, quick = self.cur, now - self.started < 8
             pos, length = self.plex_now(), (self.cur or {}).get("dur") or 0
             done = bool(length) and pos > length * 0.9
+            if quick:
+                self.player_report(self.proc, f"a {self.vod_name(it)} video")
             self.proc = None
             self.plex_finish(it, pos, self.plex_session, done)
             self.kind, self.cur = None, None
@@ -1325,7 +1368,9 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             return
         if self.proc.poll() is not None:
             was = self.kind
-            quick = now - self.started < 8
+            p, quick = self.proc, now - self.started < 8
+            if quick or was == "live":                 # (a live channel: why it stopped, whenever it did)
+                self.player_report(p, f"a {was or 'player'}")
             self.proc = None
             if quick and self.retry:              # try the backup way once
                 args, target = self.retry
@@ -1336,6 +1381,10 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
                 finally:
                     self.start_paused = False
                 return
+            if quick and was in ("live", "video") and self.lenient_again(p):
+                return                                 # (FFmpeg turned it down for its pieces' links: not to mind)
+            if was == "live" and not quick and self.live_again(now):
+                return                                 # (it had been playing: tuned in again)
             online = bool(self.cur) and self.cur["src"].startswith("ia:")
             self.remember(finished=not quick)
             i = None if was in ("live", "radio") or (quick and online) else self.next_index(1)
@@ -1492,6 +1541,10 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         cols = self.grid_cols() if grid else 1
         page = self.grid_rows() * cols if grid else self.visible_rows()
 
+        if self.ha_menu is not None:                   # Home Assistant's settings, over the page
+            r = self.press_ha_menu(name, repeat)
+            if r != "pass":
+                return r
         if ttype == "remote":
             r = self.press_remote(name, repeat)
             if r != "pass":
@@ -1502,6 +1555,10 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
                 return r
         if ttype == "pihole":
             r = self.press_pihole(name, repeat)
+            if r != "pass":
+                return r
+        if ttype == "system":
+            r = self.press_sysdash(name, repeat)
             if r != "pass":
                 return r
         if ttype == "settings":

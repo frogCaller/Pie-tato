@@ -7,7 +7,7 @@ from .tv import ia_best
 
 # ---- media mode: what's in each tab -----------------------------------------
 LIBRARY = [
-    {"name": "Home Assistant", "type": "group", "empty": "", "children": ["TV Remote", "Lights", "Pi-hole"]},
+    {"name": "Home", "type": "group", "empty": "", "children": ["TV Remote", "Lights", "Pi-hole"]},
     {"name": "TV", "type": "group", "empty": "",
      "children": ["Plex", "Jellyfin", "Cartoons", "Free Movies", "News", "Sports", "Streams"]},
     {"name": "Music", "type": "files", "dirs": ["/home/*/Music"],
@@ -45,14 +45,14 @@ LIBRARY = [
     {"name": "Streams", "type": "streams", "parent": "TV", "badge": "LIVE",
      "about": "Your stream list", "files": [settings_glob("streams.txt"), settings_glob("streams.m3u")],
      "empty": "Add streams to static/streams.txt  as  Name | URL"},
-    # inside the Home Assistant tab
-    {"name": "TV Remote", "type": "remote", "parent": "Home Assistant", "badge": "TV",
+    # inside the Home tab
+    {"name": "TV Remote", "type": "remote", "parent": "Home", "badge": "TV",
      "about": "Your TVs through Home Assistant", "files": [settings_glob("homeassistant.txt")],
      "empty": ""},
-    {"name": "Lights", "type": "lights", "parent": "Home Assistant", "badge": "LIGHT",
+    {"name": "Lights", "type": "lights", "parent": "Home", "badge": "LIGHT",
      "about": "Your lights through Home Assistant", "files": [settings_glob("homeassistant.txt")],
      "empty": ""},
-    {"name": "Pi-hole", "type": "pihole", "parent": "Home Assistant", "badge": "DNS",   # (from Pi-hole itself)
+    {"name": "Pi-hole", "type": "pihole", "parent": "Home", "badge": "DNS",   # (from Pi-hole itself)
      "about": "Your Pi-hole's numbers", "files": [settings_glob("pihole.txt")], "empty": ""},
     # inside the Games tab
     {"name": "Snake", "type": "sim", "sim": "snake", "parent": "Games", "badge": "EAT", "title": "Snake",
@@ -68,15 +68,15 @@ LIBRARY = [
      "about": "Dives into the famous fractal", "empty": ""},
     # (Linux's own cmatrix, hollywood, nyancat, cacafire and htop: A starts one, on the whole screen)
     {"name": "cmatrix", "type": "prog", "prog": "cmatrix", "parent": "Simulator", "badge": "CODE",
-     "about": "Linux's falling code. B stops it", "empty": ""},
+     "about": "Linux's falling code", "empty": ""},
     {"name": "hollywood", "type": "prog", "prog": "hollywood", "parent": "Simulator", "badge": "HACK",
-     "about": "Movie hacker screens. B stops it", "empty": ""},
+     "about": "Movie hacker screens", "empty": ""},
     {"name": "nyancat", "type": "prog", "prog": "nyancat", "parent": "Simulator", "badge": "NYAN",
-     "about": "The rainbow cat. B stops it", "empty": ""},
+     "about": "The rainbow cat", "empty": ""},
     {"name": "cacafire", "type": "prog", "prog": "cacafire", "parent": "Simulator", "badge": "HEAT",
-     "about": "Flames made of letters. B stops it", "empty": ""},
+     "about": "Flames made of letters", "empty": ""},
     {"name": "htop", "type": "prog", "prog": "htop", "parent": "Simulator", "badge": "PROC",
-     "about": "What's running on the Pi. B stops it", "empty": ""},
+     "about": "What's running on the Pi", "empty": ""},
 ]
 
 MEDIA_VT = 7          # spare console the menu and player draw on

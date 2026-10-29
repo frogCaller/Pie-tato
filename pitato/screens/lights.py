@@ -67,6 +67,9 @@ class LightsScreen:
         if name not in ("a", "left", "right"):
             return "pass"
         if it is None:
+            if name == "a" and not repeat and not self.lights.configured:
+                self.ha_open()                         # (its address and token)
+                return None
             if name == "a" and not repeat and self.lights.configured and self.lights.error:
                 self.lights.error = None               # try again
                 self.lights.poll_now = True
@@ -143,6 +146,8 @@ class LightsScreen:
 
     def lights_hints(self, it):
         if it is None:
+            if not self.lights.configured:
+                return [("A", "Set up"), ("L R", "Tabs"), ("B", "Back")]
             return [("A", "Try again")] * bool(self.lights.error and self.lights.configured) + [("L R", "Tabs"),
                                                                                                  ("B", "Back")]
         kind, r = it["kind"], it.get("light")
@@ -157,11 +162,11 @@ class LightsScreen:
     def lights_empty(self):
         lt = self.lights
         if not lt.configured:
-            return "Connect Home Assistant", "Put your url and long-lived token in static/homeassistant.txt"
+            return "Connect Home Assistant", "Press A to put in its address and token"
         if lt.error:
             return "Couldn't get your lights", lt.error
         if not lt.found:
             return "Looking for your lights", "One moment"
         if self.lights_scenes:
             return "No scenes", "Make them in Home Assistant"
-        return "No lights found", "Name them in homeassistant.txt:  lights = light.…"
+        return "No lights found", "Name them on the web page: Settings, Home"

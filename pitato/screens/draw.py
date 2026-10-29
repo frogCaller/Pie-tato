@@ -352,6 +352,8 @@ class DrawScreen:
             return year + (clock(length) if length else ""), MUTED, None
         if kind in ("child", "game"):
             return it.get("sub", ""), MUTED, None
+        if kind == "hasettings":                       # (the Home tab's: where it is, or set it up)
+            return it.get("sub", ""), MUTED if self.hass.configured else ACCENT, None
         if kind == "plexwant":
             return "not on your server", MUTED, None
         if kind in ("plexdir", "jfdir"):
@@ -455,7 +457,7 @@ class DrawScreen:
             elif self.picking == "bot":
                 hints = [("A", "Send to your bot"), ("B", "Cancel")]
         elif ttype == "system":
-            hints += [("B", "Home")]
+            hints = [first, ("SELECT", "Dashboard"), ("L R", "Tabs"), ("B", "Home")]
         elif ttype in ("plex", "jellyfin"):
             stack = self.plex_stack if ttype == "plex" else self.jf_stack
             hints += [("B", "Back" if len(stack) > 1 else "Home")]
@@ -501,6 +503,8 @@ class DrawScreen:
         d.text((W / 2, mid + 18), small, font=F["small"], fill=MUTED, anchor="mm")
 
     def render_list(self):
+        if self.ha_menu is not None:                   # Home Assistant's settings, over the page
+            return self.render_ha_menu()
         ttype = self.tab_type()
         if ttype == "photos":
             return self.render_grid()
@@ -522,6 +526,8 @@ class DrawScreen:
             return self.render_weather()
         if ttype == "pihole" and self.pihole.configured:
             return self.render_pihole()
+        if ttype == "system" and self.sys_dash():
+            return self.render_sysdash()
         if ttype == "plex" and not self.plex.ready:
             return self.render_plex_signin()
         if ttype == "jellyfin" and not self.jellyfin.ready:
@@ -740,6 +746,14 @@ class DrawScreen:
                 ("The chart", [("", "The last 24 hours"), ("", "An hour a column"), ("", "Blue: allowed"),
                                ("", "Orange: blocked")]),
             ]
+        elif self.help_from == "list" and self.tab_type() == "system":
+            cols = [
+                ("System", [("SELECT", "Dashboard / list"), ("◀▶", "More (dashboard)"), ("A", "Select (list)"),
+                            ("", "or Update (a new version)"), ("L R", "Switch tab"), ("B", "Home")]),
+                ("The dashboard", [("", "The CPU's last 5 minutes,"), ("", "a column every 10 seconds"),
+                                   ("", "Below it, ◀▶: the network,"), ("", "temperature, this Pi, and"),
+                                   ("", "what's in the background")]),
+            ]
         elif self.help_from == "list" and LIBRARY[self.tab]["name"] == "Simulator":
             rows, sel = self.tab_items(), self.sels.get(self.tab, 0)
             on = rows[sel]["title"] if rows and 0 <= sel < len(rows) else ""
@@ -812,7 +826,7 @@ class DrawScreen:
         W, H = self.fb.w, self.fb.h
         self.status_bar(d)                             # (the time and WiFi: no tabs, there's nowhere to go)
         state, words = self.update_view
-        title = "Restarting" if state == "restarting" else "Updating Pie-tato"
+        title = "Restarting" if state == "restarting" else "Updating Pietato"
         d.text((W / 2, H / 2 - 50), self.fit(d, title, F["big"], W - 60), font=F["big"], fill=TEXT, anchor="mm")
         d.text((W / 2, H / 2 - 6), self.fit(d, words or "One moment", F["row"], W - 60), font=F["row"],
                fill=ACCENT, anchor="mm")

@@ -1,6 +1,6 @@
 #!/bin/sh
-# Pie-tato from its SD card image: its services follow its folder. Raspberry Pi Imager can rename the image's user as it
-# writes the card, which moves their home, and the Pie-tato folder in it; then this points the services at where it is
+# Pietato from its SD card image: its services follow its folder. Raspberry Pi Imager can rename the image's user as it
+# writes the card, which moves their home, and the Pietato folder in it; then this points the services at where it is
 # now, and signs the new name in at start-up. A systemd generator (/etc/systemd/system-generators): run as each start
 # begins, it writes nothing but drop-ins in systemd's own folder for them, and only when something's moved.
 out="${1:-/run/systemd/generator}"
@@ -11,7 +11,7 @@ was=$(sed -n 's/^Environment="PITATO_STATIC=\(.*\)"$/\1/p' "$unit" | head -n 1 |
 [ -n "$was" ] || exit 0
 [ -d "$root$was" ] && exit 0                   # (where setup.sh put it: still there)
 static=""
-for d in "$root"/home/*/pie-tato/static "$root"/home/*/pitato/static; do   # (pitato: its name before)
+for d in "$root"/home/*/pietato/static "$root"/home/*/pie-tato/static "$root"/home/*/pitato/static; do   # (pie-tato, pitato: its names before)
   if [ -d "$d" ]; then static=$d; break; fi
 done
 [ -n "$static" ] || exit 0

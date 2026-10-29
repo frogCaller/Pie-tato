@@ -133,6 +133,10 @@ def serve_control(media, control, port=CONTROL_PORT, key=None):
                     return self.reply(200, media.coder_state())
                 if u.path == "/bluetooth":
                     return self.reply(200, media.web_bluetooth())
+                if u.path == "/settings":
+                    return self.reply(200, media.web_settings())
+                if u.path == "/places":                # (towns, for Weather's location: it asks the internet)
+                    return self.reply(200, media.web_find_place(q.get("q", "")))
                 if u.path == "/friendpic":
                     pic = Friend.picture_bytes(q.get("id", ""))
                     return self.reply(200, pic, "image/jpeg") if pic else self.reply(404, {"error": "No such picture"})

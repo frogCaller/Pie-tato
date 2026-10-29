@@ -151,7 +151,7 @@ class BotScreen:
         return clean_name(self.friend.conf.get("mic"), 40)
 
     def listen_now(self):
-        """Listening as Settings > Bot has it, while Pie-tato's on screen: started (afresh, for a new phrase or
+        """Listening as Settings > Bot has it, while Pietato's on screen: started (afresh, for a new phrase or
         microphone), or stopped."""
         if self.active and self.bot_listens() and have_vosk():
             self.ears.start(self.bot_wake(), self.bot_mic())

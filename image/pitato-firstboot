@@ -1,9 +1,9 @@
 #!/bin/sh
-# Pie-tato from its SD card image, the first time it starts: the game folders for the games this Pi plays (a Pi 4 or 5
-# plays N64, PSP and DS games too), in the Games folder of the Pie-tato folder's owner. Then never again.
+# Pietato from its SD card image, the first time it starts: the game folders for the games this Pi plays (a Pi 4 or 5
+# plays N64, PSP and DS games too), in the Games folder of the Pietato folder's owner. Then never again.
 root="${PITATO_ROOT:-}"                        # (for its tests: a pretend /)
 model=$(tr -d '\0' < "${PITATO_MODEL_FILE:-/proc/device-tree/model}" 2> /dev/null)
-for static in "$root"/home/*/pie-tato/static "$root"/home/*/pitato/static; do   # (pitato: its name before)
+for static in "$root"/home/*/pietato/static "$root"/home/*/pie-tato/static "$root"/home/*/pitato/static; do   # (pie-tato, pitato: its names before)
   [ -d "$static" ] || continue
   folder=${static%/static}
   home=${folder%/*}

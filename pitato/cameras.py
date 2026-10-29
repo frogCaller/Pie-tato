@@ -25,11 +25,11 @@ CAM_FPS = 4              # how often a camera that's only a picture is fetched, 
 CAM_STREAM_FPS = (15, 8)  # ...and the pictures of one that streams, shown at most this many a second (on a Pi 4
                           # or 5; on a slower Pi)
 PIE_STREAM = "/api/camera/stream"   # a Pi's camera (camera.py's): its stream, watched rather than its picture fetched
-PIE_STREAMS = ("Pitato camera", "Pie-tato camera", "USB camera")   # ...the camera servers that have one, as they
+PIE_STREAMS = ("Pitato camera", "Pietato camera", "USB camera")   # ...the camera servers that have one, as they
                                                      # say (PiE-ink's picture is fetched). camera.py says the first, as
                                                      # it always has (Pis not yet updated look for it): shown as the
                                                      # second. The last: a USB camera plugged into this Pi
-CAM_SHOWN_AS = {"Pitato camera": "Pie-tato camera"}   # a camera server's name, as the Camera tab and web page show it
+CAM_SHOWN_AS = {"Pitato camera": "Pietato camera"}   # a camera server's name, as the Camera tab and web page show it
 CAM_STREAM_WAIT = 15.0   # seconds a stream may send nothing before it's connected again (some send a picture only
                          # when they have a new one)
 CAM_STALE = 3.0          # seconds without a new picture: "Reconnecting…" over the last one, which stays up
@@ -397,7 +397,7 @@ def mjpeg_frames(resp, alive=None, patience=10.0):
 class Camera:
     """The Camera tab: cameras on your other Pis, or anywhere on your network.
 
-    A Pi running PiE-ink, or Pie-tato's own camera server (camera.py: setup.sh --camera), is
+    A Pi running PiE-ink, or Pietato's own camera server (camera.py: setup.sh --camera), is
     worked with the same calls as PiE-ink's web page: /api/ptz/drive while the d-pad is held,
     /api/ptz/stop when let go, /api/ptz/set for zoom, /api/ptz/follow and /api/ptz/home; the
     picture comes from /api/camera.jpg, and a picture is taken with its own shutter (POST
@@ -741,7 +741,7 @@ class Camera:
                 self.gen += 1
 
     def close(self):
-        """Pie-tato's stopping: this Pi's USB cameras let go."""
+        """Pietato's stopping: this Pi's USB cameras let go."""
         self.stop()
         self.own.close()
 

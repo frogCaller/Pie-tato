@@ -32,7 +32,7 @@ class RemoteScreen:
                    "start": ("play",)}
 
     def press_remote(self, name, repeat):
-        """The case's buttons as the TV's remote. 'pass' lets B go back to the Home Assistant menu."""
+        """The case's buttons as the TV's remote. 'pass' lets B go back to the Home menu."""
         now = time.monotonic()
         if self.remote_pad is not None:                # the number pad
             return self.press_pad(name, repeat)
@@ -58,6 +58,8 @@ class RemoteScreen:
         if name == "b":
             return "pass"
         if not self.hass.configured:
+            if name == "a" and not repeat:
+                self.ha_open()                         # (its address and token)
             return None
         if name == "select" and not repeat:
             self.remote_more = {"sel": 0}
@@ -148,9 +150,8 @@ class RemoteScreen:
         crumbs = (LIBRARY[p]["name"] + "  ›  " if p is not None else "") + LIBRARY[self.tab]["name"]
         d.text((20, self.LIST_TOP + 10), crumbs, font=F["small"], fill=MUTED, anchor="lm")
         if not ha.configured:
-            self.empty_state(d, "Connect Home Assistant",
-                             "Put your url and long-lived token in static/homeassistant.txt")
-            self.footer(d, [("B", "Back")])
+            self.empty_state(d, "Connect Home Assistant", "Press A to put in its address and token")
+            self.footer(d, [("A", "Set up"), ("B", "Back")])
             self.fb.show(img)
             return
         st = ha.tvstate

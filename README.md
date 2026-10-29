@@ -1,4 +1,4 @@
-# Pie-tato
+# Pietato
 
 Turns your Raspberry Pi GPi Case 2W or GPi Case 2 into a pocket-sized smart media center. Versatile home
 entertainment remote where you can watch live TV, stream videos, listen to music and radio, view photos, play
@@ -15,19 +15,19 @@ works on any Raspberry Pi with a TV or monitor on HDMI too.
 ## Install
 
 The easy way is an SD card image, for any 64-bit Pi (Zero 2 W, 3, 4, 5 or a Compute Module 4): from the
-[latest release](https://github.com/frogCaller/pie-tato/releases/latest), the one ending in
+[latest release](https://github.com/frogCaller/pietato/releases/latest), the one ending in
 `gpi-case-2w.img.xz` for the GPi Case 2W, `gpi-case-2.img.xz` for the GPi Case 2 (a Compute Module 4 without
 eMMC starts from the card), or `hdmi.img.xz` for a TV or monitor. Write it to a microSD
 card (8 GB or more) with [Raspberry Pi Imager](https://www.raspberrypi.com/software/), under Use custom,
 adding your WiFi, time zone, username and password in its settings if you like (the WiFi can be set in
-Pie-tato's Settings too). Without them, the user is `pi`, with no password until you set one
+Pietato's Settings too). Without them, the user is `pi`, with no password until you set one
 (`sudo passwd pi`).
 
 Or set it up yourself, on Raspberry Pi OS Lite:
 
 ```
-git clone https://github.com/frogCaller/pie-tato.git
-cd pie-tato
+git clone https://github.com/frogCaller/pietato.git
+cd pietato
 sudo bash setup.sh
 ```
 
@@ -42,18 +42,20 @@ itself at start-up (`sudo bash setup.sh --login` keeps the password prompt), ask
 optional parts, and reboots. The first time takes a while (an hour or more on a Pi 4, as it builds
 the game emulators), so leave the Pi on until it says All set.
 
-Keep the `pie-tato` folder where it is: your settings live in its `static` folder. To update, press
-Update software at the top of System (it says New version when there is one): it runs `git pull`, and
+Keep the `pietato` folder where it is: your settings live in its `static` folder. To update, press
+Update software at the top of System's list (SELECT switches System between its dashboard and the list).
+When there's a new version, the dashboard says so, and A updates from there too. It runs `git pull`, and
 if that brings a new version, the Pi puts it in and restarts. Your settings stay as they are. If you
 set it up before it had Update software, or when it was called gpi-media, run `git pull` and
 `sudo bash setup.sh` once (from gpi-media, that moves everything across to the new name). If Update
 software ever says the folder has changes of its own when you haven't changed anything, run
-`git fetch` and `git reset --hard origin/main` in the `pie-tato` folder, then `sudo bash setup.sh --update`.
+`git fetch` and `git reset --hard origin/main` in the `pietato` folder, then `sudo bash setup.sh --update`.
 
 It starts on a home screen of apps:
 
-- **Home Assistant**: a remote for your TVs, your lights, and a dashboard of your Pi-hole's stats (from the
-  Pi-hole itself: add it by its address)
+- **Home**: a remote for your TVs and your lights (through Home Assistant), and a dashboard of your
+  Pi-hole's stats (from the Pi-hole itself: add it by its address). Put in Home Assistant's address and a
+  long-lived token in its Settings, last on its tab, or in the web page's Settings
 - **TV**: Plex (Continue watching, Watchlist, Live TV with news and sports), Jellyfin, about 250 old
   cartoons and 150 old films from the Internet Archive, and your own streams
 - **Music**, **Radio**, **Photos** (filters, delete), **Videos** (picks up where you left off)
@@ -74,8 +76,10 @@ It starts on a home screen of apps:
 - **Games**: Snake (press X and a decision model on your bot's computer plays it for you), and your own
   Game Boy, Game Boy Advance, NES, SNES, Genesis, Master System, Game Gear and PlayStation games, and
   N64, PSP and DS games on a Pi 4 or 5. Two can play on two controllers
-- **System** and **Settings**: WiFi, Bluetooth, the home screen's style, background, colours, video size,
-  a TV or monitor's resolution, sound, controller
+- **System**: a dashboard of the Pi's temperature, how busy it is, its memory, storage and network. SELECT
+  shows it as a list instead, with Update software, Reboot and Shut down
+- **Settings**: WiFi, Bluetooth, the home screen's style, background, colours, video size, a TV or monitor's
+  resolution, sound, controller
 - If you'd rather see the apps on the whole screen, set Settings > Full screen apps to On. The status
   bar, the tabs and the button hints go away, leaving just the app's name at the top. The buttons work
   the same, and L and R still switch apps
@@ -107,7 +111,7 @@ The GPi Case's own buttons, or any USB or Bluetooth game controller (Xbox, PlayS
 ## The web page
 
 Open `http://<your Pi's IP address>:5432` on your phone or computer. Anyone on your WiFi
-can open it, so if you share your WiFi, set a password in `webui.txt` (see Settings below).
+can open it, so if you share your WiFi, give it a password in the page's Settings.
 
 **Screen** shows what's on the Pi's screen in media mode, has a remote, and puts cartoons,
 films, news, sports, radio, a camera or any app on it. You can also talk to your bot there, and
@@ -121,6 +125,11 @@ you draw. If you've set up a bot, Ask your bot has it say what it sees.
 **Files** takes files or whole folders dropped on it. Music, videos, pictures, documents and games
 each go to their own folder, and settings files like `radio.txt` go to Settings. Each file can
 be shown on the Pi's screen, downloaded or deleted. The Computers tab has your other computers' files.
+
+**Settings** has everything the Pi's Settings has, and each app's own: Home Assistant's address and
+token, WiFi, Weather's place, the Bot's computer, your stocks and coins, and this page's password.
+It's easier than the Pi's keyboard for pasting a token. Passwords and tokens can be put in or taken
+off there, but the page never shows them.
 
 ## Cameras
 
@@ -183,15 +192,23 @@ If that computer has a decision model (Ollama 0.35 or newer: `ollama pull nimble
 Snake and the model plays. Pick which one in Snake's options (START), and Slow if it can't keep up.
 
 It can also play your games for you: in a game, open its menu with Home and press ▶ on AI player to
-pick a decision model. It looks at the screen and picks the next button to press, while the game goes
-on at its own speed, and your buttons wait while it plays. It plays Pokémon Emerald (the English
-cartridge) best, as there it reads the game's memory too: it battles, reads, answers, walks around and
-works toward the next badge, though it can't shop, catch Pokémon or solve every puzzle yet.
+pick a decision model. Your buttons wait while it plays. In racing games, platformers, fighting games
+and shooters it plays by instinct, many times a second: it holds the gas and steers along the road,
+runs and jumps over gaps and enemies, attacks and blocks, or keeps firing, and the model says when to
+play like that and when to press through a menu. In other games it looks at the screen and picks the
+next button to press, while the game goes on at its own speed.
 
-In other games, your Bot's model coaches it: every so often, and whenever it gets stuck, it looks at
-the screen and works out what to aim for and how, and the decision model follows that. What it works
-out goes in `Games/Saves`, in a file ending in `.ai-notes.txt`, for next time, and you can add your own
-tips there, under Tips. What it saw and picked goes there too, in a file ending in `.ai.log`.
+It plays Pokémon Emerald (the English cartridge) best, as there it reads the game's memory too. It
+knows the story (out of the truck, the clock, your rival, Professor Birch, and on badge by badge) and
+walks there by itself. It battles, reads, answers, heals when your team's badly hurt and trains in
+tall grass when it's too weak for the next Gym, though it can't shop, catch Pokémon or solve every
+puzzle yet.
+
+In other games, your Bot's model coaches it. The first time, it says what kind of game it is, what each
+button does and how it's played well; then every so often, and whenever it gets stuck, it looks at the
+screen and works out what to aim for. What it works out goes in `Games/Saves`, in a file ending in
+`.ai-notes.txt`, for next time. You can add your own tips there, under Tips, and change its Kind: line
+if it got the kind of game wrong. What it saw and picked goes there too, in a file ending in `.ai.log`.
 
 If you pick a voice in Settings > Bot > Voice, it says its replies out loud with
 [Piper](https://github.com/rhasspy/piper), which runs on the Pi. The first time, the Pi
@@ -244,7 +261,8 @@ At work, A types a prompt, Y rings the bell, X turns its sounds off, and START s
 
 ## Settings
 
-All optional, in the `static` folder. Git leaves them out, so they stay off GitHub.
+All optional, in the `static` folder. Git leaves them out, so they stay off GitHub. The web page's
+Settings writes most of them for you.
 
 | File | What goes in it |
 | --- | --- |
@@ -252,7 +270,7 @@ All optional, in the `static` folder. Git leaves them out, so they stay off GitH
 | `finance.txt` | `stocks =` the stocks to show (tickers, as on Yahoo Finance) and `coins =` the coins (CoinGecko ids). Y on the Finance tab adds and removes them |
 | `camera.txt` | `camera =` an address per line, a name after it if you like |
 | `bot.txt` | `server =`, `model =`, `voice =`, `listen =` and `wake =` (Settings > Bot writes these) |
-| `homeassistant.txt` | `url =` and `token =` (a long-lived access token). Your TVs and lights are found by themselves, and `lights =` picks which lights show |
+| `homeassistant.txt` | `url =` and `token =` (a long-lived access token): Settings > Home writes them, on the Pi or the web page. Your TVs and lights are found by themselves, and `tv =` and `lights =` pick which ones show |
 | `pihole.txt` | `address =` and `password =`: the Pi-hole page writes them when you sign in there |
 | `jellyfin.txt` | `server =` if your Jellyfin server isn't found by itself, and `user =` and `password =` if you'd rather not use Quick Connect |
 | `webui.txt` | `password =` if you want the web page to ask for one, `hosts =` other names you open it by |

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # image/check.sh ROOT - before an image is let go, nothing of anyone's in it: no saved WiFi, SSH keys, passwords,
-# sign-ins, Pie-tato settings of anyone's own, shell histories or git credentials. ROOT: its root filesystem, mounted,
+# sign-ins, Pietato settings of anyone's own, shell histories or git credentials. ROOT: its root filesystem, mounted,
 # with its boot partition at ROOT/boot/firmware. It says what it finds, and fails if it finds anything.
 # (image/build.sh runs it on each image it makes; it can look at any mounted image too.)
 set -uo pipefail
@@ -39,8 +39,8 @@ else
   say "no /etc/shadow to look at"
 fi
 
-# Pie-tato: only its own starting settings files, and no sign-ins or saved state
-for d in "$R"/home/*/pie-tato/static "$R"/home/*/pitato/static; do   # (pitato: its name before)
+# Pietato: only its own starting settings files, and no sign-ins or saved state
+for d in "$R"/home/*/pietato/static "$R"/home/*/pie-tato/static "$R"/home/*/pitato/static; do   # (pie-tato, pitato: its names before)
   for f in "$d"/*; do
     case "${f##*/}" in
       fonts|streams.txt|radio.txt|finance.txt) ;;
@@ -51,11 +51,11 @@ done
 for f in "$R"/var/lib/pitato/*; do
   case "${f##*/}" in
     installed-commit) ;;
-    *) say "Pie-tato's own saved things (${f#"$R"})" ;;
+    *) say "Pietato's own saved things (${f#"$R"})" ;;
   esac
 done
 for d in "$R"/var/cache/pitato "$R"/root/.cache/pitato "$R"/home/*/.cache/pitato; do
-  if [ -e "$d" ]; then say "Pie-tato's cache (${d#"$R"})"; fi
+  if [ -e "$d" ]; then say "Pietato's cache (${d#"$R"})"; fi
 done
 
 # histories and credentials
@@ -65,9 +65,9 @@ for d in "$R"/root "$R"/home/*; do
     if [ -e "$d/$f" ]; then say "${d#"$R"}/$f"; fi
   done
 done
-for g in "$R"/home/*/pie-tato/.git/config "$R"/home/*/pitato/.git/config; do
+for g in "$R"/home/*/pietato/.git/config "$R"/home/*/pie-tato/.git/config "$R"/home/*/pitato/.git/config; do
   if grep -qiE 'extraheader|authorization|x-access-token|://[^/[:space:]]*@' "$g"; then
-    say "a credential in Pie-tato's git settings (${g#"$R"})"
+    say "a credential in Pietato's git settings (${g#"$R"})"
   fi
 done
 

@@ -662,6 +662,6 @@ class Computers:
             self.save()
 
     def close_all(self):
-        """Every computer's folders closed (Pie-tato stopping): quick, and never waits on a computer."""
+        """Every computer's folders closed (Pietato stopping): quick, and never waits on a computer."""
         for where in sorted(mounted(self.root), reverse=True):
             run_cmd(["umount", "-l", where], timeout=10)

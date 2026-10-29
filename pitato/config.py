@@ -18,7 +18,7 @@ WEB_PRIVATE = {"webui.txt", "homeassistant.txt", "plex.txt", "jellyfin.txt", "pi
 
 # ---- your settings files: the static folder ---------------------------------
 def settings_dir():
-    """Where your settings files are (radio.txt, bot.txt...): the static folder in the Pie-tato
+    """Where your settings files are (radio.txt, bot.txt...): the static folder in the Pietato
     folder. The service is told where that is (setup.sh); run by hand, it's the one next to the
     code's own folder."""
     told = os.environ.get("PITATO_STATIC", "").strip()
@@ -69,6 +69,7 @@ SETTINGS = [   # key, label, choices (None: opens a page of its own). (Where you
     ("pad", "Controller", None),
     ("pad_swap", "Swap A and B", ["Off", "On"]),   # on the controller in hand (kept with its buttons, not here)
     ("friend", "Bot", None),
+    ("homeassistant", "Home", None),             # Home Assistant's address and token, for the TV Remote and Lights
     ("start", "At start-up", ["Home screen", "Terminal"]),
     ("start_song", "Random song at start-up", ["Off", "On"]),   # one of yours from ~/Music, as it starts
 ]
@@ -76,7 +77,8 @@ SETTINGS_DEFAULT = {"wallpaper": "Midnight", "picture": "", "accent": "Blue", "c
                     "units": "°F", "start": "Home screen", "location": None,
                     "screen": "Fit", "sound": "Auto", "coder_sound": "On", "sim_full": "Off", "bot_mode": "chat",
                     "game_picture": "Fit", "start_song": "Off", "home_style": "Glass",
-                    "ds_screens": "Left/Right", "ds_touch": "Right stick, R2", "app_full": "Off", "turn": "Off"}
+                    "ds_screens": "Left/Right", "ds_touch": "Right stick, R2", "app_full": "Off", "turn": "Off",
+                    "sys_view": "Dashboard"}
 TURN_DEGREES = {"Off": 0, "90°": 90, "180°": 180, "270°": 270}   # Settings > Rotate screen's choices
 HOME_STYLE_WAS = {"Original": "Bright", "Style 2": "Glass", "Style 3": "Glass", "Style 4": "Cards",   # (earlier names,
                   "Minimal": "Glass"}                                                               # and one gone)
@@ -148,7 +150,7 @@ def write_setting(name, text, private=False):
     in, so a link left in its place is replaced rather than followed (this runs as root)."""
     st = os.stat(home_dir())
     if not os.path.isdir(STATIC):                     # not made yet: yours, like the rest (and only
-        os.mkdir(STATIC)                              # in a Pie-tato folder that's there)
+        os.mkdir(STATIC)                              # in a Pietato folder that's there)
         os.chown(STATIC, st.st_uid, st.st_gid, follow_symlinks=False)
     fd, tmp = tempfile.mkstemp(dir=STATIC, prefix="." + name + ".")
     try:
@@ -180,10 +182,10 @@ def read_own_bytes(path, limit):
         return f.read(limit + 1)
 
 
-def edit_config(name, updates, head="", was="", limit=400):
+def edit_config(name, updates, head="", was="", limit=400, private=False):
     """'key = value' lines in a settings file changed or added; the rest kept. A file that isn't
     there yet starts from `was` (its earlier name), if that one is. Values: a line each, `limit`
-    characters at most."""
+    characters at most. private: a password's in it (for you to read, nobody else)."""
     path = settings_file(name)
     updates = {k: clean_name(v, limit) for k, v in updates.items()}
     try:
@@ -210,4 +212,4 @@ def edit_config(name, updates, head="", was="", limit=400):
             continue
         out.append(line)
     out += [f"{k} = {v}" for k, v in updates.items() if k not in done]
-    return write_setting(name, "\n".join(out).rstrip("\n") + "\n")
+    return write_setting(name, "\n".join(out).rstrip("\n") + "\n", private=private)

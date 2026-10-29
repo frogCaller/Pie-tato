@@ -122,8 +122,8 @@ class ProgScreen:
             self.prog_mode(KD_TEXT)                    # the console draws it, as in the terminal
             terminal_turn_now()                        # ...turned as the screen is (it takes that in text mode),
                                                        # before it starts: it's the size it'll be, turned
-            # (in Pie-tato's session, so the console never becomes its own: when it ends, the console carries on;
-            # and it goes if Pie-tato goes)
+            # (in Pietato's session, so the console never becomes its own: when it ends, the console carries on;
+            # and it goes if Pietato goes)
             args = PROG_ARGS.get(name, []) + (htop_args(path) if name == "htop" else [])
             self.prog = subprocess.Popen([path] + args, stdin=fd, stdout=fd, stderr=fd,
                                          close_fds=True, env=env, preexec_fn=quiet_child)
@@ -181,7 +181,7 @@ class ProgScreen:
                     except OSError:
                         break
         finally:
-            if p.poll() is None:                       # (cut short: Pie-tato itself stopping. It goes too)
+            if p.poll() is None:                       # (cut short: Pietato itself stopping. It goes too)
                 try:
                     p.kill()
                 except OSError:

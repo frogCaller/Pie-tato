@@ -85,6 +85,7 @@ class HomeScreen:
         self.sim_close()
         self.set_page = "root"
         self.wx_menu = None
+        self.ha_menu = None
         self.cam_menu = None
         self.games_q = None                            # (finding a game: not any more)
         if ttype == "radio" and self.radio_stack:

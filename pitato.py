@@ -34,7 +34,7 @@ Home button toggles between:
                   L/R switch apps, X shows the controls and B goes home.
 
 Tabs (edit LIBRARY in pitato/library.py to change them):
-  Home Assistant - one menu for (url and long-lived token in static/homeassistant.txt):
+  Home        - one menu for (Home Assistant's url and long-lived token in static/homeassistant.txt):
     TV Remote   - your TVs: arrows, OK, back, home, volume, power, inputs, and a number pad for
                   channels (SELECT, then Number pad); with more than one TV, SELECT switches
                   between them
@@ -105,13 +105,15 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
                 the right stick moves a pointer on the touch screen and R2 touches it (or the d-pad and A,
                 with its menu's Touch screen), L2 blows on the microphone, the left stick is the d-pad.
                 Any game: its menu's AI player has a decision model on your bot's computer play it,
-                looking at the screen and picking the next button (pitato/anygame.py), the game going on
-                at its own speed, with your Bot's model as its coach (pitato/coach.py: what to aim for and
-                how, kept in Games/Saves/<game>.ai-notes.txt with your tips); Pokémon Emerald (the English
-                cartridge) from the game's memory too (pitato/emerald.py): battles, text, questions, walking
-                to doors, roads, people and grass,
-                toward the next badge. Your buttons wait while it plays, and Games/Saves/<game>.ai.log
-                has what it saw and picked. START on the list finds a game by name (or console), B all again
+                looking at the screen (pitato/anygame.py): an action game by instinct, many times a
+                second (pitato/instincts.py: racing, platformers, fighting, shooters), any other a button
+                at a time, the game going on at its own speed, with your Bot's model as its coach
+                (pitato/coach.py: the kind of game, what its buttons do, what to aim for and how, kept in
+                Games/Saves/<game>.ai-notes.txt with your tips); Pokémon Emerald (the English cartridge)
+                from the game's memory too (pitato/emerald.py): the story step by step, battles, text,
+                questions, walking where the story goes, healing and training on the way. Your buttons
+                wait while it plays, and Games/Saves/<game>.ai.log has what it saw and picked.
+                START on the list finds a game by name (or console), B all again
   Weather     - like PiE-ink's: now, the next hours, the week, and the US Weather
                 Service's own words; START has its settings: where you are, and °F or °C
   Finance     - stock and coin prices with charts, laid out like PiE-ink's crypto screen (yours
@@ -158,9 +160,12 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
   Files       - browse everything; opens photos, PDFs, documents, text, video, music; Other computers
                 opens another computer's files by its address (Windows and Mac shared folders, or
                 Linux over SSH), read-only
-  System      - CPU temperature, WiFi, storage and more; reboot and shut down; Update software at
-                the top, always (New version on it when there's one): git pull, and if that brought a
-                newer version, setup.sh --update, then a restart; nothing newer: it says it's up to date
+  System      - a dashboard: CPU temperature, how busy the CPU is (the last 5 minutes), memory,
+                storage, ◀▶ the network, the temperature, the Pi, what's in the background. SELECT: a
+                list instead (kept), with reboot and shut down, and Update software at the top, always
+                (New version on it when there's one; A on the dashboard then, too): git pull, and if that
+                brought a newer version, setup.sh --update, then a restart; nothing newer: it says it's up
+                to date
   Settings    - WiFi (scan, connect, forget), Bluetooth (look, pair, connect, forget: a keyboard shows
                 its code to type), the home screen's style (Bright, Glass or Cards: the weather on it
                 once Weather knows where you are), background and colours, clock, full screen apps (just the
@@ -172,7 +177,7 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
                 controller, swap A and B, start-up, and a random song at start-up. Bluetooth headphones
                 gone while something plays: it pauses (A plays on through the Pi), a game's menu comes up
 
-Your settings files (radio.txt, bot.txt...) are in the static folder of the Pie-tato folder.
+Your settings files (radio.txt, bot.txt...) are in the static folder of the Pietato folder.
 setup.sh tells the service where that is; run by hand, it's the static folder next to this script.
 
 The code is in the pitato folder inside it, a file for each part (pitato/__init__.py says
@@ -191,7 +196,7 @@ If a button does the wrong thing, set it up in Settings > Controller (or fix COD
 import os
 import sys
 
-# the rest of it is the pitato package: next to this file (in the Pie-tato folder), or where
+# the rest of it is the pitato package: next to this file (in the Pietato folder), or where
 # setup.sh puts it
 for _where in (os.path.dirname(os.path.realpath(__file__)), "/usr/local/share/pitato"):
     if os.path.isfile(os.path.join(_where, "pitato", "__init__.py")):

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """hear.py - the bot's ears: a USB microphone, made sense of by Vosk on the Pi itself.
 
-Pie-tato (pitato/listen.py) runs this as you rather than as root, as it does Piper: what it reads, a speech model,
+Pietato (pitato/listen.py) runs this as you rather than as root, as it does Piper: what it reads, a speech model,
 comes from the internet. It records with arecord and says what it makes out, a line of JSON at a time:
     {"ready": true, "unknown": [...]}   its model is loaded (and the words of yours it doesn't know)
     {"partial": "..."}                  what's being said, so far
@@ -29,7 +29,7 @@ def say(**what):
         sys.stdout.write(json.dumps(what) + "\n")
         sys.stdout.flush()
     except (OSError, ValueError):
-        raise SystemExit(0)                       # (Pie-tato's gone: so is this)
+        raise SystemExit(0)                       # (Pietato's gone: so is this)
 
 
 def vosk(path):
@@ -101,7 +101,7 @@ def main(argv):
             if told in ready:
                 got = os.read(told, 4096)
                 if not got:
-                    return 0                      # (Pie-tato's gone)
+                    return 0                      # (Pietato's gone)
                 lines += got
                 while b"\n" in lines:
                     line, lines = lines.split(b"\n", 1)
