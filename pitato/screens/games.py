@@ -11,9 +11,9 @@ from ..util import item
 from ..screen import aplay_device, screen_turn, sound_place
 from ..library import LIBRARY
 from ..snake import snake_card
-from ..games import (ANALOG_SYSTEMS, art_path, ArtFinder, bios_missing, find_core, find_games, game_kind,
-                     GAME_PACKAGES, GAME_PLAYERS, GameRun, games_dir, has_resume, plain_title, playable, save_name,
-                     SAVES_FOLDER, system)
+from ..games import (ANALOG_SYSTEMS, art_path, ArtFinder, bios_missing, built_for_other_pi, find_core, find_games,
+                     game_kind, GAME_PACKAGES, GAME_PLAYERS, GameRun, games_dir, has_resume, plain_title, playable,
+                     save_name, SAVES_FOLDER, system)
 from ..emulator import screen_picture
 from ..gameai import GameAI
 
@@ -23,7 +23,9 @@ N64_BUTTONS = {"a": "b", "b": "y", "y": "a"}          # an N64's A and B are lib
                                                       # with R2 held, pitato/emulator.py)
 DS_BUTTONS = {"r2": "r3"}                             # a DS game: R2 touches the touch screen (libretro's R3, to
                                                       # melonDS); L2 blows on its microphone
-GAME_BUTTON_MAPS = {"ps1": BY_PLACE, "psp": BY_PLACE, "n64": N64_BUTTONS, "nds": DS_BUTTONS}
+DC_BUTTONS = dict(BY_PLACE, l="l2", r="r2")           # a Dreamcast's go by place too (A at the bottom, as on an Xbox
+                                                      # controller), and L and R are its triggers, as L2 and R2 are
+GAME_BUTTON_MAPS = {"ps1": BY_PLACE, "psp": BY_PLACE, "n64": N64_BUTTONS, "nds": DS_BUTTONS, "dc": DC_BUTTONS}
 DPAD = ("up", "down", "left", "right")
 GAME_MENU = [("resume", "Back to the game"), ("save", "Save state"), ("load", "Load state"),
              ("reset", "Start over"), ("disc", "Disc"), ("screens", "Screens"), ("touch", "Touch screen"),
@@ -145,6 +147,9 @@ class GameScreen:
         missing = bios_missing(core)
         if missing:
             self.toast(f"{name} games need {missing} in Games/BIOS", 5)
+            return
+        if built_for_other_pi(core):                   # (the SD card moved from a Pi 4 to a Pi 5, say)
+            self.toast(f"The {name} emulator was built on another kind of Pi. Run setup.sh again to build it here", 6)
             return
         self.stop()                                    # (music, a video, another game: the game has the speaker)
         self.game_menu = None

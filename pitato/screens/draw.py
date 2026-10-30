@@ -10,6 +10,7 @@ from ..util import clock, human_size, short_path
 from ..system import cpu_temp, HOT_C, wifi_bars, wifi_quality
 from ..library import LIBRARY, LISTEN_KINDS
 from ..screen import slow_pi
+from .chromium import CHROME_HELP, CHROME_NOTES
 
 
 KEY_FILL = (62, 68, 79)      # a button, in the hints along the bottom
@@ -83,6 +84,8 @@ class DrawScreen:
             "co_code": f(FONT_MONO_BOLD if os.path.exists(FONT_MONO_BOLD) else FONT_MONO, 17),
             "co_mono_xs": f(FONT_MONO, 13), "co_z1": f(FONT_BOLD, 16), "co_z2": f(FONT_BOLD, 21),
             "co_z3": f(FONT_BOLD, 27),
+            "www": f(FONT, 18), "www_b": f(FONT_BOLD, 18), "www_h1": f(FONT_BOLD, 25), "www_h2": f(FONT_BOLD, 21),
+            "www_h3": f(FONT_BOLD, 19),
         }
 
     def list_top(self):
@@ -350,7 +353,7 @@ class DrawScreen:
             if it.get("watched"):
                 return "✓ " + year + clock(length), DONE, None
             return year + (clock(length) if length else ""), MUTED, None
-        if kind in ("child", "game"):
+        if kind in ("child", "game", "wwwgo", "wwwsearch", "wwwtype", "wwwchromium", "wwwpage"):
             return it.get("sub", ""), MUTED, None
         if kind == "hasettings":                       # (the Home tab's: where it is, or set it up)
             return it.get("sub", ""), MUTED if self.hass.configured else ACCENT, None
@@ -425,6 +428,12 @@ class DrawScreen:
             return self.lights_hints(items[sel] if items and sel < len(items) else None)
         if ttype == "pihole":
             return self.pihole_hints(items[sel] if items and sel < len(items) else None)
+        if ttype == "www":
+            it = items[sel] if items and sel < len(items) else {}
+            kept = it.get("key", "").startswith(("www:mark:", "www:past:"))
+            shut = it.get("key") == "www:chromium" and self.chromium_up()   # (Chromium, open: Y closes it)
+            return ([("A", "Open"), ("START", "Search")] + ([("Y", "Remove")] if kept else [])
+                    + ([("Y", "Close it")] if shut else []) + [("L R", "Tabs"), ("B", "Back")])
         first = ("A", "Play")
         if ttype == "browser":
             first = ("A", "Open")
@@ -528,6 +537,8 @@ class DrawScreen:
             return self.render_pihole()
         if ttype == "system" and self.sys_dash():
             return self.render_sysdash()
+        if ttype == "www" and self.www_on_page():
+            return self.render_www()
         if ttype == "plex" and not self.plex.ready:
             return self.render_plex_signin()
         if ttype == "jellyfin" and not self.jellyfin.ready:
@@ -558,6 +569,9 @@ class DrawScreen:
             if ttype == "channels":
                 d.text((W - 20, self.LIST_TOP + 10), self.channels_note(), font=F["small"],
                        fill=MUTED, anchor="rm")
+            elif ttype == "www" and self.www_wait is not None:
+                d.text((W - 20, self.LIST_TOP + 10), f"Loading {self.www_wait['host']}…", font=F["small"],
+                       fill=ACCENT, anchor="rm")
             d.text((20, self.LIST_TOP + 10), crumbs, font=F["small"], fill=MUTED, anchor="lm")
         elif ttype == "radio" and self.radio_stack:
             crumbs = "Radio  ›  " + self.radio_stack[-1]["title"]
@@ -630,7 +644,7 @@ class DrawScreen:
                 tx = self.badge(d, tx, mid, it)
             elif ttype == "lights":
                 tx = self.lights_art(d, tx, mid, it)
-            elif (ttype in ("plex", "jellyfin", "group", "games") or (ttype == "radio" and not self.radio_stack)
+            elif (ttype in ("plex", "jellyfin", "group", "games", "www") or (ttype == "radio" and not self.radio_stack)
                   or kind in ("chdir", "chsearch", "chplex", "chretry", "chwait")) and kind != "action":
                 tx = self.plex_art(img, d, tx, mid, it, slot)
             right, colour, frac = self.row_right(it)
@@ -716,14 +730,12 @@ class DrawScreen:
         self.fb.show(img)
 
     def render_help(self):
-        F = self.fonts
         img, d = self.canvas()
-        W = self.fb.w
         self.title_row(d, "Controls")
         if self.help_from == "list" and self.tab_type() == "games":
             fast = not slow_pi()                       # (a Pi 4 or 5's: three more)
             folders = [("", "gb, gbc, gba, nes, snes,"), ("", "genesis, sms, gg, ps1" + ("," if fast else ""))] + \
-                ([("", "n64, psp and nds")] if fast else [])
+                ([("", "n64, psp, nds and dc")] if fast else [])
             cols = [
                 ("Games", [("A", "Play"), ("Y", "Find pictures"), ("START", "Search"), ("L R", "Switch tab"),
                            ("B", "Home"),
@@ -732,6 +744,18 @@ class DrawScreen:
                                ("", "Quitting keeps your place"), ("", "Two players: one"),
                                ("", "controller each")]),
             ]
+        elif self.help_from == "list" and self.tab_type() == "www":
+            cols = [
+                ("On a page", [("▲▼", "Link to link"), ("◀▶", "Page up / down"), ("A", "Open, type, send"),
+                               ("B", "Back"), ("START", "Address or search"), ("Y", "Bookmark"),
+                               ("SELECT", "Reader")]),
+                ("In Chromium", CHROME_HELP) if self.chromium_here() else
+                ("Web", [("", "Pages as words and pictures,"), ("", "no JavaScript: sites made"),
+                         ("", "for that work best"), ("", "Reader: just the article"),
+                         ("L R", "Switch tab")]),
+            ]
+        elif self.help_from == "chromenu":
+            cols = [("In Chromium", CHROME_HELP), ("", CHROME_NOTES)]
         elif self.help_from == "list" and self.tab_type() == "lights":
             cols = [
                 ("Lights", [("A", "On / off"), ("◀▶", "Dimmer"), ("▲▼", "Move"), ("L R", "Switch tab"),
@@ -784,6 +808,14 @@ class DrawScreen:
                                          ("X", "Time left"), ("Y", "Full screen"),
                                          ("SEL ST", "Prev / next"), ("B", "Back to list")]),
             ]
+        self.help_columns(d, cols)
+        self.footer(d, [("ANY", "Close")])
+        self.fb.show(img)
+
+    def help_columns(self, d, cols):
+        """A help page's two columns: [(heading, [(button, what it does)])] (no button: a note)."""
+        F = self.fonts
+        W = self.fb.w
         most = max((len(rows) for _, rows in cols), default=1)
         room = self.fb.h - self.FOOTER - 16 - (self.LIST_TOP + 44)    # (down to the last row's middle)
         step = min(36, room / max(most - 1, 1))       # (a long column: its rows a little closer, all of them shown)
@@ -796,8 +828,6 @@ class DrawScreen:
                 end = self.key(d, x, y, k) if k else x
                 d.text((max(end, x + 64) + 10, y), label, font=F["small"],
                        fill=BODY if k else MUTED, anchor="lm")
-        self.footer(d, [("ANY", "Close")])
-        self.fb.show(img)
 
     def render_wait(self, title, status, playing=False, camera=False):
         if not (self.active and self.fb):

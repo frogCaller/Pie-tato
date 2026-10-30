@@ -53,9 +53,10 @@ software ever says the folder has changes of its own when you haven't changed an
 
 It starts on a home screen of apps:
 
-- **Home**: a remote for your TVs and your lights (through Home Assistant), and a dashboard of your
-  Pi-hole's stats (from the Pi-hole itself: add it by its address). Put in Home Assistant's address and a
-  long-lived token in its Settings, last on its tab, or in the web page's Settings
+- **Home**: a remote for your TVs and your lights (through Home Assistant), a dashboard of your
+  Pi-hole's stats (from the Pi-hole itself: add it by its address), and Web, for browsing (see Web below).
+  Put in Home Assistant's address and a long-lived token in its Settings, last on its tab, or in the web
+  page's Settings
 - **TV**: Plex (Continue watching, Watchlist, Live TV with news and sports), Jellyfin, about 250 old
   cartoons and 150 old films from the Internet Archive, and your own streams
 - **Music**, **Radio**, **Photos** (filters, delete), **Videos** (picks up where you left off)
@@ -75,7 +76,7 @@ It starts on a home screen of apps:
   through what's running and X or Y sort it by CPU or memory; and B stops any of them
 - **Games**: Snake (press X and a decision model on your bot's computer plays it for you), and your own
   Game Boy, Game Boy Advance, NES, SNES, Genesis, Master System, Game Gear and PlayStation games, and
-  N64, PSP and DS games on a Pi 4 or 5. Two can play on two controllers
+  N64, PSP, DS and Dreamcast games on a Pi 4 or 5. Two can play on two controllers
 - **System**: a dashboard of the Pi's temperature, how busy it is, its memory, storage and network. SELECT
   shows it as a list instead, with Update software, Reboot and Shut down
 - **Settings**: WiFi, Bluetooth, the home screen's style, background, colours, video size, a TV or monitor's
@@ -148,26 +149,40 @@ steer it, press START on it there for its settings: Flip left and right, and Fli
 ## Games
 
 Put your games in the `Games` folder in your home folder. It has a folder for each: `gb`, `gbc`, `gba`,
-`nes`, `snes`, `genesis`, `sms`, `gg` and `ps1`, and on a Pi 4 or 5, `n64`, `psp` and `nds`. You can also
-drop them on the web page (zips work too, for the cartridge ones). They're played by mGBA, Nestopia,
-Snes9x, Genesis Plus GX, PCSX ReARMed, Mupen64Plus-Next, PPSSPP and melonDS.
+`nes`, `snes`, `genesis`, `sms`, `gg` and `ps1`, and on a Pi 4 or 5, `n64`, `psp`, `nds` and `dc`. You can
+also drop them on the web page (zips work too, for the cartridge ones). They're played by mGBA, Nestopia,
+Snes9x, Genesis Plus GX, PCSX ReARMed, Mupen64Plus-Next, PPSSPP, melonDS and Flycast.
 
 In a game, Home opens its menu: save or load a state, start over, the players, the volume, the picture
 size, the AI player (see Bot below), or quit. For the picture, Fit keeps the game's shape, Sharp uses
 whole pixels, and Fill fills the screen: on a TV an N64 game is drawn wide, and the others are
 stretched. Each console keeps its own. Quitting keeps your place for next time. If you want to play
 with someone, plug in or pair a second controller: the one that started the game is player 1, and the
-next one to press a button is player 2 (an N64 game takes four).
+next one to press a button is player 2 (an N64 or Dreamcast game takes four).
 
 - N64: the right stick is the C buttons, and L2 is Z.
 - DS (with the 64-bit Raspberry Pi OS): both screens side by side, and the right stick moves a pointer
   on the touch screen, with R2 to touch it.
 - PlayStation: `.cue` and `.bin`, `.chd`, `.pbp` or `.m3u` files. Change discs in the game's menu.
+- Dreamcast: `.gdi` (keep each game's tracks in a folder of its own), `.chd`, `.cdi` or `.cue` files. L
+  and R are its triggers, as are L2 and R2.
 - A BIOS isn't needed, but if you have one from your own console, put it in `Games/BIOS` and more
-  PlayStation games work.
+  PlayStation games work (for a Dreamcast, that's `dc_boot.bin`; a few games need it).
 
 Press Y on the Games tab to find pictures of your games. If you have a lot of them, press Start to
 search by name (or by console, like `gba`), and B to see them all again.
+
+## Web
+
+Web, in the Home tab, shows a page as its words, links and pictures, on any Pi. Sites made to be simple
+work best, and a few are on its first page. Up and down go from link to link, A opens one, B goes back,
+Start searches or goes to an address, Y bookmarks the page, and Select shows just the article.
+
+On a Pi 4 or 5, Web's first page opens Chromium too, for the sites that need it (setup.sh puts it in, about
+300 MB). The stick or the d-pad moves the pointer, A clicks, B goes back, and L and R scroll. X types into
+the page and Start goes to an address, with Pietato's keyboard. Home opens its menu, for zoom, tabs, full
+screen, or closing it. A keyboard and a mouse work in it too. If it doesn't start,
+`journalctl -u pietato-chromium` says why.
 
 ## Other computers
 

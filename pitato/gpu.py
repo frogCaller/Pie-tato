@@ -1,5 +1,5 @@
-"""The graphics chip, for a game drawn in 3D (an N64's, a PSP's): OpenGL ES with no window (EGL, from Mesa), a
-framebuffer the emulator draws each frame into, and each frame scaled to the screen by the chip and read
+"""The graphics chip, for a game drawn in 3D (an N64's, a PSP's, a Dreamcast's): OpenGL ES with no window (EGL, from
+Mesa), a framebuffer the emulator draws each frame into, and each frame scaled to the screen by the chip and read
 straight into the rows the screen is written from. A Pi 4 or 5 has the chip for it; older Pis have only
 OpenGL ES 2, and starting fails (GPUError, in words for the screen)."""
 import ctypes as C
@@ -38,7 +38,7 @@ GL_RENDERER, GL_VERSION, GL_EXTENSIONS = 0x1F01, 0x1F02, 0x1F03
 # libretro's (libretro.h)
 CONTEXT_GLES2, CONTEXT_GLES3, CONTEXT_GLES_VERSION = 2, 4, 5
 ON_GPU = C.c_void_p(-1).value      # RETRO_HW_FRAME_BUFFER_VALID: the frame is in the chip's framebuffer
-NO_3D = "N64 and PSP games need a Raspberry Pi 4 or 5"
+NO_3D = "N64, PSP and Dreamcast games need a Raspberry Pi 4 or 5"
 
 
 class HWRender(C.Structure):

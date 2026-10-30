@@ -7,7 +7,7 @@ from .tv import ia_best
 
 # ---- media mode: what's in each tab -----------------------------------------
 LIBRARY = [
-    {"name": "Home", "type": "group", "empty": "", "children": ["TV Remote", "Lights", "Pi-hole"]},
+    {"name": "Home", "type": "group", "empty": "", "children": ["TV Remote", "Lights", "Pi-hole", "Web"]},
     {"name": "TV", "type": "group", "empty": "",
      "children": ["Plex", "Jellyfin", "Cartoons", "Free Movies", "News", "Sports", "Streams"]},
     {"name": "Music", "type": "files", "dirs": ["/home/*/Music"],
@@ -54,6 +54,8 @@ LIBRARY = [
      "empty": ""},
     {"name": "Pi-hole", "type": "pihole", "parent": "Home", "badge": "DNS",   # (from Pi-hole itself)
      "about": "Your Pi-hole's numbers", "files": [settings_glob("pihole.txt")], "empty": ""},
+    {"name": "Web", "type": "www", "parent": "Home", "badge": "WEB",   # (Pietato's own browser: pitato/www.py)
+     "about": "Search and read the web", "empty": ""},
     # inside the Games tab
     {"name": "Snake", "type": "sim", "sim": "snake", "parent": "Games", "badge": "EAT", "title": "Snake",
      "about": "Eat the apples, don't crash", "empty": ""},

@@ -76,6 +76,7 @@ ROLES = {
     "sms": SEGA8_ROLES, "gg": SEGA8_ROLES,
     "n64": {"gas": "A", "brake": "B", "jump": "A", "run": "", "attack": ("B", "A"), "fire": "A"},
     "ps1": SONY_ROLES, "psp": SONY_ROLES,
+    "dc": {"gas": "R", "brake": "L", "jump": "A", "run": "", "attack": ("X", "A", "B", "Y"), "fire": "A"},
 }
 OPPOSITE = {"left": "right", "right": "left", "up": "down", "down": "up"}
 PAD = {"Up": "up", "Down": "down", "Left": "left", "Right": "right"}   # (a role can be a direction: "Up: accelerate")

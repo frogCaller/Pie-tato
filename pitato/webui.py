@@ -76,7 +76,7 @@ KINDS = {   # what goes where when the page picks for you
     "documents": [".pdf", ".epub", ".txt", ".md", ".docx", ".doc", ".odt", ".rtf", ".xlsx", ".xls",
                   ".ods", ".csv", ".pptx", ".ppt", ".odp"],
     "games": [".gb", ".gbc", ".gba", ".nes", ".sfc", ".smc", ".md", ".gen", ".smd", ".sms", ".gg", ".z64", ".n64",
-              ".v64", ".cue", ".bin", ".chd", ".pbp", ".m3u", ".iso", ".cso", ".nds"],
+              ".v64", ".cue", ".bin", ".chd", ".pbp", ".m3u", ".iso", ".cso", ".nds", ".gdi", ".cdi", ".raw"],
 }
 SETTINGS_FILES = ["radio.txt", "streams.txt", "streams.m3u", "finance.txt", "crypto.txt", "camera.txt", "bot.txt",
                   "homeassistant.txt", "plex.txt", "jellyfin.txt", "pihole.txt"]   # media mode's settings: in static/

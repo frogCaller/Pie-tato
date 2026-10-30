@@ -1,6 +1,6 @@
-"""Disc games: whether a disc image is a PlayStation or a PSP game, told by what's inside it, and its game code
-(SLUS-00594, ULUS-10041...) to find its picture by. Also the files a game's made of (a .cue's tracks, an .m3u's
-discs), so the Games list shows each game once."""
+"""Disc games: whether a disc image is a PlayStation, a PSP or a Dreamcast game, told by what's inside it, and its
+game code (SLUS-00594, ULUS-10041, MK-51000...) to find its picture by. Also the files a game's made of (a .cue's or a
+.gdi's tracks, an .m3u's discs), so the Games list shows each game once."""
 import os
 import re
 import struct
@@ -8,15 +8,21 @@ import zlib
 
 SECTOR, RAW = 2048, 2352
 SYNC = b"\x00" + b"\xff" * 10 + b"\x00"          # the start of every sector of a raw (2352-byte) disc image
-DISC_EXTS = (".cue", ".chd", ".pbp", ".m3u", ".iso", ".bin", ".img", ".cso")
+DISC_EXTS = (".cue", ".chd", ".pbp", ".m3u", ".iso", ".bin", ".img", ".cso", ".gdi", ".cdi")
 FOLDER_HINTS = {   # a folder's name that says what's in it (when the files alone can't)
     "ps1": ("ps1", "psx", "psone", "ps one", "playstation", "playstation 1", "sony playstation"),
     "psp": ("psp", "playstation portable", "sony psp", "sony playstation portable", "sony - playstation portable"),
     "ps2": ("ps2", "playstation 2", "sony playstation 2", "sony - playstation 2"),   # (not played here)
+    "dc": ("dc", "dreamcast", "sega dreamcast", "sega - dreamcast"),
 }
+DC_HEAD = b"SEGA SEGAKATANA "                       # the start of a Dreamcast disc (its IP.BIN), in its first sector
+DC_AREA = 45000                                     # where a Dreamcast's own disc (a GD-ROM) has its game: its track
+                                                    # that starts there
+DC_LOOK = 16 << 20                                  # bytes of a DiscJuggler image (.cdi) looked through for it, at most
 DISC_TAG = re.compile(r"\s*\((?:disc|disk|cd)\s*(\d+)(?:\s*of\s*\d+)?\)", re.I)
 SONY_CODE = re.compile(r"[A-Z]{4}-\d{5}$")             # a game's code, as Redump knows it (ULUS-10041)
 _seen = {}                                          # a file -> (its size and time, what it is)
+_titles = {}                                        # a .gdi -> (its size and time, the name on its disc)
 
 
 # ---- reading sectors ---------------------------------------------------------------------------------------
@@ -106,10 +112,21 @@ def umd_code(sectors):
     return code if SONY_CODE.match(code) else ""
 
 
+def dc_code(head):
+    """A Dreamcast game's code (MK-51000, T-8101N...) from its IP.BIN's first bytes, '' when it says none; None: it
+    isn't one."""
+    if head[:16] != DC_HEAD:
+        return None
+    return head[0x40:0x4A].decode("ascii", "replace").strip()
+
+
 def iso_info(sectors):
     """('ps1', its game code) for a PlayStation disc (ISO 9660, its SYSTEM.CNF says), ('psp', its code) for a
-    PSP's (it says so, or it has a PSP game's folder), ('ps2', '') for a PlayStation 2's (not played here), or
-    (None, '') for anything else (a PC's)."""
+    PSP's (it says so, or it has a PSP game's folder), ('ps2', '') for a PlayStation 2's (not played here), ('dc',
+    its code) for a Dreamcast's game track (its first sector says so), or (None, '') for anything else (a PC's)."""
+    code = dc_code(sectors.read(0))
+    if code is not None:
+        return "dc", code
     pvd = sectors.read(16)
     if pvd[1:6] != b"CD001":
         return None, ""
@@ -183,6 +200,121 @@ def cue_fixed(path, where):
     return fixed
 
 
+def gdi_tracks(path):
+    """[(where it starts on the disc, its kind: 4 data or 0 sound, its sectors' size, its file)] for a .gdi's tracks
+    (a Dreamcast disc's: its first line says how many), the files as they're really named."""
+    out = []
+    try:
+        with open(path, errors="replace") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return out
+    for line in lines[1:]:
+        m = re.match(r'\s*\d+\s+(\d+)\s+(\d+)\s+(\d+)\s+(?:"([^"]+)"|(\S+))', line)
+        if m:
+            name = m.group(4) or m.group(5)
+            out.append((int(m.group(1)), int(m.group(2)), int(m.group(3)),
+                        real_name(os.path.normpath(os.path.join(os.path.dirname(path), name)))))
+    return out
+
+
+def gdi_files(path):
+    """The files a .gdi's tracks are in (full paths)."""
+    return [t[3] for t in gdi_tracks(path)]
+
+
+def gdi_head(path):
+    """The first sector of a .gdi's game track (the one that starts at DC_AREA): its IP.BIN's start. b'' when it
+    can't be read."""
+    tracks = gdi_tracks(path)
+    game = next((t for t in tracks if t[0] == DC_AREA and t[1] == 4), None) or \
+        next((t for t in reversed(tracks) if t[1] == 4), None)
+    if game is None:
+        return b""
+    try:
+        with open(game[3], "rb") as f:
+            return Sectors.open(f).read(0)
+    except OSError:
+        return b""
+
+
+def gdi_info(path):
+    """('dc', its code) for a .gdi: the code from its game track, '' when that can't be read."""
+    return "dc", dc_code(gdi_head(path)) or ""
+
+
+def dc_title(path):
+    """The name on a Dreamcast disc (its IP.BIN's: CRAZY TAXI), from a .gdi's game track; '' if it can't say. (Kept
+    while the file's the same.)"""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return ""
+    key = (st.st_size, st.st_mtime)
+    hit = _titles.get(path)
+    if hit and hit[0] == key:
+        return hit[1]
+    head = gdi_head(path)
+    title = " ".join(head[0x80:0x100].decode("ascii", "replace").split()) if dc_code(head) is not None else ""
+    _titles[path] = (key, title)
+    return title
+
+
+def cue_dc(path, files):
+    """A .cue of a Dreamcast disc: its game's code ('' if its tracks don't say). None: it isn't one. (One of the
+    Dreamcast's own discs says HIGH-DENSITY AREA; any has its IP.BIN at the start of a data track.)"""
+    try:
+        with open(path, errors="replace") as f:
+            text = f.read(1 << 16)
+    except OSError:
+        return None
+    gd = "HIGH-DENSITY AREA" in text.upper()
+    data = [f for f, kind in cue_tracks(text, files) if kind != "AUDIO"]
+    for name in (reversed(data) if gd else data):                # (a GD-ROM's game: its last data track)
+        try:
+            with open(name, "rb") as f:
+                code = dc_code(Sectors.open(f).read(0))
+        except OSError:
+            continue
+        if code is not None:
+            return code
+    return "" if gd else None
+
+
+def cue_tracks(text, files):
+    """[(a .cue's file, the kind of its first track: AUDIO, MODE1/2352...)], files as cue_files has them."""
+    out, k = [], -1
+    for line in text.splitlines():
+        if re.match(r'\s*FILE\s', line, re.I):
+            k += 1
+            if k < len(files):
+                out.append([files[k], None])
+        else:
+            m = re.match(r'\s*TRACK\s+\d+\s+(\S+)', line, re.I)
+            if m and out and out[-1][1] is None:
+                out[-1][1] = m.group(1).upper()
+    return [(f, kind or "") for f, kind in out]
+
+
+def cdi_info(f):
+    """('dc', its code) for a DiscJuggler image (.cdi: a Dreamcast game burnt to a CD), its IP.BIN found near its
+    start; ('dc', '') if it isn't found there."""
+    at, tail = 0, b""
+    while at < DC_LOOK:
+        chunk = f.read(1 << 20)
+        if not chunk:
+            break
+        both = tail + chunk
+        i = both.find(DC_HEAD)
+        if i >= 0:
+            if len(both) - i < 0x50:
+                both += f.read(0x50)
+            return "dc", dc_code(both[i:i + 0x50]) or ""
+        tail = both[-len(DC_HEAD):]
+        at += len(chunk)
+    return "dc", ""
+
+
 def m3u_files(path):
     """The discs an .m3u lists (full paths)."""
     out = []
@@ -198,7 +330,9 @@ def m3u_files(path):
 
 
 def chd_kind(f):
-    """'cd', 'dvd', 'gd' (a Dreamcast's) or None: what a .chd holds, from its notes about itself."""
+    """'cd', 'cd-audio' (a CD whose first track is sound: a Dreamcast game burnt to a CD has its own after it, a
+    PlayStation's is always first), 'dvd', 'gd' (a Dreamcast's own disc) or None: what a .chd holds, from its notes
+    about itself."""
     head = f.read(124)
     if head[:8] != b"MComprHD":
         return None
@@ -212,7 +346,12 @@ def chd_kind(f):
         if len(meta) < 16:
             break
         tag = meta[:4]
-        if tag in (b"CHT2", b"CHTR", b"CHCD"):
+        if tag in (b"CHT2", b"CHTR"):
+            size = int.from_bytes(meta[5:8], "big")
+            text = f.read(min(size, 512)).split(b"\0")[0].decode("ascii", "replace")
+            first = re.match(r"TRACK:1 TYPE:(\S+)", text)
+            return "cd-audio" if first and first.group(1).upper() == "AUDIO" else "cd"
+        if tag == b"CHCD":
             return "cd"
         if tag == b"DVD ":
             return "dvd"
@@ -248,25 +387,40 @@ def pbp_info(f):
 
 
 def sniff(path):
-    """('ps1' or 'psp', its game code) for a PlayStation or PSP game, by what's in the file ('ps2' for a
-    PlayStation 2's); ('cd', '') for a CD in a .chd (very likely a PlayStation's), ('dvd', '') for a DVD in one
-    (a PSP's or a PlayStation 2's: it can't say which) or a .cso that can't be read; ('unknown', '') for a .chd
-    that doesn't say what it holds; (None, '') when it isn't one."""
+    """('ps1', 'psp' or 'dc', its game code) for a PlayStation, PSP or Dreamcast game, by what's in the file ('ps2'
+    for a PlayStation 2's); ('cd', '') for a CD in a .chd (very likely a PlayStation's), ('cd-audio', '') for one
+    whose first track is sound (likelier a Dreamcast's), ('dvd', '') for a DVD in one (a PSP's or a PlayStation 2's:
+    it can't say which) or a .cso that can't be read; ('unknown', '') for a .chd that doesn't say what it holds;
+    (None, '') when it isn't one. (A Dreamcast's track on its own, a .bin, isn't one: its .gdi or .cue is.)"""
     ext = os.path.splitext(path)[1].lower()
     if ext == ".m3u":
         first = next(iter(m3u_files(path)), None)
         return sniff(first) if first and os.path.isfile(first) and first.lower() != path.lower() else (None, "")
+    if ext == ".gdi":
+        return gdi_info(path)
     if ext == ".cue":
-        first = next(iter(cue_files(path)), None)
+        files = cue_files(path)
+        code = cue_dc(path, files)
+        if code is not None:
+            return "dc", code
+        first = next(iter(files), None)
         if not first or not os.path.isfile(first):
             return None, ""
         path, ext = first, ".bin"
+    elif ext in (".iso", ".bin", ".img"):
+        with open(path, "rb") as f:
+            kind, code = iso_info(Sectors.open(f))
+        return (None, "") if kind == "dc" else (kind, code)
     with open(path, "rb") as f:
         if ext in (".iso", ".bin", ".img"):
             return iso_info(Sectors.open(f))
+        if ext == ".cdi":
+            return cdi_info(f)
         if ext == ".chd":
             kind = chd_kind(f)
-            return (kind if kind in ("cd", "dvd") else "unknown" if kind is None else None), ""
+            if kind == "gd":
+                return "dc", ""
+            return (kind if kind in ("cd", "cd-audio", "dvd") else "unknown" if kind is None else None), ""
         if ext == ".pbp":
             return pbp_info(f)
         if ext == ".cso":                              # a PSP game, squeezed (or a PlayStation 2's)
@@ -292,9 +446,9 @@ def folder_hint(path, top):
 
 
 def disc_info(path, top=None):
-    """(the console: 'ps1', 'psp' or None; the game's code, or '') for a disc image. A folder named for it decides
-    what the file can't (a .chd that doesn't say what it holds; a DVD in one, a PSP's unless it's in a ps2
-    folder)."""
+    """(the console: 'ps1', 'psp', 'dc' or None; the game's code, or '') for a disc image. A folder named for it
+    decides what the file can't (a .chd that doesn't say what it holds; a CD in one, a PlayStation's unless it's in a
+    Dreamcast folder; a DVD in one, a PSP's unless it's in a ps2 folder)."""
     try:
         st = os.stat(path)
     except OSError:
@@ -310,8 +464,9 @@ def disc_info(path, top=None):
             found = (None, "")
         _seen[path] = (key, found)
     kind, code = found
-    if kind == "cd":                                     # a CD in a .chd: a PlayStation's
-        return "ps1", code
+    if kind in ("cd", "cd-audio"):                       # a CD in a .chd: a PlayStation's, or (in a Dreamcast
+        hint = folder_hint(path, top)                    # folder, or sound first in no console's) a Dreamcast's
+        return ("dc" if hint == "dc" or (kind == "cd-audio" and hint is None) else "ps1"), code
     if kind == "unknown":                                # (its folder may say)
         return folder_hint(path, top), code
     if kind == "dvd":                                    # a PSP's (unless its folder says a PlayStation 2's)

@@ -11,6 +11,7 @@
 #     Bluetooth controller), which opens at start-up on a home screen of app icons: TV (Plex,
 #     cartoons, free movies, news, sports, streams, a TV remote through Home Assistant),
 #     music, radio, photos (filters, delete), videos, weather, stock and coin prices and charts,
+#     the web (a browser of its own, and Chromium on a Pi 4 or 5),
 #     a file browser for PDFs/documents/text, cameras on your other Pis (see
 #     --camera below) with OBSBOT steering and pictures, a bot (Ollama on another
 #     computer, a Piper voice on the Pi; at work it acts out your coding agent and sends
@@ -18,8 +19,8 @@
 #     Mandelbrot set to tour or explore, cmatrix, hollywood, nyancat, cacafire, htop), Snake
 #     and your own Game Boy, Game Boy Advance, NES, SNES, Genesis, Master System, Game Gear,
 #     PlayStation and (on a Pi 4 or
-#     5) N64, PSP and DS games, two players on two controllers (mGBA, Nestopia, Snes9x,
-#     Genesis Plus GX, and PCSX ReARMed, Mupen64Plus-Next, PPSSPP and melonDS built here),
+#     5) N64, PSP, DS and Dreamcast games, two players on two controllers (mGBA, Nestopia, Snes9x,
+#     Genesis Plus GX, and PCSX ReARMed, Mupen64Plus-Next, PPSSPP, melonDS and Flycast built here),
 #     system info, and settings (WiFi, Bluetooth and its headphones, background, colours,
 #     location, sound, controller, bot...)  (pitato.py and the Pietato folder, run at boot)
 #   - a web page for your phone or computer (webui.py, port 5432): see the screen, work
@@ -279,7 +280,7 @@ SLOW=no         # Pi Zero, 1, 2 and 3: video on a big TV is smoother at 720p
 case "$MODEL" in
   *Zero*|"Raspberry Pi 3"*|"Raspberry Pi 2"*|"Raspberry Pi Model"*|"Raspberry Pi Compute Module 3"*) SLOW=yes ;;
 esac
-BIG=no          # a Pi 4 or 5: N64, PSP and DS games too (their emulators built here)
+BIG=no          # a Pi 4 or 5: N64, PSP, DS and Dreamcast games too (their emulators built here), and Chromium
 case "$MODEL" in
   *"Pi 4"*|*"Pi 5"*|*"Compute Module 4"*|*"Compute Module 5"*) BIG=yes ;;
 esac
@@ -554,6 +555,75 @@ if [ "$BIG" = yes ]; then
   esac
 else
   echo "(DS games need a Pi 4 or 5: no DS emulator on this one.)"
+fi
+
+# Dreamcast: Flycast, built here from its source, on a Pi 4 or 5 only (it draws in 3D with their graphics chip,
+# OpenGL ES 3). It's built for this Pi's memory pages (a Pi 5's are bigger than a Pi 4's): moved to the other
+# kind, it's built again. A Dreamcast's BIOS isn't needed (Flycast has its own); dc_boot.bin in ~/Games/BIOS is
+# used if it's there
+FLYCAST=v2.7
+flycast_source() {  # flycast_source FOLDER
+  local -x GIT_TERMINAL_PROMPT=0     # (a question from git would wait unseen: an error instead)
+  # its source, and the parts it's built from (not what other systems need, nor its own window and menus)
+  git -c advice.detachedHead=false clone -q --depth 1 --branch "$FLYCAST" https://github.com/flyinghead/flycast.git "$1/src" \
+    && git -C "$1/src" submodule update -q --init --depth 1 --recursive -- core/deps/libchdr core/deps/tinygettext \
+         core/deps/asio
+}
+flycast_make() {   # flycast_make FOLDER JOBS (OpenGL ES 3, drawn in for media mode: no Vulkan)
+  cmake -S "$1/src" -B "$1/build" -DCMAKE_BUILD_TYPE=Release -DLIBRETRO=ON -DUSE_GLES=ON -DUSE_VULKAN=OFF \
+      -DUSE_LUA=OFF -DUSE_OPENMP=OFF \
+    && make -C "$1/build" -j"$2" flycast_libretro
+}
+flycast_built() {  # what's noted once it's built: the version, and the memory pages it's for
+  echo "$FLYCAST pages $(getconf PAGESIZE 2>/dev/null || echo 4096)"
+}
+build_flycast() {
+  local jobs mem tmp so
+  jobs=$(nproc 2>/dev/null || echo 1)
+  mem=$(awk '/MemTotal/ {print int($2 / 1024)}' /proc/meminfo)
+  if [ "$mem" -lt 1500 ]; then jobs=1; elif [ "$mem" -lt 3000 ] && [ "$jobs" -gt 2 ]; then jobs=2; fi
+  apt-get install -y build-essential git cmake libgles-dev libegl-dev \
+    libegl-mesa0 libgl1-mesa-dri libgbm1 || return 1                      # (Mesa too, to run it)
+  tmp="$(mktemp -d /var/tmp/flycast-XXXXXX)" || return 1
+  BUILDING="$tmp"
+  working "Downloading" "$tmp/build.log" flycast_source "$tmp" \
+    && working "Building" "$tmp/build.log" flycast_make "$tmp" "$jobs" \
+    || { tail -n 20 "$tmp/build.log"; rm -rf "$tmp"; return 1; }
+  so="$(find "$tmp/build" -name flycast_libretro.so | head -n 1)"
+  install -d "$CORES" && install -m 644 "$so" "$CORES/" || { rm -rf "$tmp"; return 1; }
+  flycast_built > "$CORES/flycast.version"
+  rm -rf "$tmp"
+}
+if [ "$BIG" = yes ]; then
+  if [ "$(cat "$CORES/flycast.version" 2>/dev/null)" = "$(flycast_built)" ] && [ -f "$CORES/flycast_libretro.so" ]; then
+    echo "The Dreamcast emulator (Flycast) is built already."
+  else
+    step "Building the Dreamcast emulator (Flycast): about 20 minutes on a Pi 4, less on a Pi 5"
+    build_flycast || echo "(Couldn't build Flycast: Dreamcast games won't start.)"
+  fi
+else
+  echo "(Dreamcast games need a Pi 4 or 5: no Dreamcast emulator on this one.)"
+fi
+
+# Chromium, from Web's first page on a Pi 4 or 5: the whole web on the whole screen. cage shows it there with no
+# desktop round it (through Xwayland, so it can be a TV's size), and wlr-randr gives it the size and turn media mode
+# has. It runs as you, in a session of your own on a console of its own, and this is that session's PAM service:
+# Pietato starts it (as root), so no password is asked.
+if [ "$BIG" = yes ] && [ "$CASE" != 2w ]; then
+  step "Installing Chromium, for the whole web from Web's first page (about 300 MB)"
+  if apt-get install -y cage xwayland wlr-randr fonts-liberation fonts-noto-color-emoji \
+      && { apt-get install -y chromium || apt-get install -y chromium-browser; }; then
+    cat > /etc/pam.d/pietato-chromium <<'EOF'
+# Pietato's Chromium: a session of your own on its console. Pietato starts it, as root, so no password is asked.
+auth      required  pam_unix.so nullok
+account   required  pam_unix.so
+session   required  pam_unix.so
+session   optional  pam_env.so readenv=1 envfile=/etc/default/locale
+session   required  pam_systemd.so
+EOF
+  else
+    echo "(Couldn't install Chromium: Web shows pages its own way.)"
+  fi
 fi
 
 step "Installing LibreOffice (Word, Excel and PowerPoint files with their real layout; about 400 MB)"
@@ -922,7 +992,7 @@ mkdir -p "$USER_HOME/Videos" "$USER_HOME/Music" "$USER_HOME/Pictures" "$USER_HOM
 chown "$USER_NAME:$USER_NAME" "$USER_HOME/Videos" "$USER_HOME/Music" "$USER_HOME/Pictures" \
   "$USER_HOME/Documents" "$USER_HOME/Games" "$USER_HOME/Games/BIOS"
 GAME_FOLDERS="gb gbc gba nes snes genesis sms gg ps1"
-case "$MODEL" in *"Pi 4"*|*"Pi 5"*|*"Compute Module 4"*|*"Compute Module 5"*) GAME_FOLDERS="$GAME_FOLDERS n64 psp nds" ;; esac
+case "$MODEL" in *"Pi 4"*|*"Pi 5"*|*"Compute Module 4"*|*"Compute Module 5"*) GAME_FOLDERS="$GAME_FOLDERS n64 psp nds dc" ;; esac
 for sys in $GAME_FOLDERS; do                       # a folder for each kind of game, so it's clear where they go
   if [ ! -d "$USER_HOME/Games/$sys" ]; then
     mkdir "$USER_HOME/Games/$sys" && chown "$USER_NAME:$USER_NAME" "$USER_HOME/Games/$sys"

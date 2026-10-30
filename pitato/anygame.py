@@ -49,9 +49,9 @@ PUSH = 127                   # a stick pushed all the way (an N64 game's directi
 CAME = {"new": "something new", "same": "nothing new", "nothing": "nothing changed", None: "not known"}
 
 # each system's buttons: what the model's told each is, and the button as the emulator takes it (libretro's names:
-# a PlayStation's go by where they are, so Cross is libretro's B; an N64's A and B are libretro's B and Y, Z its L2;
-# a Genesis's A B C are libretro's Y B A, and a Master System's 1 and 2 its B and A). The first two go with a
-# direction too (a jump or an attack on the move).
+# a PlayStation's go by where they are, so Cross is libretro's B, and a Dreamcast's too, its triggers libretro's L2
+# and R2; an N64's A and B are libretro's B and Y, Z its L2; a Genesis's A B C are libretro's Y B A, and a Master
+# System's 1 and 2 its B and A). The first two go with a direction too (a jump or an attack on the move).
 NINTENDO = (("A", "a"), ("B", "b"), ("Start", "start"), ("Select", "select"))
 BUTTONS = {
     "gb": NINTENDO, "gbc": NINTENDO, "nes": NINTENDO,
@@ -68,9 +68,10 @@ BUTTONS = {
             ("L2", "l2"), ("R2", "r2"), ("Start", "start"), ("Select", "select")),
     "psp": (("Cross", "b"), ("Square", "y"), ("Circle", "a"), ("Triangle", "x"), ("L", "l"), ("R", "r"),
             ("Start", "start"), ("Select", "select")),
+    "dc": (("A", "b"), ("B", "a"), ("X", "y"), ("Y", "x"), ("L", "l2"), ("R", "r2"), ("Start", "start")),
 }
 PAUSES = ("Start", "Pause")  # (the button that pauses: not one to suggest trying, as a person would)
-STICK_SYSTEMS = ("n64",)     # its games move with the stick, not the d-pad
+STICK_SYSTEMS = ("n64", "dc")   # its games move with the stick, not the d-pad
 DIRECTIONS = (("up", "Up", ("ly", -PUSH)), ("down", "Down", ("ly", PUSH)), ("left", "Left", ("lx", -PUSH)),
               ("right", "Right", ("lx", PUSH)))
 SAYS = ("You are playing {game} on the {system}, looking at its screen. Pick the next thing to press to make "

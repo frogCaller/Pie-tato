@@ -1,6 +1,7 @@
-"""A game, in a process of its own: a libretro core (mGBA, Nestopia, Snes9x, PCSX ReARMed, Mupen64Plus, PPSSPP...)
-runs it, and this draws its pictures straight onto the screen and plays its sound through aplay, a frame at a
-time. A game drawn in 3D (an N64's, a PSP's) is drawn by the graphics chip, and each frame read back (pitato/gpu.py).
+"""A game, in a process of its own: a libretro core (mGBA, Nestopia, Snes9x, PCSX ReARMed, Mupen64Plus, PPSSPP,
+Flycast...) runs it, and this draws its pictures straight onto the screen and plays its sound through aplay, a frame at
+a time. A game drawn in 3D (an N64's, a PSP's, a Dreamcast's) is drawn by the graphics chip, and each frame read back
+(pitato/gpu.py).
 Media mode starts it (pitato/games.py) and tells it what to do, a line at a time:
     down a / up a        a button pressed, let go (a b x y l r l2 r2 start select up down left right)
     stick lx -64         where a stick is (lx ly: the left one, rx ry: the right), -127 to 127 (up and left
@@ -75,14 +76,18 @@ GAME_OPTIONS = {"mgba_sgb_borders": "OFF",      # a Game Boy game fills the scre
                 # its pictures drawn on a thread of their own
                 "melonds_screen_layout": "Left/Right", "melonds_touch_mode": "Joystick",
                 "melonds_threaded_renderer": "enabled", "melonds_jit_enable": "enabled",
-                "melonds_boot_directly": "enabled"}
+                "melonds_boot_directly": "enabled",
+                # a Dreamcast game: its memory card (the first controller's) its own, kept with its saves; a frame
+                # now and then left undrawn when it's behind (so it keeps up); no extra smoothing of its textures
+                "reicast_per_content_vmus": "VMU A1", "reicast_auto_skip_frame": "some",
+                "reicast_anisotropic_filtering": "off"}
 LOG_ARGS = 6             # an emulator's printf (its log): what's after the format, read as whole numbers. (Where
                          # they are, as a function that takes them all would find them: in registers, then on
                          # the stack, on a Pi's 64-bit or 32-bit ARM and on a PC.) Only as many as the format
                          # says are used, and none of a format with fractions in it (they're elsewhere)
 LOG = C.CFUNCTYPE(None, C.c_int, C.c_char_p, *([C.c_void_p] * LOG_ARGS))
 LOG_SPEC = re.compile(r"%([-+ #0]*)(\*|\d+)?(?:\.(\*|\d*))?(hh|h|ll|l|j|z|t|q)?([diouxXcsp%])")
-LOG_CORES = ("Mupen64Plus-Next", "ParaLLEl N64", "PPSSPP")   # emulators that crash with nowhere to log to
+LOG_CORES = ("Mupen64Plus-Next", "ParaLLEl N64", "PPSSPP", "Flycast")   # emulators that crash with nowhere to log to
 LOG_MOST = 200           # lines an emulator puts in the log, at most, a game (a PSP game can go on and on)
 SWAP_FRAMES = 60         # frames the tray stays open when the disc's changed (so the game sees it)
 RESUME_TRIES = 3         # frames run to pick up where you were, for an emulator that won't before it's running
@@ -281,6 +286,25 @@ def game_data(path, exts):
             return buf, size, path
     except (OSError, zipfile.BadZipFile, RuntimeError, NotImplementedError, zlib.error, EOFError, ValueError) as ex:
         raise GameError("Couldn't read this game") from ex
+
+
+def give_back(folder):
+    """What an emulator made in the saves folder (this runs as root: a Dreamcast's memory card, a PSP's saves), made
+    yours, like the folder."""
+    try:
+        st = os.stat(folder)
+    except OSError:
+        return
+    if st.st_uid == 0 or os.geteuid() != 0:
+        return
+    for root, dirs, files in os.walk(folder):
+        for n in dirs + files:
+            p = os.path.join(root, n)
+            try:
+                if os.lstat(p).st_uid == 0:
+                    os.chown(p, st.st_uid, st.st_gid, follow_symlinks=False)
+            except OSError:
+                pass
 
 
 def read_disc(path):
@@ -1354,6 +1378,7 @@ class Session:
         finally:
             self.core.close()
             self.screen.close()
+            give_back(self.args.saves)
             self.say("bye")
 
 

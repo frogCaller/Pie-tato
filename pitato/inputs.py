@@ -408,6 +408,7 @@ class Pad:
             axes = {c: {d: AB.get(n, n) for d, n in dirs.items()} for c, dirs in axes.items()}
         self.keys, self.axes = keys, axes
         sticks = set(self.axis_codes())
+        self.own_dpad = e.ABS_HAT0X in sticks or e.BTN_DPAD_UP in self.has   # (a hat, or d-pad buttons: dpad_apart)
         self.triggers = ({c: n for c, n in TRIGGERS.items() if c not in axes and n not in names}
                          if {e.ABS_Z, e.ABS_RZ, e.ABS_RX, e.ABS_RY} <= sticks else {})
         self.home = (any(n == "home" and c in self.has for c, n in keys.items())
@@ -424,6 +425,11 @@ class Pad:
 
     def has_stick(self):
         return e.ABS_X in self.sticks
+
+    def dpad_apart(self):
+        """Its d-pad is a d-pad of its own (a hat, or buttons), so its ABS_X and ABS_Y are a stick. (A GPi Case's,
+        or a plain USB pad's, ABS_X and ABS_Y are its d-pad: there's no stick.)"""
+        return self.has_stick() and getattr(self, "own_dpad", False)
 
     def has_button(self, name):
         """It has this button (or an axis or trigger that's it)."""

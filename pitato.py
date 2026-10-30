@@ -46,6 +46,15 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
                   blocked and the percentage, domains on its lists, the last 24 hours an hour a
                   column (allowed and blocked), and below, ◀▶: top blocked and allowed domains,
                   top clients, query types. Y (twice) forgets it. Pi-hole 6, or 5
+    Web         - a browser of its own: Search (DuckDuckGo), Go to an address, your bookmarks, the
+                  pages you've been to, and sites made to be simple (Wikipedia, NPR's and CNN's
+                  text-only ones...). A page is its words, links and pictures (no JavaScript): up
+                  and down go link to link, left and right a screenful, A opens, B goes back, START
+                  goes to an address or searches, Y bookmarks it, SELECT shows just the article; a
+                  PDF is kept in ~/Documents and opened. On a Pi 4 or 5, Chromium too (setup.sh puts
+                  it in): the whole web on the whole screen, the stick or the d-pad its mouse (A
+                  clicks, B back, L R scroll, Y right-clicks, SELECT the next tab, L2 R2 zoom; X
+                  types and START goes to an address, with Pietato's keyboard), and HOME its menu
   TV          - one menu for:
     Plex        - your Plex movies and shows, Continue watching, your Watchlist,
                   and Plex's free Live TV, with search; sign in once with a code at plex.tv/link
@@ -94,16 +103,19 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
                 moves it decided in time; for the rest it goes straight on). X again, and it's yours.
                 START picks the model.
                 Your own games, in the Games folder: Game Boy, GBA, NES, SNES, Genesis, Master System, Game
-                Gear, PlayStation and (on a Pi 4 or 5) N64, PSP and DS play here (HOME is a game's menu: save
-                states, discs, players, the picture (Fill: the whole screen, an N64 game drawn wide on a TV),
-                quit). Two players (four on an N64) each have a controller: the
+                Gear, PlayStation and (on a Pi 4 or 5) N64, PSP, DS and Dreamcast play here (HOME is a game's
+                menu: save states, discs, players, the picture (Fill: the whole screen, an N64 game drawn wide on
+                a TV), quit). Two players (four on an N64 or a Dreamcast) each have a controller: the
                 one that started the game is player 1, the next one pressed player 2. An N64
                 game takes the sticks as they are: the right one is its C buttons (or R2 held with A B X Y),
                 L2 is Z; on a controller with no stick, the d-pad is one. A PSP game's buttons go by where
                 they are (the bottom one is Cross), and the left stick is its own. A DS game (melonDS, on the
                 64-bit Raspberry Pi OS) shows both screens side by side (its menu's Screens: other ways);
                 the right stick moves a pointer on the touch screen and R2 touches it (or the d-pad and A,
-                with its menu's Touch screen), L2 blows on the microphone, the left stick is the d-pad.
+                with its menu's Touch screen), L2 blows on the microphone, the left stick is the d-pad. A
+                Dreamcast game (Flycast) goes by place too (the bottom one is A), L and R are its triggers as
+                L2 and R2 are, and the left stick is its own; a Dreamcast BIOS isn't needed (dc_boot.bin in
+                Games/BIOS, if you have it, for the few games that do).
                 Any game: its menu's AI player has a decision model on your bot's computer play it,
                 looking at the screen (pitato/anygame.py): an action game by instinct, many times a
                 second (pitato/instincts.py: racing, platformers, fighting, shooters), any other a button

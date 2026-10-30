@@ -165,7 +165,10 @@ class SimScreen:
         return self.on_sim_page() and self.sim_opts is None and LIBRARY[self.tab].get("sim") == "mandel"
 
     def takes_repeats(self, name):
-        """A press held down on the web page goes on and on here (beyond the usual arrows in lists)."""
+        """A press held down on the web page goes on and on here (beyond the usual arrows in lists): Chromium's
+        pointer and its scrolling too."""
+        if self.chromium_shown():
+            return name in ("up", "down", "left", "right", "l", "r")
         s = self.sims.get("mandel")
         return (self.on_mandel_page() and s is not None and s.phase == "explore" and name in Mandelbrot.MOVES)
 

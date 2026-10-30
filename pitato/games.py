@@ -1,6 +1,6 @@
 """Your own games: the ones in the Games folder, the emulators that play them (libretro cores, from
-Debian's packages, and PCSX ReARMed, Mupen64Plus, PPSSPP and melonDS, built by setup.sh), their pictures (box art from
-libretro's thumbnails, found by No-Intro's and Redump's lists of games), and a game while it runs
+Debian's packages, and PCSX ReARMed, Mupen64Plus, PPSSPP, melonDS and Flycast, built by setup.sh), their pictures (box
+art from libretro's thumbnails, found by No-Intro's and Redump's lists of games), and a game while it runs
 (pitato/emulator.py, in a process of its own)."""
 import array
 import difflib
@@ -20,7 +20,7 @@ import zipfile
 import zlib
 
 from .config import CACHE_DIR, home_dir
-from .discs import cue_files, cue_fixed, DISC_EXTS, disc_info, disc_number, m3u_files
+from .discs import cue_files, cue_fixed, dc_title, DISC_EXTS, disc_info, disc_number, gdi_files, m3u_files
 from .screen import slow_pi
 from .util import UA
 
@@ -39,24 +39,30 @@ GAME_SYSTEMS = [
      ("pcsx_rearmed", "swanstation", "mednafen_psx", "beetle_psx")),
     ("psp", "PSP", "PlayStation Portable", (".iso", ".cso", ".pbp", ".chd"), ("ppsspp",)),
     ("nds", "DS", "Nintendo DS", (".nds",), ("melonds", "melondsds", "desmume", "desmume2015")),
+    ("dc", "DC", "Dreamcast", (".gdi", ".cdi", ".chd", ".cue", ".m3u"), ("flycast",)),
 ]
-DISC_SYSTEMS = ("ps1", "psp")                    # discs: what's in the file says (pitato/discs.py)
+DISC_SYSTEMS = ("ps1", "psp", "dc")              # discs: what's in the file says (pitato/discs.py)
 SHARED_EXTS = (".bin",)                          # a Genesis game's, or a PlayStation disc's: what's in it says which
 GAME_EXTS = {e: s[0] for s in GAME_SYSTEMS if s[0] not in DISC_SYSTEMS for e in s[3]
              if e not in SHARED_EXTS}            # cartridges: a file says which (a zip too)
 GENESIS_FOLDERS = ("genesis", "megadrive", "mega drive", "md", "sega genesis", "sega mega drive",
                    "sega - mega drive - genesis")   # (a .bin in one: a Genesis game, whatever it says)
-NEEDS_3D = ("n64", "psp")    # drawn in 3D by the graphics chip: a Pi 4 or 5 (pitato/gpu.py)
+NEEDS_3D = ("n64", "psp", "dc")   # drawn in 3D by the graphics chip: a Pi 4 or 5 (pitato/gpu.py)
 FAST_PI_ONLY = NEEDS_3D + ("nds",)   # ...and a DS's two processors and screens: a Pi 4 or 5 too
-ANALOG_SYSTEMS = ("n64", "psp", "nds")   # its games take the sticks as they are, not as the d-pad (a DS's: the right
-                                         # one moves the pointer on its touch screen, pitato/screens/games.py)
-OWN_FILES = ("n64", "psp")   # its emulator keeps files of its own (settings, shaders, a PSP's fonts): not in Games/BIOS
-GAME_PLAYERS = {"nes": 2, "snes": 2, "genesis": 2, "sms": 2, "ps1": 2, "n64": 4}   # how many play its games at once,
-                                                 # each on a controller of their own (the rest: one, on any of them)
+ANALOG_SYSTEMS = ("n64", "psp", "nds", "dc")   # its games take the sticks as they are, not as the d-pad (a DS's:
+                                         # the right one moves the pointer on its touch screen, pitato/screens/games.py)
+OWN_FILES = ("n64", "psp", "dc")   # its emulator keeps files of its own (settings, shaders, a PSP's fonts, a
+                                   # Dreamcast's clock): not in Games/BIOS
+GAME_PLAYERS = {"nes": 2, "snes": 2, "genesis": 2, "sms": 2, "ps1": 2, "n64": 4, "dc": 4}   # how many play its games
+                                                 # at once, each on a controller of their own (the rest: one, on any)
 GAME_PACKAGES = {"mgba": "libretro-mgba", "nestopia": "libretro-nestopia", "snes9x": "libretro-snes9x",
                  "genesis_plus_gx": "libretro-genesisplusgx",
                  "mupen64plus_next": "mupen64plus_next", "pcsx_rearmed": "pcsx_rearmed", "ppsspp": "ppsspp",
-                 "melonds": "melonds"}
+                 "melonds": "melonds", "flycast": "flycast"}
+DC_BIOS = ("dc_boot.bin", "dc_bios.bin")         # a Dreamcast's own BIOS, if it's in Games/BIOS (or Games/BIOS/dc):
+                                                 # Flycast plays without it, and with it the few games that need it
+GENERIC_NAMES = ("disc", "game", "gdi", "image")   # a .gdi named for what it is, not the game (GDEMU's disc.gdi): its
+                                                   # folder's name instead (or the disc's own, its folder a number)
 NEEDS_BIOS = {"mednafen_psx": ("scph5500.bin", "scph5501.bin", "scph5502.bin"),   # (the rest manage without)
               "beetle_psx": ("scph5500.bin", "scph5501.bin", "scph5502.bin")}
 CORE_DIRS = ("/usr/lib/*/libretro", "/usr/lib/libretro", "/usr/local/lib/libretro",
@@ -72,8 +78,21 @@ def system(key):
 
 
 def playable(key):
-    """A system this Pi plays. N64, PSP and DS games need a Pi 4 or 5: on an older Pi they aren't shown at all."""
+    """A system this Pi plays. N64, PSP, DS and Dreamcast games need a Pi 4 or 5: on an older Pi they aren't shown at
+    all."""
     return not (key in FAST_PI_ONLY and slow_pi())
+
+
+def game_title(path):
+    """A game's name: its file's, without the extension. A Dreamcast's disc.gdi (GDEMU's way): its folder's, or (a
+    folder that's only a number) the name on the disc."""
+    stem = os.path.splitext(os.path.basename(path))[0]
+    if not path.lower().endswith(".gdi") or stem.lower().strip() not in GENERIC_NAMES:
+        return stem
+    folder = os.path.basename(os.path.dirname(os.path.abspath(path))).strip()
+    if re.search(r"[^\W\d_]", folder) and folder.lower() not in (GAMES_FOLDER.lower(), "dc", "dreamcast"):
+        return folder
+    return dc_title(path) or (f"{folder} {stem}".strip() if folder else stem)
 
 
 def games_dir():
@@ -240,18 +259,22 @@ def find_games(folder=None):
         low = path.lower()
         if low.endswith(".cue"):
             parts.update(p.lower() for p in cue_files(path))
+        elif low.endswith(".gdi"):
+            parts.update(p.lower() for p in gdi_files(path))
         elif low.endswith(".m3u"):
             for disc in m3u_files(path):
                 parts.add(disc.lower())
                 if disc.lower().endswith(".cue"):
                     parts.update(p.lower() for p in cue_files(disc))
+                elif disc.lower().endswith(".gdi"):
+                    parts.update(p.lower() for p in gdi_files(disc))
     found = []
     for path in files_seen:
         if path.lower() in parts:
             continue
         sysk = game_kind(path, folder)
         if sysk and playable(sysk):
-            found.append({"path": path, "title": os.path.splitext(os.path.basename(path))[0], "system": sysk})
+            found.append({"path": path, "title": game_title(path), "system": sysk})
     out = one_per_game(found)
     out.sort(key=lambda g: (g["title"].lower(), g["path"]))
     return out
@@ -278,8 +301,9 @@ def bios_missing(core):
 
 
 def save_name(path):
-    """A game's name for its saves: its file's, without the extension."""
-    return os.path.splitext(os.path.basename(path))[0]
+    """A game's name for its saves: its file's, without the extension (a Dreamcast's disc.gdi: its game's name, so two
+    such games' saves are each their own)."""
+    return game_title(path)
 
 
 def has_resume(path):
@@ -292,7 +316,7 @@ LIBRETRO_NAMES = {"gb": "Nintendo - Game Boy", "gbc": "Nintendo - Game Boy Color
                   "snes": "Nintendo - Super Nintendo Entertainment System", "n64": "Nintendo - Nintendo 64",
                   "ps1": "Sony - PlayStation", "psp": "Sony - PlayStation Portable", "nds": "Nintendo - Nintendo DS",
                   "genesis": "Sega - Mega Drive - Genesis", "sms": "Sega - Master System - Mark III",
-                  "gg": "Sega - Game Gear"}
+                  "gg": "Sega - Game Gear", "dc": "Sega - Dreamcast"}
 N64_ORDERS = {b"\x37\x80\x40\x12": "H", b"\x40\x12\x37\x80": "I"}   # .v64, .n64: the bytes swapped in twos, fours
 GAME_LISTS = "https://raw.githubusercontent.com/libretro/libretro-database/master/metadat/{kind}/{system}.dat"
 ART_SOURCES = ("https://thumbnails.libretro.com/{system}/{kind}/{name}.png",
@@ -361,16 +385,20 @@ def name_rank(name):
     return (odd, region, "rev" in tags, len(name))
 
 
-def code_key(code):
-    """A game's code, the same however it's written: SLUS_005.94 and SLUS-00594 are SLUS-00594. None: it
-    isn't one."""
+def code_key(code, key="ps1"):
+    """A game's code, the same however it's written: SLUS_005.94 and SLUS-00594 are SLUS-00594. A Dreamcast's: its
+    letters and numbers, without Sega's MK (its disc says MK-51064, Redump's list 51064). None: it isn't one."""
     c = (code or "").upper().strip()
+    if key == "dc":
+        c = re.sub(r"[^A-Z0-9]", "", c.split("(")[0])
+        c = c[2:] if c.startswith("MK") and c[2:].isdigit() else c
+        return c if re.search(r"\d{3}", c) else None
     m = re.match(r"([A-Z]{4})[-_ ]?(\d{3})\.?(\d{2})\b", c)
     return f"{m.group(1)}-{m.group(2)}{m.group(3)}" if m else None
 
 
-def read_game_codes(text):
-    """[(name, code)] from Redump's list: each game's name, and its code (SLUS-00594...)."""
+def read_game_codes(text, key="ps1"):
+    """[(name, code)] from Redump's list: each game's name, and its code (SLUS-00594..., a Dreamcast's 51064...)."""
     out, name, inside = [], None, False
     for line in text.splitlines():
         s = line.strip()
@@ -379,9 +407,9 @@ def read_game_codes(text):
         elif inside and s.startswith('name "') and name is None:
             name = s[6:-1] if s.endswith('"') else s[6:]
         elif inside and s.startswith('serial "') and name:
-            key = code_key(s[8:-1] if s.endswith('"') else s[8:])
-            if key:
-                out.append((name, key))
+            code = code_key(s[8:-1] if s.endswith('"') else s[8:], key)
+            if code:
+                out.append((name, code))
         elif s == ")":
             inside = False
     return out
@@ -502,7 +530,7 @@ class GameList:
             if name not in self.words:
                 self.add(name)
         if self.key in DISC_SYSTEMS:
-            for name, code in read_game_codes(text):
+            for name, code in read_game_codes(text, self.key):
                 names = self.by_code.setdefault(code, [])
                 if name not in names:
                     names.append(name)
@@ -541,9 +569,9 @@ class GameList:
 def which_game(game, lists):
     """(the system's key, the game's name in No-Intro's or Redump's list) for one of your games: by its
     checksum (a disc's by the code on it), else by its file's name; or the file's own name, as a last try."""
-    stem = os.path.splitext(os.path.basename(game["path"]))[0]
+    stem = game_title(game["path"])
     if game["system"] in DISC_SYSTEMS:
-        key = code_key(disc_info(game["path"])[1])
+        key = code_key(disc_info(game["path"])[1], game["system"])
         for gl in lists:
             names = gl.by_code.get(key) if key else None
             if names:
@@ -707,6 +735,47 @@ def psp_files(sysdir, core):
         print(f"games: no PSP fonts for PPSSPP ({ex})", flush=True)
 
 
+def dc_files(sysdir):
+    """A Dreamcast's BIOS (Games/BIOS/dc_boot.bin, or in Games/BIOS/dc), where Flycast looks for it: the dc folder in
+    the one it's given (a link to it). None there: Flycast plays with its own (and a link's gone when the BIOS is)."""
+    folder = os.path.join(sysdir, "dc")
+    bios = os.path.join(games_dir(), BIOS_FOLDER)
+    have = {}
+    for where in (os.path.join(bios, "dc"), bios):    # (Games/BIOS's own first)
+        try:
+            have.update({n.lower(): os.path.join(where, n) for n in os.listdir(where)})
+        except OSError:
+            pass
+    try:
+        os.makedirs(folder, exist_ok=True)
+        for name in DC_BIOS:
+            link, want = os.path.join(folder, name), have.get(name)
+            want = want if want and os.path.isfile(want) else None
+            if os.path.islink(link) and os.readlink(link) != want:
+                os.remove(link)                        # (moved, or gone)
+            if want and not os.path.lexists(link):
+                os.symlink(want, link)
+    except OSError as ex:
+        print(f"games: no Dreamcast BIOS for Flycast ({ex})", flush=True)
+
+
+def built_for_other_pi(core):
+    """An emulator built for another kind of Pi's memory pages (Flycast, setup.sh notes them: a Pi 5's are bigger
+    than a Pi 4's), so it wouldn't run here: True. (Nothing noted: False.)"""
+    name = os.path.basename(core).replace("_libretro.so", "")
+    try:
+        with open(os.path.join(os.path.dirname(core), name + ".version")) as f:
+            words = f.read().split()
+    except OSError:
+        return False
+    if "pages" not in words[:-1]:
+        return False
+    try:
+        return int(words[words.index("pages") + 1]) != os.sysconf("SC_PAGE_SIZE")
+    except (ValueError, OSError, AttributeError):
+        return False
+
+
 class GameRun:
     """A game while it runs: the emulator's process, and what it says. The buttons and the menu's
     asks go to it a line at a time; its answers come back on a thread of their own."""
@@ -737,6 +806,8 @@ class GameRun:
             os.makedirs(sysdir, exist_ok=True)
             if self.game["system"] == "psp":
                 psp_files(sysdir, core)
+            elif self.game["system"] == "dc":
+                dc_files(sysdir)
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         env = dict(os.environ)
         env["PYTHONPATH"] = root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")

@@ -59,8 +59,8 @@ def run(ui, media, control=None, stop=None):
 
     def home():
         """HOME: media mode on or off; in a game, the game's menu (or back to the game); cmatrix or hollywood
-        stops."""
-        if media.active and (media.game_home() or media.prog_home()):      # (cmatrix and the rest: it stops)
+        stops; Chromium's menu (or back to Chromium)."""
+        if media.active and (media.game_home() or media.prog_home() or media.chromium_home()):
             menu_held.clear()
             return
         toggle()
@@ -149,6 +149,11 @@ def run(ui, media, control=None, stop=None):
             if moved:
                 media.game_stick(*moved, pad=pad)      # (this controller's player's)
                 return
+        elif media.chromium_sticks() and pad.dpad_apart():   # Chromium: its pointer and its wheel, as they're pushed
+            moved = pad.stick(ev)                      # (a d-pad that's a stick's axes is its d-pad, as the GPi Case's)
+            if moved:
+                media.chromium_stick(*moved)
+                return
         for name, down in pad.translate(ev):
             if down and time.monotonic() < media.halting:
                 continue                               # shutting down: let go of things, no more
@@ -167,9 +172,11 @@ def run(ui, media, control=None, stop=None):
     def keyboard_event(kb, ev):
         """A keyboard's key: in media mode, a button (W A S D the d-pad...). In the terminal, and while cmatrix or
         the others, a text box or Settings > Controller has it, its keys are its own. Its trackpad (or a mouse):
-        media mode's, cmatrix's and a text box's too (it types nothing of its own), but not Settings > Controller's."""
+        media mode's, cmatrix's and a text box's too (it types nothing of its own), but not Settings > Controller's.
+        While Chromium's in front, keys and mouse are Chromium's own."""
         pointer = kb.pointer(ev)
-        if not media.active or media.learning or (not pointer and (media.prog is not None or typing())):
+        if (not media.active or media.learning or media.chromium_shown()            # (Chromium's, while it's in front)
+                or (not pointer and (media.prog is not None or typing()))):
             for name in kb.let_go("pointer" if pointer else "keys"):   # (nothing stays held down)
                 button(name, False)
             return
@@ -377,6 +384,7 @@ def main():
     media.shrinker.start()                         # (big videos made smaller, in the background)
     media.updater.start()                          # (a newer version looked for now and then: System > Update software)
     media.dock_start()                             # (a GPi Case 2: its dock watched, the picture following it)
+    media.chromium_leftover()                      # (Chromium, if the last Pietato left it running: closed)
     control = Control()
     serve_control(media, control, key=control_key())
 

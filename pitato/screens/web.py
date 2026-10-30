@@ -15,6 +15,7 @@ from ..home import draw_icon, HOME_ICONS
 from ..cameras import CAM_FOUND_FOR, edit_cameras, read_cameras
 from ..voice import BOT_VOICES, VOICE_MB, voices_here
 from ..bot import FRIEND_FACES
+from ..www import clean_title
 
 
 class WebScreen:
@@ -48,6 +49,10 @@ class WebScreen:
             names += [lvl["title"] for lvl in self.jf_stack[1:]]
         elif self.tab_type() == "lights" and self.lights_scenes:
             names.append("Scenes")
+        elif self.tab_type() == "www" and self.view in ("chromium", "chromenu", "chromehow"):
+            names.append("Chromium")
+        elif self.tab_type() == "www" and self.www_on_page():
+            names.append(clean_title(self.www["page"]))
         if self.view in ("photo", "pdf", "text") and self.v.get("title"):
             names.append(self.v["title"])
         elif self.view in ("game", "gamemenu") and self.game is not None:

@@ -39,6 +39,7 @@ from .snake import SnakeBrain
 from .shrink import Shrinker
 from .update import Updater
 from .computers import Computers
+from .www import Loader as PageLoader
 from .gpicase import (busy, case_kind, DOCK_MOST, DOCK_QUIET, DOCK_SETTLE_IN, DOCK_SETTLE_OUT, DOCK_WINDOW,
                       DockWatch, dock_tried, note_dock_restart, started_on_tv)
 from .inputs import HALT_WAIT, KeyReader, show_shutdown_lines
@@ -74,6 +75,8 @@ from .screens.progs import ProgScreen
 from .screens.sketch import SketchScreen
 from .screens.hasettings import HaSettingsScreen
 from .screens.websettings import WebSettingsScreen
+from .screens.www import WwwScreen
+from .screens.chromium import ChromiumScreen
 
 _SAVING = threading.Lock()     # (state.json written one at a time: the shrinker's and radio's threads save too)
 
@@ -83,7 +86,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             RemoteScreen, LightsScreen, CameraScreen, BotScreen, CoderScreen, SimScreen,
             SnakeScreen, GameScreen, SettingsScreen, BluetoothScreen, ControllerScreen, WeatherScreen, WebScreen,
             ComputersScreen, ProgScreen, PiholeScreen, SysDashScreen, SketchScreen, HaSettingsScreen,
-            WebSettingsScreen):
+            WebSettingsScreen, WwwScreen, ChromiumScreen):
     """Media mode: what the screen shows and what the buttons do there. Its state is all here; each
     app's buttons and drawing come from its part (pitato/screens/)."""
 
@@ -334,13 +337,24 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.learn = None           # Settings > Controller: setting up a controller's buttons
         self.pads = None            # the controllers plugged in (the input loop sets this)
         self.pad_used = None        # ...the one last pressed: Settings > Swap A and B changes its buttons
+        self.www = None              # Web: the page open (its first page, a list, while it isn't shown)
+        self.www_shown = False
+        self.www_wait = None         # ...a page on its way: {"url", "host", "keep"}
+        self.www_back = []           # ...the pages before it
+        self.www_loader = PageLoader()
+        self.www_pics = collections.OrderedDict()   # ...its pictures, ready to draw (False: they couldn't be had)
+        self.www_pic_asked, self.www_pic_queue = set(), collections.deque()
+        self.www_pic_lock, self.www_pic_threads = threading.Lock(), 0
+        self.chromium = None         # Chromium (a Pi 4's or 5's), while it's up: pitato/chromium.py
+        self.chrome_menu = None      # ...its menu (HOME), on Pietato's screen: {"sel", "confirm"}
+        self.chrome_url = None       # ...where it opens, the first time (its buttons shown first)
         self.shot = (None, b"", "")  # the last picture of the screen sent to the web page
         self.web_radio_cache = {}   # Radio Browser lists the web page asked for
         self.web_icons = {}
         self.web_guard = False      # the web page is at the controls: your home folder only
         self.lock = threading.Lock()
         self.state = {"pos": {}, "dur": {}, "settings": {}, "radio": {}, "cam_turn": {}, "cam_flip": {},
-                      "cam_flip_v": {}}
+                      "cam_flip_v": {}, "www": {}}
         self.fonts = None
         self.load_state()
         self.camera.turns = self.state["cam_turn"]   # (a camera's picture turned: kept with the rest)
@@ -593,6 +607,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
                 else:
                     self.camera.start()
             self.items[i] = []
+        elif tab["type"] == "www":
+            self.items[i] = self.www_rows()
         elif tab["type"] == "games":
             self.items[i] = self.games_rows()
         elif tab["type"] == "sim":
@@ -726,7 +742,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         """A video, a game, or the Simulator's cmatrix and the rest, is drawing on the screen: the menus keep off
         it."""
         return ((bool(self.proc) and self.kind in SCREEN_KINDS) or (self.game is not None and self.view == "game")
-                or self.prog is not None)
+                or self.prog is not None or self.chromium_shown())
 
     def enter(self):
         try:
@@ -773,6 +789,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         """Back to the terminal. Music and radio keep playing; video stops."""
         if not self.active:
             return
+        self.chromium_close()                          # (its console's: media mode's in front again first)
         self.prog_stop()
         if self.learn:                                 # the controller's buttons go back to keys
             self.cancel_learn("")
@@ -811,6 +828,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         screen_out.terminal_turn_now()                 # (the terminal turned as the screen is: in text mode now)
 
     def shutdown(self):
+        self.chromium_close(wait=True)                 # (first, as it's on a console of its own: it goes too)
         self.prog_stop()                               # (first: "Shutting down" can't go over it)
         self.hush_stop()
         self.stop()
@@ -836,6 +854,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             if self.active and self.fb is not None:
                 if self.learn:
                     self.cancel_learn("")
+                self.chromium_close()
                 self.prog_stop()
                 self.stop()                            # (a video would draw over it)
                 self.close_viewer()
@@ -927,6 +946,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             if self.game is not None:
                 self.game_end()
             if self.active and self.fb is not None:
+                self.chromium_close()
                 self.prog_stop()
                 self.stop()                            # (a video would draw over it)
                 self.close_viewer()
@@ -986,6 +1006,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         elif kind == "child":
             self.tab = int(it["src"])
             self.load_tab(self.tab)
+        elif kind in ("wwwgo", "wwwsearch", "wwwtype", "wwwchromium", "wwwpage"):
+            self.www_open_row(it)
         elif kind == "hasettings":
             self.ha_open()
         elif kind == "radiodir":
@@ -1173,6 +1195,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.net_tick()
         if self.prog is not None:
             self.prog_tick()
+        if self.chromium is not None:
+            self.chromium_tick(now)
         if self.pihole_done is not None:
             self.pihole_tick()
         if (self.sys_history.tick(now) and self.active and self.view == "list" and self.tab_type() == "system"
@@ -1407,7 +1431,10 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
 
     def release(self, name):
         """Button let go: stops the camera turning or zooming, or the Mandelbrot Set moving, or goes to
-        the game."""
+        the game (or Chromium)."""
+        if self.chromium_shown():
+            self.release_chromium(name)
+            return
         if self.view == "game":
             self.release_game(name)
             return
@@ -1424,6 +1451,12 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             return None
         if self.prog is not None:                      # the buttons are cmatrix's and htop's keys (the others': B)
             return self.press_prog(name, repeat)
+        if self.chromium_shown():                      # the buttons are Chromium's pointer and keys (HOME: its menu)
+            return self.press_chromium(name, repeat)
+        if self.view == "chromenu":
+            return self.press_chrome_menu(name, repeat)
+        if self.view == "chromehow":
+            return self.press_chrome_how(name, repeat)
         if self.view == "keepres":                     # a new resolution: keep it, or go back
             return self.press_keep_res(name, repeat)
         if self.view == "learn":                       # (controllers come in through learn_event)
@@ -1555,6 +1588,10 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
                 return r
         if ttype == "pihole":
             r = self.press_pihole(name, repeat)
+            if r != "pass":
+                return r
+        if ttype == "www":
+            r = self.press_www(name, repeat)
             if r != "pass":
                 return r
         if ttype == "system":
@@ -1769,7 +1806,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
                 "learn": self.render_learn, "gamemenu": self.render_game_menu,
                 "photo": self.render_photo, "keepres": self.render_keep_res,
                 "pdf": self.render_pdf, "update": self.render_update,
-                "text": self.render_text, "sketch": self.render_sketch, "wait": lambda: self.render_wait(
+                "text": self.render_text, "sketch": self.render_sketch, "chromenu": self.render_chrome_menu,
+                "chromehow": self.render_chrome_how, "wait": lambda: self.render_wait(
                     self.v.get("title", ""), self.v.get("status", ""))}.get(self.view)
         if draw:
             draw()

@@ -522,9 +522,9 @@ class PlayerScreen:
     def music_back(self, now):
         """Music a game or a video stopped (Settings > Random song at start-up on) starts again a moment after
         it's over: the same song from where it was, or the same station. In media mode, while nothing else plays
-        and the bot isn't talking."""
+        (Chromium either) and the bot isn't talking."""
         if not (self.resume_later and self.active and self.proc is None and self.game is None
-                and not self.voice.speaking and not self.halting):
+                and getattr(self, "chromium", None) is None and not self.voice.speaking and not self.halting):
             self.resume_at_t = None
             return
         if self.resume_at_t is None:
