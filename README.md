@@ -55,7 +55,7 @@ It starts on a home screen of apps:
 
 - **Home**: a remote for your TVs and your lights (through Home Assistant), a dashboard of your
   Pi-hole's stats (from the Pi-hole itself: add it by its address), and Web, for browsing (see Web below).
-  Put in Home Assistant's address and a long-lived token in its Settings, last on its tab, or in the web
+  Put in Home Assistant's IP address and a long-lived token in its Settings, last on its tab, or in the web
   page's Settings
 - **TV**: Plex (Continue watching, Watchlist, Live TV with news and sports), Jellyfin, about 250 old
   cartoons and 150 old films from the Internet Archive, and your own streams

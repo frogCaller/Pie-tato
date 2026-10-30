@@ -6,15 +6,15 @@ import threading
 import time
 
 from ..config import settings_glob
-from ..homeassistant import HA_FILE, HA_GUESS, ha_check, ha_url, save_ha
+from ..homeassistant import HA_FILE, ha_check, ha_typed_url, save_ha
 from ..theme import ACCENT, BODY, DONE, MUTED, ROW, TEXT, WARN
 
 HA_TOKEN_SHORTEST = 20     # characters: anything shorter isn't a long-lived token (they're 180 or so)
 
 
 class HaSettingsScreen:
-    """Home Assistant's settings: Address (A: type it), Long-lived token (A: type it, or paste it on the web page),
-    Check connection (A), Forget (A twice). B closes them, back to where they were opened; L and R go on to the
+    """Home Assistant's settings: its IP address (A: type it), Long-lived token (A: type it, or paste it on the web
+    page), Check connection (A), Forget (A twice). B closes them, back to where they were opened; L and R go on to the
     next tab as ever."""
 
     @staticmethod
@@ -41,7 +41,7 @@ class HaSettingsScreen:
         ha = self.hass
         if ha.url and ha.token:
             return ha.where
-        return "Not set up" if not (ha.url or ha.token) else "Token not set" if ha.url else "Address not set"
+        return "Not set up" if not (ha.url or ha.token) else "Token not set" if ha.url else "IP address not set"
 
     def ha_rows(self):
         """(key, label, what it says, its colour)."""
@@ -52,7 +52,7 @@ class HaSettingsScreen:
             check = (said[1], ACCENT)
         else:
             check = (said[1], DONE if said[0] else WARN)
-        rows = [("url", "Address", ha.where if ha.url else "Not set", BODY if ha.url else MUTED),
+        rows = [("url", "Home Assistant IP address", ha.where if ha.url else "Not set", BODY if ha.url else MUTED),
                 ("token", "Long-lived token", "Saved" if ha.token else "Not set", BODY if ha.token else MUTED),
                 ("check", "Check connection") + check]
         if ha.url or ha.token:
@@ -75,8 +75,8 @@ class HaSettingsScreen:
         elif name == "b":
             self.ha_close()
         elif name == "a" and key == "url":
-            self.open_keyboard("Home Assistant's address (like homeassistant.local:8123)",
-                               self.hass.where or HA_GUESS, self.ha_url_typed, limit=120)
+            self.open_keyboard("Home Assistant IP address (like 192.168.1.20)", self.hass.where if self.hass.url
+                               else "", self.ha_url_typed, limit=120)
         elif name == "a" and key == "token":
             self.open_keyboard("Its long-lived access token (in Home Assistant: your profile, Security)", "",
                                self.ha_token_typed, limit=400)
@@ -94,9 +94,9 @@ class HaSettingsScreen:
         return None
 
     def ha_url_typed(self, text):
-        url = ha_url(text)
+        url = ha_typed_url(text)                       # (no port: Home Assistant's own, 8123)
         if not re.fullmatch(r"https?://[^/\s]+(/[^\s]*)?", url):
-            self.toast("That isn't an address. Try one like homeassistant.local:8123", 4)
+            self.toast("That isn't an address. Try one like 192.168.1.20", 4)
             return
         if not self.ha_save({"url": url}):
             return
@@ -133,7 +133,7 @@ class HaSettingsScreen:
         """Whether Home Assistant answers, and takes the token: said on its Check row (and on the web page's)."""
         ha = self.hass
         if not (ha.url and ha.token):
-            self.ha_said = (False, "Set the address and the token first")
+            self.ha_said = (False, "Set the IP address and the token first")
             return
         self.ha_said = ("busy", "Checking…")
         url, token = ha.url, ha.token

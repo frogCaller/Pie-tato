@@ -79,6 +79,7 @@ from .screens.www import WwwScreen
 from .screens.chromium import ChromiumScreen
 
 _SAVING = threading.Lock()     # (state.json written one at a time: the shrinker's and radio's threads save too)
+UPDATE_STEP = 0.35             # seconds between the update screen's dots lighting up, one after another
 
 
 class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, JellyfinScreen,
@@ -318,6 +319,9 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.updater.on_change = self.update_found   # (it starts looking when the service does: app.main)
         self.update_view = ("going", "")             # the update's screen: how it's getting on
         self.update_polled = 0.0
+        self.update_frame, self.update_next = 0, 0.0   # ...its dots: which is lit, and when the next one is
+        self.update_step = False                     # ...the next one's due: just they're drawn again
+        self.update_drawn = 0.0                      # ...when it was last drawn whole (its status bar's time)
         if self.updater.under_way():                 # (media mode restarted while it updates: its screen again)
             self.view = "update"
         self.plex = Plex()
@@ -492,6 +496,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
 
     def tick_limit(self):
         """How long the input loop may wait before the next tick."""
+        if self.view == "update":
+            return max(0.0, min(0.25, self.update_next - time.monotonic()))   # (its dots' next step)
         if self.on_sim_page() and self.sim_opts is None:
             return max(0.0, min(0.05, self.sim_next - time.monotonic()))   # (its next frame)
         return 0.1 if self.on_camera_page() or self.on_coder_page() else 0.25
@@ -1113,7 +1119,12 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.dirty = True
 
     def update_tick(self, now):
-        """While it updates: how it's getting on, once a second; if it doesn't work, back to System to say why."""
+        """While it updates: its dots on a step (UPDATE_STEP); how it's getting on, once a second; if it doesn't work,
+        back to System to say why."""
+        if now >= self.update_next:
+            self.update_frame += 1
+            self.update_next = now + UPDATE_STEP
+            self.update_step = True
         if now - self.update_polled < 1.0:
             return
         self.update_polled = now
@@ -1127,8 +1138,10 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
                 self.tab = si
             self.load_tab(self.tab)
             self.toast(words, 8 if state == "failed" else 4)
+            self.dirty = True
         self.update_view = (state, words)
-        self.dirty = True                              # (its clock, too)
+        if now - self.update_drawn >= 15:              # (its status bar's time, now and then: the rest stays put)
+            self.dirty = True
 
     def system_action(self, it):
         act = it["src"]
@@ -1792,16 +1805,24 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
     def flush(self):
         """Redraw the screen if something changed (never over a video, or 'Shutting down'): just the camera's
         picture, if that's all that did."""
-        if not (self.active and (self.dirty or self.cam_fresh) and self.fb) or time.monotonic() < self.halting:
+        if not (self.active and (self.dirty or self.cam_fresh or self.update_step) and self.fb) \
+                or time.monotonic() < self.halting:
             return
         if self.proc_owns_screen():
+            return
+        if not self.dirty and self.update_step:        # (updating: just its dots, on a step)
+            self.update_step = False
+            if self.view == "update":
+                self.render_update(dots_only=True)
             return
         if not self.dirty:
             self.cam_fresh = False
             if self.view == "list" and self.on_camera_page():
                 self.render_camera(picture_only=True)
             return
-        self.dirty = self.cam_fresh = False
+        self.dirty = self.cam_fresh = self.update_step = False
+        if self.view == "update":
+            self.update_drawn = time.monotonic()
         draw = {"home": self.render_home, "keys": self.render_keys, "help": self.render_help,
                 "learn": self.render_learn, "gamemenu": self.render_game_menu,
                 "photo": self.render_photo, "keepres": self.render_keep_res,

@@ -21,7 +21,7 @@ HA_HEAD = ("# Home Assistant, for the TV Remote and Lights: Pietato writes this 
            "# settings, or the web page's). Keep it private: it has your token. Also, if you like:\n"
            "#   tv = media_player.living_room_tv     remote = remote.living_room_tv     style = samsung\n"
            "#   lights = light.kitchen, switch.fan_plug     (found by themselves when they're not here)\n")
-HA_GUESS = "homeassistant.local:8123"   # where Home Assistant usually is, to start the address with
+HA_PORT = 8123                         # Home Assistant's own port (an address typed without one has it)
 
 
 # The TV's own buttons, by how its Home Assistant integration names them. Samsung,
@@ -88,6 +88,17 @@ def ha_url(text):
     return url
 
 
+def ha_typed_url(text):
+    """An address just typed in (on the Pi or the web page) as a URL: one with no http:// and no port (its IP address,
+    192.168.1.20) on Home Assistant's own port, 8123."""
+    text = (text or "").strip()
+    if text and "://" not in text:
+        host, slash, rest = text.partition("/")
+        if not re.search(r":\d+$", host):
+            text = f"{host}:{HA_PORT}{slash}{rest}"
+    return ha_url(text)
+
+
 def save_ha(updates):
     """Home Assistant's address, token and the rest (as {"url": ..., "token": ...}) into homeassistant.txt, the rest of
     it kept: yours only, and never shown on the web page."""
@@ -98,7 +109,7 @@ def ha_check(url, token, timeout=8):
     """Whether Home Assistant at url takes token: (True, its name and version in words) or (False, why not)."""
     url = ha_url(url)
     if not url:
-        return False, "Home Assistant's address isn't set"
+        return False, "Home Assistant's IP address isn't set"
     if not token:
         return False, "The token isn't set"
     ha = HomeAssistant()

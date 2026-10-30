@@ -8,7 +8,7 @@ import time
 
 from ..config import (ACCENTS, SCREEN_MODES, WALLPAPERS, clean_name, edit_config, home_dir, read_config,
                       settings_glob)
-from ..homeassistant import ha_url, save_ha
+from ..homeassistant import ha_typed_url, ha_url, save_ha
 from ..pihole import dns_guess
 from ..screen import boot_resolution
 from ..util import IMAGE_EXTS
@@ -377,7 +377,7 @@ class WebSettingsScreen:
         return {"ok": True, "said": said}
 
     def web_set_ha_url(self, value, cmd):
-        url = ha_url(str(value or ""))
+        url = ha_typed_url(str(value or ""))           # (no port: Home Assistant's own, 8123)
         if not re.fullmatch(r"https?://[^/\s]+(/[^\s]*)?", url):
             return {"error": "That isn't an address. Try one like homeassistant.local:8123"}
         out = self.web_ha_saved({"url": url})

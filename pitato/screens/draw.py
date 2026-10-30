@@ -10,6 +10,7 @@ from ..util import clock, human_size, short_path
 from ..system import cpu_temp, HOT_C, wifi_bars, wifi_quality
 from ..library import LIBRARY, LISTEN_KINDS
 from ..screen import slow_pi
+from ..home import mix
 from .chromium import CHROME_HELP, CHROME_NOTES
 
 
@@ -17,6 +18,7 @@ KEY_FILL = (62, 68, 79)      # a button, in the hints along the bottom
 FOOT_NOTE = (206, 211, 218)  # the home screen's line about the app picked
 BASE_ROOM = 480 - 48 - 76    # the GPi Case's screen between its bars: what a page with a set layout is drawn for
 FULL_VIEWS = ("list", "now", "photo", "pdf", "text")   # what Full screen apps puts on the whole screen
+UPDATE_DOTS = 3              # the dots under Updating Pietato, lit one after another
 
 
 class Bar:
@@ -848,31 +850,33 @@ class DrawScreen:
         self.fb.show(img)
 
 
-    def render_update(self):
-        """While it updates (System > Update software): what it's doing, and to leave the Pi on: it restarts by
-        itself when it's done."""
+    def render_update(self, dots_only=False):
+        """While it updates (System > Update software), till the Pi restarts by itself: Updating Pietato, and dots
+        under it, lit one after another (update_tick moves them on). dots_only: they're all that's changed."""
         F = self.fonts
         img, d = self.canvas()
         W, H = self.fb.w, self.fb.h
         self.status_bar(d)                             # (the time and WiFi: no tabs, there's nowhere to go)
-        state, words = self.update_view
-        title = "Restarting" if state == "restarting" else "Updating Pietato"
-        d.text((W / 2, H / 2 - 50), self.fit(d, title, F["big"], W - 60), font=F["big"], fill=TEXT, anchor="mm")
-        d.text((W / 2, H / 2 - 6), self.fit(d, words or "One moment", F["row"], W - 60), font=F["row"],
-               fill=ACCENT, anchor="mm")
-        y = H / 2 + 34
-        pulling = state == "going" and words == "Getting the new version"   # (git pull: maybe nothing newer yet)
-        note = ("Leave the Pi on" if state == "restarting" else
-                "Leave the Pi on. If there's a newer version, it restarts by itself once it's in"
-                if pulling and not self.updater.available() else
-                "Leave the Pi on. It restarts by itself when it's done")
-        for line in self.wrap(d, note, F["small"], W - 80):
-            d.text((W / 2, y), line, font=F["small"], fill=MUTED, anchor="mm")
-            y += 26
-        if self.updater.started:
-            d.text((W / 2, y + 12), clock(time.monotonic() - self.updater.started), font=F["small"], fill=BODY,
-                   anchor="mm")
-        self.fb.show(img)
+        d.text((W / 2, H / 2 - 22), self.fit(d, "Updating Pietato", F["big"], W - 60), font=F["big"], fill=TEXT,
+               anchor="mm")
+        box = self.update_dots(d, W / 2, H / 2 + 28)
+        if dots_only and hasattr(self.fb, "show_part"):
+            self.fb.show_part(img, box)
+        else:
+            self.fb.show(img)
+
+    def update_dots(self, d, cx, cy):
+        """The dots: the one lit, big, in the accent colour, the one before it fading, the rest dim. Their box."""
+        n, gap = UPDATE_DOTS, 30
+        lit = getattr(self, "update_frame", 0) % n
+        for k in range(n):
+            x = cx + (k - (n - 1) / 2) * gap
+            age = (lit - k) % n                        # (0: lit now; 1: lit a step ago...)
+            r = (9, 7, 6)[min(age, 2)]
+            fill = ACCENT if age == 0 else mix(ACCENT, BG, 0.55) if age == 1 else LINE
+            d.ellipse((x - r, cy - r, x + r, cy + r), fill=fill)
+        half = (n - 1) / 2 * gap + 13
+        return (int(cx - half), int(cy - 13), int(cx + half) + 1, int(cy + 13) + 1)
 
     def render_curtain(self, title, status, hints=None):
         """Before a video (or a game): black, with the words in the middle where the picture will cover
