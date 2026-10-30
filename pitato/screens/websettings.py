@@ -237,8 +237,9 @@ class WebSettingsScreen:
                       "names": {"off": "Off", "on": "On"}, "status": note or "", "tone": tone},
                      {"key": "f_wake", "label": "Wake phrase", "kind": "text", "value": self.bot_wake(),
                       "placeholder": "hey potato", "max": WAKE_MOST}]
-            if len(found) > 1 or self.bot_mic():
-                rows.append({"key": "f_mic", "label": "Microphone", "kind": "choice", "value": self.bot_mic(), "list": True,
+            if len(found) > 1 or self.bot_mic_set():
+                rows.append({"key": "f_mic", "label": "Microphone", "kind": "choice", "value": self.bot_mic_set(),
+                             "list": True,
                              "choices": [""] + [c["id"] for c in found],
                              "names": dict([("", "Auto")] + [(c["id"], c["name"]) for c in found])})
         rows += [{"key": "bot_mode", "label": "Its page", "kind": "choice", "value": self.bot_mode(),

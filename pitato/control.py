@@ -90,13 +90,15 @@ def serve_control(media, control, port=CONTROL_PORT, key=None):
             self.reply(401, {"error": "The web page's key doesn't match. Restart pitato-web."})
             return False
 
-        def reply(self, code, body, ctype="application/json"):
+        def reply(self, code, body, ctype="application/json", extra=None):
             if not isinstance(body, bytes):
                 body = json.dumps(body).encode()
             self.send_response(code)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            for k, v in (extra or {}).items():
+                self.send_header(k, v)
             self.end_headers()
             self.wfile.write(body)
 
@@ -108,11 +110,11 @@ def serve_control(media, control, port=CONTROL_PORT, key=None):
             try:
                 if u.path == "/state":
                     return self.reply(200, media.web_state())
-                if u.path == "/screen":
-                    shot = media.web_screen()
+                if u.path == "/screen":                # (after=: the picture the web page has: wait for the next)
+                    shot = media.web_shot(q.get("after"), q.get("wait") or 0)
                     if not shot:
                         return self.reply(403, {"error": "The terminal stays on the Pi's screen"})
-                    return self.reply(200, shot[0], shot[1])
+                    return self.reply(200, shot[0], shot[1], extra={"X-Pitato-Frame": str(shot[2])})
                 if u.path == "/catalog":
                     return self.reply(200, media.web_catalog())
                 if u.path == "/channels":

@@ -52,7 +52,7 @@ class SettingsScreen:
             usable = [c for c in found if not c["plays"]] if getattr(self, "case", None) else found   # its own sound)
             if usable or self.bot_listens():
                 rows += [("f_listen", "Listens for you", ["Off", "On"]), ("f_wake", "Wake phrase", None)]
-                if len(found) > 1 or self.bot_mic():
+                if len(found) > 1 or self.bot_mic_set():
                     rows.append(("f_mic", "Microphone", ["Auto"] + [c["name"] for c in found]))
             return rows
         if self.set_page == "f_voices":
@@ -521,6 +521,7 @@ class SettingsScreen:
                 d.rounded_rectangle((12, y + 2, W - 12, y + rh - 4), radius=10, fill=ROW)
                 d.rectangle((12, y + 10, 15, y + rh - 12), fill=ACCENT)
             mid = y + rh / 2 - 1
+            self.tappable((0, y, W, y + rh), "sel", "attr", "set_sel", k)
             if self.set_page == "wifi":
                 self.wifi_row(d, key, label, extra, mid, on)
                 continue
@@ -569,6 +570,7 @@ class SettingsScreen:
                 if extra and on:
                     d.text((x1 - d.textlength(shown, font=F["row"]) - 10, mid), "◀", font=F["small"],
                            fill=ACCENT, anchor="rm")
+                    self.tap_arrows(y, y + rh, x1 - d.textlength(shown, font=F["row"]) - 10, W - 28)
                 continue
             d.text((30, mid), label, font=F["row"], fill=TEXT if on else BODY, anchor="lm")
             value = ((self.current_ssid() or "Not connected") if key == "wifi" else
@@ -589,6 +591,7 @@ class SettingsScreen:
             x0 = x1 - min(vw, 260)
             if extra and on:
                 d.text((x0 - 10, mid), "◀", font=F["small"], fill=ACCENT, anchor="rm")
+                self.tap_arrows(y, y + rh, x0 - 10, W - 28)
                 x0 -= 28
             if key == "wallpaper":                     # a little preview
                 thumb = self.wall_thumb()

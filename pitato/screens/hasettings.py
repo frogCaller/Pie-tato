@@ -158,6 +158,7 @@ class HaSettingsScreen:
         for k, (key, label, value, colour) in enumerate(rows):
             y = top + k * rh
             on = k == sel
+            self.tappable((0, y, W, y + rh), "sel", "dict", "ha_menu", k)
             if on:
                 d.rounded_rectangle((12, y + 2, W - 12, y + rh - 4), radius=10, fill=ROW)
                 d.rectangle((12, y + 10, 15, y + rh - 12), fill=ACCENT)

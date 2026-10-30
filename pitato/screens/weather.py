@@ -122,6 +122,7 @@ class WeatherScreen:
                 d.rounded_rectangle((12, y + 2, W - 12, y + rh - 4), radius=10, fill=ROW)
                 d.rectangle((12, y + 10, 15, y + rh - 12), fill=ACCENT)
             mid = y + rh / 2 - 1
+            self.tappable((0, y, W, y + rh), "sel", "attr", "wx_sel", k)
             if self.wx_menu == "location":
                 d.text((30, mid), self.fit(d, label, F["row"], W - 300), font=F["row"],
                        fill=TEXT if on else BODY, anchor="lm")
@@ -141,6 +142,7 @@ class WeatherScreen:
             if extra and on:
                 d.text((x1 - d.textlength(shown, font=F["row"]) - 10, mid), "◀", font=F["small"], fill=ACCENT,
                        anchor="rm")
+                self.tap_arrows(y, y + rh, x1 - d.textlength(shown, font=F["row"]) - 10, W - 28)
         if self.loc_status and self.wx_menu == "location":
             d.text((W / 2, H - self.FOOTER - 22), self.loc_status, font=F["small"], fill=ACCENT, anchor="mm")
         if self.wx_menu == "location":

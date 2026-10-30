@@ -251,6 +251,7 @@ class CameraScreen:
         for r, (key, label, value) in enumerate(rows):
             y = top + r * rh
             on = r == sel
+            self.tappable((0, y, W, y + rh), "sel", "dict", "cam_menu", r)
             if on:
                 d.rounded_rectangle((12, y + 2, W - 12, y + rh - 4), radius=10, fill=ROW)
                 d.rectangle((12, y + 10, 15, y + rh - 12), fill=ACCENT)
@@ -264,6 +265,7 @@ class CameraScreen:
             if on:
                 d.text((x1 - d.textlength(value, font=F["row"]) - 10, mid), "◀", font=F["small"], fill=ACCENT,
                        anchor="rm")
+                self.tap_arrows(y, y + rh, x1 - d.textlength(value, font=F["row"]) - 10, W - 28)
         note = self.CAM_MENU_NOTES.get(rows[sel][0], "")
         d.text((30, top + len(rows) * rh + 18), note, font=F["small"], fill=MUTED, anchor="lm")
         self.footer(d, [("◀▶", "Change"), ("B", "Back")])
@@ -596,6 +598,7 @@ class CameraScreen:
             if kind == "label":
                 d.text((x0 + 18, mid + 8), entry, font=F["small_b"], fill=MUTED, anchor="lm")
                 continue
+            self.tappable((0, y, W, y + self.ROW_H), "sel", "attr", "cam_sel", i)
             selected = i == sel
             if selected:
                 d.rounded_rectangle((x0, y + 3, x1, y + self.ROW_H - 3), radius=10, fill=ROW)

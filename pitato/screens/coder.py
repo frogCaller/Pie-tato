@@ -205,6 +205,7 @@ class CoderScreen:
         oy = max(0, fb.h - 480)                       # ...a taller one: the room above it
         if key != self.coder_base[0]:                 # what doesn't move: drawn when it changes
             img, d = self.canvas()
+            mark = self.tap_mark()
             self.header(img, d)
             coder_desk(img, ox, oy, bottom=fb.h if self.full_app() else None)   # (no buttons: to the bottom)
             self.bot_label(d)
@@ -217,6 +218,8 @@ class CoderScreen:
             self.footer(d, hints)
             stage = img.crop((ox, oy, ox + 640, oy + 480)) if ox or oy else img   # (drawn for 640x480)
             self.coder_base = (key, img, coder_under(stage))
+            self.coder_taps = self.taps_cut(mark)
+        self.tap_again(getattr(self, "coder_taps", None))  # (its tabs and buttons: the web page's taps)
         img = self.coder_base[1].copy()
         if self.coder_help:                            # (the card, over an empty desk)
             self.coder_card(img)

@@ -136,6 +136,11 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         os.set_blocking(self.wake_w, False)
         self.msg, self.msg_until = None, 0.0
         self.fb = None
+        self.taps, self.taps_at = [], None   # where a tap on the web page's copy of the screen does what, and the
+        self.taps_new = None                 # picture that's so (put down while it's drawn: draw.py's tappable)
+        self.web_here, self.web_handoff, self.web_said = False, None, ""   # Play here, in a web page's request:
+                                                                            # what's handed to it, or why not
+        self.web_mic_until, self.web_mic_was = 0.0, False   # Mic here: a web page's microphone, the bot's till then
         self.ttyfd = None
         self.prev_vt = "1"
         self.prog = self.prog_name = None   # the Simulator's cmatrix, hollywood, nyancat, cacafire or htop, while on
@@ -1210,6 +1215,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.prog_tick()
         if self.chromium is not None:
             self.chromium_tick(now)
+        if self.web_mic_until or self.web_mic_was:     # (a web page's microphone: come, or gone)
+            self.web_mic_tick()
         if self.pihole_done is not None:
             self.pihole_tick()
         if (self.sys_history.tick(now) and self.active and self.view == "list" and self.tab_type() == "system"
@@ -1810,15 +1817,18 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             return
         if self.proc_owns_screen():
             return
+        shown = getattr(self.fb, "frames", None)       # (what was on the screen: its taps, if they're its)
         if not self.dirty and self.update_step:        # (updating: just its dots, on a step)
             self.update_step = False
             if self.view == "update":
                 self.render_update(dots_only=True)
+            self.taps_kept(shown)
             return
         if not self.dirty:
             self.cam_fresh = False
             if self.view == "list" and self.on_camera_page():
                 self.render_camera(picture_only=True)
+            self.taps_kept(shown)
             return
         self.dirty = self.cam_fresh = self.update_step = False
         if self.view == "update":
@@ -1830,9 +1840,19 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
                 "text": self.render_text, "sketch": self.render_sketch, "chromenu": self.render_chrome_menu,
                 "chromehow": self.render_chrome_how, "wait": lambda: self.render_wait(
                     self.v.get("title", ""), self.v.get("status", ""))}.get(self.view)
-        if draw:
-            draw()
-        elif self.view == "now" and self.kind in LISTEN_KINDS:
-            self.render_now()
-        else:
-            self.render_list()
+        self.taps_new = []                             # (each place a tap does something, put down as it's drawn)
+        try:
+            if draw:
+                draw()
+            elif self.view == "now" and self.kind in LISTEN_KINDS:
+                self.render_now()
+            else:
+                self.render_list()
+        finally:
+            self.taps, self.taps_at, self.taps_new = self.taps_new, getattr(self.fb, "frames", None), None
+
+    def taps_kept(self, shown):
+        """Just part of the picture drawn again (the camera's, the dots): what a tap does stays as it was, if it was
+        that picture's."""
+        if shown is not None and self.taps_at == shown:
+            self.taps_at = getattr(self.fb, "frames", None)

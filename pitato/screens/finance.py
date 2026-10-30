@@ -372,6 +372,8 @@ class FinanceScreen:
             y = top_y + r * self.ROW_H
             mid = y + self.ROW_H / 2
             selected = i == sel
+            if kind != "label":
+                self.tappable((0, y, W, y + self.ROW_H), "sel", "attr", "fin_sel", i)
             if kind == "label":
                 d.text((x0 + 18, mid + 8), entry, font=F["small_b"], fill=MUTED, anchor="lm")
                 continue

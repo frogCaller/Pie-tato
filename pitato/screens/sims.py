@@ -513,11 +513,17 @@ class SimScreen:
         if (card_open or not full) and hints not in self.sim_feet:   # the buttons: each set kept
             img, d = self.canvas()
             msg, self.msg = self.msg, None            # (a notice is put on each frame instead)
+            mark = self.tap_mark()
             try:
                 self.footer(d, list(hints[0]))
             finally:
                 self.msg = msg
             self.sim_feet[hints] = img.crop((0, fb.h - self.FOOTER, fb.w, fb.h))
+            if getattr(self, "sim_feet_taps", None) is None:
+                self.sim_feet_taps = {}
+            self.sim_feet_taps[hints] = self.taps_cut(mark)
+        if card_open or not full:                      # (each frame: where they are, for the web page's taps)
+            self.tap_again(getattr(self, "sim_feet_taps", {}).get(hints))
         fresh = False
         if full:
             key = ("full", fb.w, fb.h)
@@ -526,8 +532,11 @@ class SimScreen:
         else:
             if (self.status_sig, ACCENT, self.tab_off) != self.sim_head[0]:     # the clock, the tabs
                 img, d = self.canvas()
+                mark = self.tap_mark()
                 self.header(img, d)
                 self.sim_head = ((self.status_sig, ACCENT, self.tab_off), img.crop((0, 0, fb.w, self.HEADER + 1)))
+                self.sim_head_taps = self.taps_cut(mark)
+            self.tap_again(getattr(self, "sim_head_taps", None))
             key = (self.sim_head[0], hints)
             if key != self.sim_base[0]:
                 img, d = self.canvas()

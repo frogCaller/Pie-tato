@@ -346,6 +346,7 @@ class ChromiumScreen:
         for k, (job, label) in enumerate(CHROME_MENU):
             ry = my0 + 64 + k * rh
             sel = k == m["sel"]
+            self.tappable((mx0, ry - 2, mx0 + mw, ry + rh - 2), "sel", "dict", "chrome_menu", k)
             if sel:
                 d.rounded_rectangle((mx0 + 8, ry, mx0 + mw - 8, ry + rh - 4), radius=10, fill=ROW)
                 d.rounded_rectangle((mx0 + 8, ry + 10, mx0 + 12, ry + rh - 14), radius=2, fill=ACCENT)

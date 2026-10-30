@@ -397,7 +397,7 @@ class HomeScreen:
         for n, (k, label) in enumerate(hints):
             if n:
                 d.line((x - 9, y - 9, x - 9, y + 9), fill=LINE, width=1)
-            w = self.key_w(d, k)
+            x0, w = x, self.key_w(d, k)
             if len(k) == 1:
                 d.ellipse((x, y - 11, x + w, y + 11), outline=KEY_RING, width=2)
             else:
@@ -406,6 +406,7 @@ class HomeScreen:
             x += w + 7
             d.text((x, y), label, font=F["small"], fill=BODY, anchor="lm")
             x += d.textlength(label, font=F["small"]) + 18
+            self.tap_hint(x0 - 9, x - 9, H - self.FOOTER, H, k)
         if note and x + d.textlength(note, font=F["small"]) < W - 20:
             d.text((W - 20, y), note, font=F["small"], fill=MUTED, anchor="rm")
             if x + 34 + d.textlength(note, font=F["small"]) < W - 20:   # (a long line goes without them)
@@ -437,6 +438,13 @@ class HomeScreen:
         # the picked app, marked; a dot on what's playing
         slots = home_layout(n, cols)
         self.home_card(d, img, apps[sel][0], self.card_box(sel, slots, cols, first), True, self.home_pitch(cols))
+        pitch, below = self.home_pitch(cols), max(self.home_geometry()[3], 0) + 12   # (each app: its tile and its name)
+        for k in range(n):
+            if first <= slots[k][0] < first + rows_fit:
+                x0, y0, x1, y1 = self.card_box(k, slots, cols, first)
+                cx = (x0 + x1) / 2
+                self.tappable((min(x0, cx - pitch / 2 + 2), y0 - 8, max(x1, cx + pitch / 2 - 2), y1 + below),
+                              "sel", "attr", "home_sel", k)
         playing = {"audio": "Music", "radio": "Radio"}.get(self.kind) if self.playing_now() else None
         for k, (name, _) in enumerate(apps):
             if name == playing and first <= slots[k][0] < first + rows_fit:

@@ -235,8 +235,9 @@ def run(ui, media, control=None, stop=None):
         """One request from the web page. It works media mode, never the terminal."""
         if time.monotonic() < media.halting:
             return {"error": "The Pi is shutting down"}
-        media.web_guard = True
         c = cmd.get("cmd")
+        if c not in ("websound", "webmic"):            # (webui.py's own word, not someone on the web page)
+            media.web_guard = True
         if c == "press":
             name = cmd.get("button")
             if name not in BUTTONS:
@@ -253,9 +254,13 @@ def run(ui, media, control=None, stop=None):
                     if can_repeat():
                         media.press(name, repeat=True)
                     return {"ok": True}
-            button(name, True)
-            button(name, False)
-            return {"ok": True}
+            media.here_begin(cmd.get("here") is True)  # (Play here: what it starts plays on the web page instead)
+            try:
+                button(name, True)
+                button(name, False)
+            finally:
+                out = media.here_end({"ok": True})
+            return out
         if c == "mode":
             to = cmd.get("to")
             if to not in ("media", "terminal"):
@@ -264,6 +269,20 @@ def run(ui, media, control=None, stop=None):
             if to == "media" and not media.active:
                 return {"error": "There's no screen for media mode"}
             return {"ok": True}
+        if c in ("tap", "swipe", "scroll", "type"):    # the web page's copy of the screen, touched (or typed under)
+            if not media.active:
+                return {"error": "The screen works in media mode. Press Home to open it."}
+            media.here_begin(cmd.get("here") is True)  # (Play here: what it starts plays on the web page instead)
+            out = {"ok": True}
+            try:
+                names, out = media.web_touch(cmd)
+                for name in names:                     # (what it stands for: pressed as the remote's buttons are)
+                    if name in BUTTONS:
+                        button(name, True)
+                        button(name, False)
+            finally:
+                out = media.here_end(out)
+            return out
         if not media.active:
             for n in list(held):
                 key_up(n)

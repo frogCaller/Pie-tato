@@ -621,6 +621,34 @@ class WwwScreen:
         first = ("A", {"link": "Open", "field": "Type", "button": "Send"}[t["kind"]]) if t else None
         return ([first] if first else []) + [("▲▼", "Links"), ("◀▶", "Page"), ("START", "Go to"), ("B", "Back")]
 
+    def www_taps(self, ln, y, top, bottom):
+        """A line's links, boxes and buttons (and a picture that's a link), tappable on the web page's copy of the
+        screen, where they are on it (y: the line's top)."""
+        y0, y1 = max(y, top), min(y + ln["h"], bottom)
+        if y1 <= y0:
+            return
+        for x, _, _, _, t, w in ln["items"]:
+            if t is not None:
+                self.tappable((x - 3, y0, x + w + 3, y1), "www", t)
+        if "img" in ln and ln["img"][4] is not None:
+            _, x, w, _, t = ln["img"]
+            self.tappable((x, y0, x + w, y1), "www", t)
+        if "box" in ln:
+            _, x0, x1, _, t = ln["box"]
+            self.tappable((x0, y0, x1, y1), "www", t)
+
+    def www_scroll(self, px):
+        """The page moved px (down it: more than 0) as a finger on the web page's copy of it moves it, the link that
+        was picked kept if it's still on the screen (or else the first one that is)."""
+        v = self.www
+        v["y"] += int(px)
+        self.www_clamp()
+        f = v["focus"]
+        if f is None or f >= len(v["targets"]) or not self.www_in_view(v["targets"][f]):
+            on = [k for k, t in enumerate(v["targets"]) if self.www_in_view(t)]
+            v["focus"] = on[0] if on else None
+        self.dirty = True
+
     def render_www(self):
         """A page: what's on the screen of it, the link, box or button picked lit up; where you are along the top."""
         from PIL import Image, ImageDraw
@@ -657,6 +685,7 @@ class WwwScreen:
             ly = ln["y"] - y0
             if ly > vh:
                 break
+            self.www_taps(ln, top + ly, top, bottom)
             if ln.get("quote"):
                 sd.rectangle((WWW_SIDE, ly, WWW_SIDE + 2, ly + ln["h"]), fill=LINE)
             if ln.get("rule"):

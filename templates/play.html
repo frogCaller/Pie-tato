@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<title>Pietato: a game</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #e9e6ee; overflow: hidden; }
+  body { font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  #game { position: fixed; inset: 0; }
+  #note { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; }
+  #note[hidden] { display: none; }
+</style>
+</head>
+<body>
+<div id="game"></div>
+<div id="note">Getting the game ready…</div>
+<script src="/play.js"></script>
+</body>
+</html>

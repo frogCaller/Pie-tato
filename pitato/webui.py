@@ -2,9 +2,14 @@
 """
 webui.py - the Pi's screen and files, from any browser on your WiFi.
 
-Screen: what's on the Pi's screen right now, a remote for it, and cartoons, films, news, sports,
-radio and the apps to put on it (through pitato.py, which listens on this Pi only). Its Draw tab
-draws a picture for the screen: PUT /api/draw puts it there and keeps it in ~/Pictures/Drawings.
+Screen: what's on the Pi's screen right now, tapped as the Pi's buttons would be (pitato.py says what's
+where), a remote for it, and cartoons, films, news, sports, radio and the apps to put on it (through
+pitato.py, which listens on this Pi only). Its Draw tab draws a picture for the screen: PUT /api/draw
+puts it there and keeps it in ~/Pictures/Drawings. Play here plays what's picked in the browser instead
+(a game in EmulatorJS, fetched from npm the first time and handed out from here: /play); Sound here
+plays the Pi's sound there, and Mic here gives the bot the browser's microphone (both through the
+Loopback card setup.sh adds). A browser allows a microphone only on a secure page, so the page is on
+https://<your Pi's name>.local:5443 too, with a certificate of the Pi's own.
 
 Files: drag files or whole folders onto the page and they land in ~/Music, ~/Videos, ~/Pictures,
 ~/Documents or ~/Games (picked by file type), ready for media mode, and media mode's settings files
@@ -32,20 +37,27 @@ anything else, and a WAV to POST /coder/say to have it said out loud. Prompts ty
 other way: coder_hooks.py --channel, which Claude Code runs, asks for them at POST /coder/prompts.
 With a password, these send it as a token (Authorization: Bearer ...).
 """
+import base64
 import hashlib
 import hmac
 import http.client
+import io
 import ipaddress
 import json
 import logging
 import math
 import os
+import queue
 import re
 import shutil
 import socket
+import ssl
+import subprocess
+import tarfile
 import threading
 import time
 import urllib.parse
+import urllib.request
 import uuid
 
 from flask import Flask, Response, abort, jsonify, request, send_file
@@ -90,8 +102,9 @@ CONTROL_KEY = "/run/pitato/control-key"       # ...and the key it asks for (made
 PI_GET = {"state", "screen", "catalog", "channels", "radio", "icon", "cameras", "camframe", "friend", "friendpic",
           "computers", "bluetooth", "settings", "places"}
 PI_POST = {"press", "open", "play", "show", "player", "learn", "mode", "reset_pads", "pad_swap", "camera", "friend",
-           "computer", "bluetooth", "settings"}
-PI_ARGS = ("what", "genre", "q", "name", "size", "addr", "id")
+           "computer", "bluetooth", "settings", "tap", "swipe", "scroll", "type"}
+PI_ARGS = ("what", "genre", "q", "name", "size", "addr", "id", "after", "wait")
+FRAME_WAIT = 20                                 # seconds the page's request for the screen's next picture waits, at most
 CODER = ("rest", "typing", "reading", "thinking", "talking", "done", "hello", "attention", "error",
          "shrug", "wake", "sleep")                     # the Bot's poses at work
 CODER_SAY_AS = ("talking", "typing", "reading", "thinking", "rest")   # the poses it says a clip in
@@ -611,6 +624,146 @@ def get_file():
     return resp
 
 
+@app.get("/api/home/<path:rel>")
+def home_file(rel):
+    """A file of yours by its place in your home folder, its name last: Play here's (a browser's player, and the game
+    emulator, go by how the name ends). The same files as /api/file's home folder."""
+    root, full, parts = locate("home", rel)
+    if not parts or os.path.isdir(full):
+        abort(404)
+    if private(os.path.basename(full)):
+        abort(403)
+    resp = send_file(full, conditional=True)
+    resp.headers["Cache-Control"] = "private, max-age=3600"
+    return resp
+
+
+# ---- Play here: a game on your phone or computer, in EmulatorJS (GPL-3.0, emulatorjs.org) -------------------------
+# Its files come from npm (each checked against npm's own SHA-512 of it) the first time a game of that kind is played,
+# into your home folder, and the page hands them out from there: nothing it runs comes from anywhere else.
+EJS_VERSION = "4.2.3"
+EJS_DIR = os.path.join(HOME, ".local", "share", "pitato", "emulatorjs", EJS_VERSION)
+EJS_NPM = "https://registry.npmjs.org/@emulatorjs/{0}/-/{0}-" + EJS_VERSION + ".tgz"
+EJS_SUMS = {    # npm's dist.integrity for each
+    "emulatorjs": "7z3qaA4LwyurhuGvdMUDF9xJpEbxC3SNy9+E9tSaOsRo8FCS2QXam/0k/lc9kqHWRFIlLKWahNjPAStyL0rFnw==",
+    "core-fceumm": "XX9Vv2N/hzp0TstNMCTSppEs+sg+1lpJpPdSDuRqIO/cwdt7dUcF+WjNX1yQJLRbP5+XwcNHZ6K4BKy8CJpndQ==",
+    "core-snes9x": "JTe9Rv9eOuCkgkG4ILwuCZUqNcVI3m9ju1NHTTjridUlFgJSqL4DUqF/vLKN9olCpsqlJFfcCayAOoikJxefwA==",
+    "core-gambatte": "Oq3AJL9SKnMsNAmtAP2eN934TQts3NHeaAe0z1BO9Lx/L3xDZKLpxL+XwgcSXIrl4Sx1oXxYEUwD7JjPEQ0DGg==",
+    "core-mgba": "daiHzZQKEr+P9fra7j5YoEAXiyYUEtBhFQ8EAV/SeCtrkvqtayU7GQ9LYgoSgzkKSwsbNSskApqGuA9EGARYPA==",
+    "core-genesis_plus_gx": "D1e2XA2CPRAjfr0JurpXJgR9dePxl/xHtaE8v1T9BqD9A3DLfobIFWsWU9jCFS4NfUxCvcLdTYdY/We3QzvcTw==",
+    "core-smsplus": "93G2pY9HJVl5pImoIQbDhtswVkX9aIgrrihdGTFHqurhisYHl74XCpzmCoMzdB5UMx09nFW12S+n+bLTIuiLrA==",
+    "core-pcsx_rearmed": "mMbl/NszCryFI15X5QniOqLNL7YGZ6tLP24gr5y1q2ekFOIbtc39BcVTMDEwRndNGovh2nPoCcMjB+W3fgQCog==",
+    "core-mupen64plus_next": "HnnEXbOEpYxD7f2wUJQLxWUpEB0bT2kC56u5s7PLyj/xNI5ckQKka5+ay1QhU2fOv2BuPRwjjhlzmVJmk5e3hw==",
+    "core-melonds": "IjsEBNLPPbqU2GSeWEoEkOgAonK3JEyzvoYR3ucgOXu6InzDNdfuA5kP/mMh3d6DwCUbOwfnqGZuZXMTyNE2wA==",
+}
+EJS_LOADS = ["emulator.js", "nipplejs.js", "shaders.js", "storage.js", "gamepad.js", "GameManager.js",
+             "socket.io.min.js", "compression.js"]   # (its loader's order: put together as the emulator.min.js it asks for)
+EJS_MOST = 40 << 20                             # bytes of a package, at most (a core's is about 4 MB)
+EJS_TYPES = {".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".wasm": "application/wasm"}
+EJS_ONE = threading.Lock()                      # (one fetched at a time)
+PLAY_CSP = ("default-src 'self'; script-src 'self' blob: 'unsafe-eval' 'wasm-unsafe-eval'; "
+            "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; "
+            "connect-src 'self' data: blob:; worker-src 'self' blob:; font-src 'self' data:; "
+            "frame-ancestors 'self'; base-uri 'none'; form-action 'none'")   # (the game's page: nothing from elsewhere)
+
+
+def ejs_fetch(name):
+    """One of EmulatorJS's packages from npm, checked: its bytes, or raises ValueError (why not)."""
+    req = urllib.request.Request(EJS_NPM.format(name), headers={"User-Agent": "Pietato"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            data = r.read(EJS_MOST + 1)
+    except (OSError, ValueError) as ex:
+        raise ValueError(f"The Pi couldn't get the emulator ({getattr(ex, 'reason', ex)}). Check its WiFi") from ex
+    if len(data) > EJS_MOST or base64.b64encode(hashlib.sha512(data).digest()).decode() != EJS_SUMS[name]:
+        raise ValueError("The emulator the Pi got wasn't the one it should be. Try again later")
+    return data
+
+
+def ejs_unpack(data, into, keep):
+    """A package's files (keep(name) says where each goes, under into; None: left out), never outside into."""
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
+        for m in tar.getmembers():
+            dest = keep(m.name)
+            if dest is None or not m.isfile():
+                continue
+            parts = [p for p in dest.split("/") if p]
+            if not parts or any(p in (".", "..") for p in parts):
+                continue
+            path = os.path.join(into, *parts)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with tar.extractfile(m) as src, open(path + ".part", "wb") as out:
+                shutil.copyfileobj(src, out)
+            os.replace(path + ".part", path)
+
+
+def ejs_ready(core):
+    """EmulatorJS and the core a game needs, on the Pi to hand out (fetched the first time): None, or why not."""
+    name = "core-" + core
+    if name not in EJS_SUMS:
+        return "There's no emulator for that here"
+    data_dir = os.path.join(EJS_DIR, "data")
+    with EJS_ONE:
+        try:
+            if not os.path.isfile(os.path.join(EJS_DIR, ".emulatorjs")):
+                ejs_unpack(ejs_fetch("emulatorjs"), EJS_DIR,
+                           lambda n: n[len("package/"):] if n.startswith("package/data/") else None)
+                with open(os.path.join(data_dir, "emulator.min.js") + ".part", "wb") as out:
+                    for js in EJS_LOADS:              # (its loader asks for this, which npm's copy hasn't got)
+                        with open(os.path.join(data_dir, "src", js), "rb") as f:
+                            out.write(f.read() + b"\n;\n")
+                os.replace(os.path.join(data_dir, "emulator.min.js") + ".part", os.path.join(data_dir, "emulator.min.js"))
+                shutil.copyfile(os.path.join(data_dir, "emulator.css"), os.path.join(data_dir, "emulator.min.css"))
+                open(os.path.join(EJS_DIR, ".emulatorjs"), "w").close()
+            if not os.path.isfile(os.path.join(EJS_DIR, "." + name)):
+                ejs_unpack(ejs_fetch(name), os.path.join(data_dir, "cores"),
+                           lambda n: n[len("package/"):] if n.startswith("package/") and n.endswith((".data", ".json"))
+                           and not n.endswith("package.json") else None)
+                open(os.path.join(EJS_DIR, "." + name), "w").close()
+        except ValueError as ex:
+            return str(ex)
+        except (OSError, tarfile.TarError) as ex:
+            return f"The Pi couldn't keep the emulator ({getattr(ex, 'strerror', None) or ex})"
+    return None
+
+
+@app.post("/api/ejs")
+def ejs_prepare():
+    """The emulator for a game, ready to hand out (the game's page asks first)."""
+    why = ejs_ready(request.args.get("core", ""))
+    return (jsonify(error=why), 502) if why else jsonify(ok=True)
+
+
+@app.get("/ejs/<path:rel>")
+def ejs_file(rel):
+    """EmulatorJS's files, as it fetched and checked them (its data folder: /ejs/data/...)."""
+    root = os.path.realpath(EJS_DIR)
+    parts = [p for p in rel.split("/") if p]
+    full = os.path.realpath(os.path.join(root, *parts)) if parts else root
+    if any(p.startswith(".") for p in parts) or not inside(root, full) or not os.path.isfile(full):
+        abort(404)
+    ext = os.path.splitext(full)[1].lower()
+    resp = send_file(full, mimetype=EJS_TYPES.get(ext, "application/octet-stream"), conditional=True)
+    resp.headers["Cache-Control"] = "public, max-age=604800"
+    return resp
+
+
+@app.get("/play")
+def play_page():
+    """A game's page (the Screen view puts it where the Pi's screen is): it says what to play in its address."""
+    resp = send_file(os.path.join(TOP, "templates", "play.html"))
+    resp.headers["Cache-Control"] = "no-cache"
+    resp.headers["Content-Security-Policy"] = PLAY_CSP
+    return resp
+
+
+@app.get("/play.js")
+def play_script():
+    resp = send_file(os.path.join(TOP, "templates", "play.js"), mimetype="text/javascript")
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
 # ---- the screen: passed on to media mode ---------------------------------------------
 def control_key():
     try:
@@ -620,9 +773,9 @@ def control_key():
         return ""
 
 
-def ask_pi(method, path, body=None, timeout=10, ctype="application/json"):
+def ask_pi(method, path, body=None, timeout=10, ctype="application/json", keep=()):
     """(status, bytes, content type) from media mode, or None when it isn't answering. body: JSON,
-    or bytes sent as they are (of type ctype)."""
+    or bytes sent as they are (of type ctype). keep: headers of its answer wanted too (then a fourth: them)."""
     conn = http.client.HTTPConnection(*CONTROL, timeout=timeout)
     try:
         data = body if body is None or isinstance(body, bytes) else json.dumps(body).encode()
@@ -631,7 +784,8 @@ def ask_pi(method, path, body=None, timeout=10, ctype="application/json"):
             headers["Content-Type"] = ctype
         conn.request(method, path, body=data, headers=headers)
         r = conn.getresponse()
-        return r.status, r.read(), r.getheader("Content-Type") or "application/json"
+        out = r.status, r.read(), r.getheader("Content-Type") or "application/json"
+        return out + ({k: r.getheader(k) for k in keep if r.getheader(k)},) if keep else out
     except (OSError, http.client.HTTPException):
         return None
     finally:
@@ -653,6 +807,16 @@ def pi_get(what):
         abort(404)
     args = {k: request.args[k][:200] for k in PI_ARGS if k in request.args}
     path = "/" + what + ("?" + urllib.parse.urlencode(args) if args else "")
+    if what == "screen":                            # (after=: the next picture, when there is one; and its number)
+        try:
+            wait = min(max(float(args.get("wait") or 0), 0.0), FRAME_WAIT)
+        except ValueError:
+            wait = 0.0
+        got = ask_pi("GET", path, timeout=(wait if math.isfinite(wait) else 0) + 15, keep=("X-Pitato-Frame",))
+        resp = pi_reply(got and got[:3])
+        if got and got[0] == 200 and got[3].get("X-Pitato-Frame"):
+            resp.headers["X-Pitato-Frame"] = got[3]["X-Pitato-Frame"]
+        return resp
     slow = what in ("channels", "radio", "camframe", "computers", "places")   # these ask the internet, a camera or
                                                                                # a computer
     cache = "private, max-age=86400" if what in ("icon", "friendpic") else "no-store"   # (these never change)
@@ -966,6 +1130,280 @@ def thumb():
     return resp
 
 
+# ---- Sound here and Mic here: the Pi's sound on your phone or computer, and its microphone the Pi's ---------------
+# Both go through the Loopback card (snd-aloop: setup.sh adds it). Media mode plays into it while a page listens
+# (pietato_web, mixed), and this hands each page what comes out; a page's microphone is played into it here, and the
+# bot listens at its other side. Media mode is told every few seconds that a page is still there.
+LOOPBACK = "/proc/asound/Loopback"
+SOUND_FROM = "hw:Loopback,1,0"                  # the Pi's sound, out of the card
+MIC_TO = "hw:Loopback,0,1"                      # a page's microphone, into it (the bot hears it at 1,1)
+SOUND_RATE, SOUND_CHUNK = 48000, 3840           # two 16-bit channels at 48 kHz: 20 ms a chunk
+MIC_RATE, MIC_MOST = 16000, 64 << 10            # one 16-bit channel at 16 kHz (the bot's ears' own); bytes a request
+SAY_EVERY = 5.0                                 # seconds between telling media mode a page is still there
+SOUND_HEARD = 6.0                               # seconds without a page saying it's playing the sound (a phone that
+                                                # locked, say) before the Pi plays it itself again
+MIC_QUIET = 3.0                                 # seconds without a page's microphone before it's let go
+NO_LOOPBACK = "Run sudo bash setup.sh again on the Pi to add this"
+
+
+def tell_pi(what, on):
+    """Media mode told Sound here (or Mic here) is on or off: its answer, or {} when it isn't answering."""
+    got = ask_pi("POST", "/" + what, {"on": on}, timeout=5)
+    try:
+        return json.loads(got[1]) if got and got[0] == 200 else {}
+    except ValueError:
+        return {}
+
+
+class SoundOut:
+    """arecord on the Loopback card while a page listens, every chunk to every page listening (one that falls behind
+    loses the oldest)."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.pages = set()
+        self.proc = None
+        self.heard = 0.0                             # when a page last said it's playing what it gets
+
+    def playing(self):
+        self.heard = time.monotonic()
+
+    def join(self):
+        q = queue.Queue(maxsize=50)                  # (a second)
+        with self.lock:
+            self.heard = time.monotonic()            # (a page that's only just come: a moment to start playing)
+            self.pages.add(q)
+            if self.proc is None:
+                try:
+                    self.proc = subprocess.Popen(["arecord", "-q", "-D", SOUND_FROM, "-f", "S16_LE", "-r", str(SOUND_RATE),
+                                                  "-c", "2", "-t", "raw"], stdout=subprocess.PIPE,
+                                                 stderr=subprocess.DEVNULL)
+                except OSError:
+                    self.pages.discard(q)
+                    return None
+                threading.Thread(target=self.read, args=(self.proc,), daemon=True, name="sound").start()
+                threading.Thread(target=self.say, args=(self.proc,), daemon=True, name="sound-on").start()
+        return q
+
+    def leave(self, q):
+        with self.lock:
+            self.pages.discard(q)
+            proc = self.proc if not self.pages else None
+            if proc is not None:
+                self.proc = None
+        if proc is not None:
+            proc.terminate()
+
+    def read(self, proc):
+        while True:
+            chunk = proc.stdout.read(SOUND_CHUNK)
+            with self.lock:
+                pages = list(self.pages) if self.proc is proc else []
+            for q in pages:
+                while True:
+                    try:
+                        q.put_nowait(chunk or None)     # (None: it stopped)
+                        break
+                    except queue.Full:
+                        try:
+                            q.get_nowait()
+                        except queue.Empty:
+                            pass
+            if not chunk:
+                break
+        with self.lock:
+            if self.proc is proc:                      # (it stopped by itself: the next page starts another)
+                self.proc = None
+        proc.wait()
+
+    def say(self, proc):
+        told, at = None, 0.0
+        while self.proc is proc and proc.poll() is None:
+            on = time.monotonic() - self.heard < SOUND_HEARD
+            if on != told or time.monotonic() - at >= SAY_EVERY:
+                tell_pi("websound", on)                # (off while no page is playing it: the Pi plays it)
+                told, at = on, time.monotonic()
+            time.sleep(0.25)
+        if self.proc is None:                          # (not if another page started listening meanwhile)
+            tell_pi("websound", False)
+
+
+class MicIn:
+    """aplay into the Loopback card while a page sends its microphone; let go a few seconds after the last of it."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.proc = None
+        self.last = 0.0
+        self.listens = True                            # (whether the bot's listening at all, as media mode last said)
+
+    def put(self, data):
+        with self.lock:
+            if self.proc is None or self.proc.poll() is not None:
+                try:
+                    self.proc = subprocess.Popen(["aplay", "-q", "-D", MIC_TO, "-f", "S16_LE", "-r", str(MIC_RATE), "-c",
+                                                  "1", "-t", "raw"], stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                except OSError:
+                    self.proc = None
+                    return False
+                threading.Thread(target=self.watch, args=(self.proc,), daemon=True, name="mic").start()
+            self.last = time.monotonic()
+            proc = self.proc
+        try:
+            proc.stdin.write(data)
+            proc.stdin.flush()
+            return True
+        except (OSError, ValueError):
+            return False
+
+    def watch(self, proc):
+        said = 0.0
+        while True:
+            now = time.monotonic()
+            with self.lock:
+                gone = now - self.last > MIC_QUIET or proc.poll() is not None
+                if gone and self.proc is proc:
+                    self.proc = None
+            if gone:
+                break
+            if now - said >= SAY_EVERY:
+                said = now
+                self.listens = tell_pi("webmic", True).get("listens", True)
+            time.sleep(0.25)
+        try:
+            proc.stdin.close()
+        except OSError:
+            pass
+        proc.terminate()
+        tell_pi("webmic", False)
+
+
+SOUND, MIC = SoundOut(), MicIn()
+
+
+@app.get("/api/sound")
+def sound_out():
+    """The Pi's sound, as it plays (raw: two 16-bit channels at 48 kHz), while the page wants it."""
+    if not os.path.isdir(LOOPBACK):
+        return jsonify(error=NO_LOOPBACK), 503
+    q = SOUND.join()
+    if q is None:
+        return jsonify(error="The Pi couldn't start sending its sound"), 503
+
+    def chunks():
+        try:
+            while True:
+                chunk = q.get(timeout=10)
+                if chunk is None:
+                    break
+                yield chunk
+        except queue.Empty:
+            pass
+        finally:
+            SOUND.leave(q)
+    return Response(chunks(), mimetype="application/octet-stream",
+                    headers={"Cache-Control": "no-store", "X-Pitato-Rate": str(SOUND_RATE)})
+
+
+@app.post("/api/sound")
+def sound_playing():
+    """A page playing the Pi's sound says so every couple of seconds (one that's stopped, a phone that locked, doesn't:
+    then the Pi plays it again)."""
+    SOUND.playing()
+    return jsonify(ok=True)
+
+
+@app.post("/api/mic")
+def mic_in():
+    """A moment of the page's microphone (raw: one 16-bit channel at 16 kHz), for the bot to hear."""
+    if not os.path.isdir(LOOPBACK):
+        return jsonify(error=NO_LOOPBACK), 503
+    if (request.content_length or 0) > MIC_MOST:
+        return jsonify(error="Too big"), 413
+    data = request.get_data()
+    if len(data) % 2:
+        data = data[:-1]
+    if not MIC.put(data):
+        return jsonify(error="The Pi couldn't take the microphone"), 503
+    return jsonify(ok=True, listens=MIC.listens)
+
+
+# ---- the secure page: the same page, over HTTPS, for what a browser only allows there (a microphone) ---------------
+SECURE_PORT = 5443
+SECURE_HELLO = 20.0                                    # seconds a browser has to begin a secure connection
+CERT_DIR = os.path.join(HOME, ".local", "share", "pitato", "web-cert")
+
+
+def addresses():
+    """This Pi's addresses on your network."""
+    try:
+        out = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=5).stdout.split()
+    except (OSError, subprocess.TimeoutExpired):
+        out = []
+    good = []
+    for a in out:
+        try:
+            if not ipaddress.ip_address(a).is_loopback:
+                good.append(a)
+        except ValueError:
+            pass
+    return good[:6]
+
+
+def certificate():
+    """The Pi's own certificate for the secure page, made once with openssl (good for ten years): (its file, its key's
+    file), or None. Browsers warn about one a Pi made itself the first time: then they let you on."""
+    cert, key = os.path.join(CERT_DIR, "cert.pem"), os.path.join(CERT_DIR, "key.pem")
+    if os.path.isfile(cert) and os.path.isfile(key):
+        return cert, key
+    name = re.sub(r"[^A-Za-z0-9-]", "", socket.gethostname()) or "pietato"
+    alt = ",".join([f"DNS:{name}.local", f"DNS:{name}", "DNS:localhost"] + [f"IP:{a}" for a in addresses()])
+    try:
+        os.makedirs(CERT_DIR, mode=0o700, exist_ok=True)
+        subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "3650", "-keyout",
+                        key + ".part", "-out", cert + ".part", "-subj", f"/CN={name}.local", "-addext",
+                        "subjectAltName=" + alt], capture_output=True, timeout=120, check=True)
+        os.chmod(key + ".part", 0o600)
+        os.replace(key + ".part", key)
+        os.replace(cert + ".part", cert)
+    except (OSError, subprocess.SubprocessError) as ex:
+        print(f"the secure page: no certificate ({ex})", flush=True)
+        return None
+    return cert, key
+
+
+def serve_secure():
+    """The same page over HTTPS too (SECURE_PORT), alongside the usual one."""
+    pair = certificate()
+    if not pair:
+        return
+    from werkzeug.serving import make_server, WSGIRequestHandler
+
+    class Handler(WSGIRequestHandler):
+        def handle(self):
+            # Each secure connection is begun on its own, here: a phone that went away halfway would otherwise hold
+            # up everyone else's, for good. One that doesn't start in a while is let go.
+            try:
+                self.connection.settimeout(SECURE_HELLO)
+                self.connection.do_handshake()
+                self.connection.settimeout(None)
+            except (OSError, ValueError):
+                return
+            super().handle()
+
+    try:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(*pair)
+        server = make_server("0.0.0.0", SECURE_PORT, app, threaded=True, request_handler=Handler)
+        server.socket = ctx.wrap_socket(server.socket, server_side=True, do_handshake_on_connect=False)
+        server.ssl_context = ctx                       # (so its requests are https ones)
+    except (OSError, ssl.SSLError) as ex:
+        print(f"the secure page: {ex}", flush=True)
+        return
+    server.serve_forever()
+
+
 if __name__ == "__main__":
     logging.getLogger("werkzeug").setLevel(logging.WARNING)    # keep the journal quiet
+    threading.Thread(target=serve_secure, daemon=True, name="secure").start()
     app.run(host="0.0.0.0", port=PORT, threaded=True)

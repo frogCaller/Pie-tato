@@ -114,6 +114,7 @@ class KeyboardScreen:
         for r, row in enumerate(KEY_SYMBOLS if kb.get("sym") else KEY_ROWS):
             for c, ch in enumerate(row):
                 x, y = x0 + c * (kw + gap), y0 + r * (kh + gap)
+                self.tappable((x - gap / 2, y - gap / 2, x + kw + gap / 2, y + kh + gap / 2), "kb", r, c)
                 on = kb["r"] == r and kb["c"] == c
                 d.rounded_rectangle((x, y, x + kw, y + kh), radius=9, fill=ACCENT if on else ROW)
                 label = ch.upper() if upper else ch
@@ -123,6 +124,7 @@ class KeyboardScreen:
         unit = (10 * kw + 9 * gap - (len(KEY_BOTTOM) - 1) * gap) / 10
         for c, (what, label, span) in enumerate(KEY_BOTTOM):
             w = unit * span
+            self.tappable((x - gap / 2, y - gap / 2, x + w + gap / 2, y + kh + gap / 2), "kb", len(KEY_ROWS), c)
             on = kb["r"] == len(KEY_ROWS) and kb["c"] == c
             lit = (what == "shift" and upper) or (what == "sym" and kb.get("sym"))
             d.rounded_rectangle((x, y, x + w, y + kh), radius=9,

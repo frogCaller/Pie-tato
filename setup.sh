@@ -922,11 +922,12 @@ AUTO
 fi
 
 # --------------------------------------------------------------------------
-step "Installing the web page (port 5432)"
+step "Installing the web page (port 5432, and 5443 for its secure page)"
 install -d /usr/local/share/pitato/templates
 install -m 644 "$HERE/pitato/webui.py" /usr/local/share/pitato/
 install -m 644 "$HERE/pitato/coder_hooks.py" /usr/local/share/pitato/    # (the page hands it to Claude Code's computer)
-install -m 644 "$HERE/templates/index.html" /usr/local/share/pitato/templates/
+install -m 644 "$HERE/templates/index.html" "$HERE/templates/play.html" "$HERE/templates/play.js" \
+  /usr/local/share/pitato/templates/                                     # (play: a game on your phone, Play here)
 install -d /usr/local/share/pitato/static/fonts    # the typefaces: the page's, and the home screen's (without them: the system's)
 for f in "$HERE"/static/fonts/*; do
   if [ -f "$f" ]; then install -m 644 "$f" /usr/local/share/pitato/static/fonts/; fi
@@ -935,7 +936,7 @@ rm -rf /usr/local/share/pitato/index.html /usr/local/share/pitato/fonts    # (wh
 
 cat > /etc/systemd/system/pitato-web.service <<WEBUI
 [Unit]
-Description=Pietato web page: the screen and your files (port 5432)
+Description=Pietato web page: the screen and your files (port 5432; 5443, its secure page)
 After=network-online.target
 Wants=network-online.target
 
@@ -966,6 +967,42 @@ settings_folder radio.txt streams.txt streams.m3u crypto.txt camera.txt bot.txt 
   homeassistant.txt webui.txt plex.txt
 if [ ! -e "$STATIC/bot.txt" ]; then
   settings_folder friend.txt                        # the bot's settings, by their earlier name
+fi
+
+# Sound here and Mic here (the web page): the Pi's sound on your phone or computer, and its microphone the bot's.
+# Both go through the Loopback sound card (snd-aloop), card 7 so it's never the Pi's own sound (a Pi's kernel has
+# room for cards 0 to 7 only); media mode plays into it mixed (pietato_web), and the web page (in the audio group)
+# hands out what comes out of it.
+cat > /etc/modprobe.d/pietato-loopback.conf <<'ALOOP'
+# Pietato's web page: Sound here and Mic here go through this card
+options snd-aloop index=7 id=Loopback pcm_substreams=2
+ALOOP
+echo snd-aloop > /etc/modules-load.d/pietato-loopback.conf
+modprobe snd-aloop 2>/dev/null || echo "(The Loopback sound card didn't load yet: Sound here and Mic here work after a restart.)"
+install -d /etc/alsa/conf.d
+cat > /etc/alsa/conf.d/60-pietato-web.conf <<'WEBPCM'
+# Pietato: the Pi's sound for the web page's Sound here, mixed into the Loopback card (webui.py hands it out)
+pcm.pietato_web {
+    type plug
+    slave.pcm "pietato_web_mix"
+}
+pcm.pietato_web_mix {
+    type dmix
+    ipc_key 54320
+    ipc_key_add_uid false
+    ipc_perm 0666
+    slave {
+        pcm "hw:Loopback,0,0"
+        format S16_LE
+        rate 48000
+        channels 2
+        period_size 1024
+        buffer_size 4096
+    }
+}
+WEBPCM
+if [ "$USER_NAME" != root ]; then
+  usermod -aG audio "$USER_NAME" || true
 fi
 systemctl restart pitato-web || true
 

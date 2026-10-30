@@ -55,6 +55,8 @@ HEAR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hear.py")
 ASOUND = "/proc/asound"           # the kernel's sound cards
 V4L = "/sys/class/video4linux"    # ...and its cameras (a webcam's own microphone comes after a microphone)
 LISTEN_SINCE = time.time()        # (leftovers older than this, under this process's number, are from before)
+WEB_MIC = "pietato-web"           # the microphone of a web page with Mic here on (what it hears comes in through the
+WEB_MIC_DEVICE = "plughw:CARD=Loopback,DEV=1,SUBDEV=1"   # Loopback card: webui.py plays it into its other side)
 
 
 def vosk_lib():
@@ -99,6 +101,8 @@ def mics():
         if not m:
             continue
         num, cid, full = m.group(1), m.group(2), m.group(4).strip()
+        if cid == "Loopback" or m.group(3) == "Loopback":
+            continue                                  # (the web page's way in: Mic here, not a microphone of the Pi's)
         caps = sorted(glob.glob(os.path.join(ASOUND, f"card{num}", "pcm*c")))
         if not caps:
             continue
@@ -113,7 +117,10 @@ def mics():
 
 
 def mic_device(choice=""):
-    """arecord's -D for the microphone you picked (its card's id), or the first there is. "" for none."""
+    """arecord's -D for the microphone you picked (its card's id), or the first there is. "" for none. WEB_MIC: a web
+    page's, with Mic here on."""
+    if choice == WEB_MIC:
+        return WEB_MIC_DEVICE
     found = mics()
     hit = next((c for c in found if c["id"] == choice), None) if choice else None
     hit = hit or (found[0] if found else None)

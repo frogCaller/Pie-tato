@@ -149,6 +149,15 @@ _usb_seen = {}                                 # card id -> name: each USB speak
 TV_FIRST = False                               # Auto: the TV before a USB speaker (a GPi Case 2 in its dock: the case's
                                                # own sound is USB, and the picture's on the TV)
 _descs = {}                                    # card id -> the card's own name (what Settings > Sound once called it)
+LOOPBACK = "Loopback"                          # the card the web page's Sound here and Mic here go through (snd-aloop,
+                                               # setup.sh's): never a speaker or a microphone of its own
+WEB_PCM = "pietato_web"                        # ALSA's way into it, mixed (setup.sh: /etc/alsa/conf.d/60-pietato-web.conf)
+WEB_SOUND = {"until": 0.0}                     # Sound here: the Pi's sound goes to the web page till then (monotonic)
+
+
+def web_sound():
+    """Sound here is on: a web page is playing the Pi's sound (webui.py says so, every few seconds)."""
+    return time.monotonic() < WEB_SOUND["until"]
 
 
 def can_play(num):
@@ -168,6 +177,8 @@ def sound_list():
         if not m or not can_play(m.group(1)):
             continue
         cid, driver, full = m.group(2), m.group(3), m.group(4).strip()
+        if cid == LOOPBACK or driver == "Loopback":
+            continue                               # (the web page's way in and out: not a speaker)
         desc = full[:24]
         usb = driver == "USB-Audio" and not NOT_SPEAKERS.search(full)
         hd = re.fullmatch(r"vc4hdmi(\d?)", cid)
@@ -203,8 +214,9 @@ def sound_cards():
 
 
 def sound_moves(route):
-    """A route the sound moves to and from while something plays: Bluetooth, or a USB speaker (plugged in or out)."""
-    return route == "bluetooth" or route in _usb_seen
+    """A route the sound moves to and from while something plays: Bluetooth, a USB speaker (plugged in or out), or the
+    web page (Sound here, on or off)."""
+    return route in ("bluetooth", "web") or route in _usb_seen
 
 
 def usb_name(route):
@@ -381,8 +393,10 @@ def sound_card(choice):
 
 
 def sound_route(choice):
-    """Where Settings > Sound sends sound now: "bluetooth" (Auto, while Bluetooth headphones or a speaker are
-    connected), a card's id, or "" (the system's own)."""
+    """Where Settings > Sound sends sound now: "web" (the web page's Sound here, while it's on, whatever Settings says),
+    "bluetooth" (Auto, while Bluetooth headphones or a speaker are connected), a card's id, or "" (the system's own)."""
+    if web_sound():
+        return "web"
     if choice in (None, "", "Auto") and bt_outputs():
         return "bluetooth"
     return sound_card(choice) or ""
@@ -402,6 +416,8 @@ def sound_name(route):
     (its own)."""
     if route == "bluetooth":
         return "Bluetooth"
+    if route == "web":
+        return "the web page"
     if not route:
         return "the Pi"
     return next((n for c, n in sound_cards() if c == route), None) or _usb_seen.get(route) or "the Pi"
@@ -443,6 +459,8 @@ def sound_device(choice, route=None):
     route = sound_route(choice) if route is None else route
     if route == "bluetooth":
         return f"alsa:device={BT_SOUND},alsa"
+    if route == "web":
+        return f"alsa:device={WEB_PCM},alsa"
     card = route or alsa_first_card() or ""
     if HDMI_CARD.fullmatch(card):
         return f"alsa:device=hdmi={card}.0.{HDMI_AES},alsa"   # hdmi:CARD,DEV,AES0..3 (mplayer reads . as , and = as :)
@@ -454,6 +472,8 @@ def aplay_device(choice, route=None):
     route = sound_route(choice) if route is None else route
     if route == "bluetooth":
         return BT_SOUND
+    if route == "web":
+        return WEB_PCM
     return f"default:CARD={route}" if route else ""
 
 

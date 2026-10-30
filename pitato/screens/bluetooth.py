@@ -208,6 +208,8 @@ class BluetoothScreen:
                 d.text((30, y0 + 19), label, font=F["small"], fill=MUTED, anchor="ls")
                 continue
             on = k == sel and key in BT_PICKABLE
+            if key in BT_PICKABLE:
+                self.tappable((0, y0, W, y0 + heights[k]), "bt", k)
             if on:
                 d.rounded_rectangle((12, y0 + 2, W - 12, y0 + heights[k] - 4), radius=10, fill=ROW)
                 d.rectangle((12, y0 + 10, 15, y0 + heights[k] - 12), fill=ACCENT)

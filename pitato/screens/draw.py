@@ -19,6 +19,17 @@ FOOT_NOTE = (206, 211, 218)  # the home screen's line about the app picked
 BASE_ROOM = 480 - 48 - 76    # the GPi Case's screen between its bars: what a page with a set layout is drawn for
 FULL_VIEWS = ("list", "now", "photo", "pdf", "text")   # what Full screen apps puts on the whole screen
 UPDATE_DOTS = 3              # the dots under Updating Pietato, lit one after another
+TAP_KEYS = {"A": "a", "B": "b", "X": "x", "Y": "y", "L": "l", "R": "r", "L2": "l2", "R2": "r2", "START": "start",
+            "ST": "start", "SELECT": "select", "SEL": "select", "HOME": "home", "ANY": "a",
+            "▲": "up", "▼": "down", "◀": "left", "▶": "right"}   # a hint's button, as a tap on the web page presses it
+
+
+def tap_buttons(label):
+    """The buttons a hint along the bottom stands for, left to right: A's a, L R's l and r, ▲▼'s up and down. (PAD's:
+    none, it's any way at all.)"""
+    parts = label.split() if " " in label else list(label) if label and set(label) <= set("▲▼◀▶") else [label]
+    out = [TAP_KEYS.get(p) for p in parts]
+    return out if out and all(out) else []
 
 
 class Bar:
@@ -114,6 +125,56 @@ class DrawScreen:
         img = Image.new("RGB", (self.fb.w, self.fb.h), bg)
         return img, ImageDraw.Draw(img)
 
+    # -- the web page's copy of the screen: what a tap on it does, where ----------------------------------------
+    def tappable(self, box, *what):
+        """A tap in box (x0, y0, x1, y1, in the menus' pixels) on the web page's copy of the screen does what (web.py's
+        tap_do says how). Where two overlap, the one put down last wins, as what's drawn last is on top. (Put down
+        while the screen's drawn: flush keeps them with the picture.)"""
+        taps = getattr(self, "taps_new", None)
+        if taps is not None:
+            taps.append((tuple(box), what))
+
+    def tap_mark(self):
+        taps = getattr(self, "taps_new", None)
+        return len(taps) if taps is not None else 0
+
+    def taps_cut(self, mark):
+        """The places put down since mark (tap_mark's), taken up: kept with a picture that's kept, and put down again
+        each time it's used (tap_again)."""
+        taps = getattr(self, "taps_new", None)
+        if taps is None:
+            return []
+        cut = taps[mark:]
+        del taps[mark:]
+        return cut
+
+    def tap_again(self, kept):
+        taps = getattr(self, "taps_new", None)
+        if taps is not None and kept:
+            taps.extend(kept)
+
+    def tap_hint(self, x0, x1, y0, y1, label):
+        """A hint's button, tappable over the whole of it (the button and its words); one for two buttons (L R,
+        ▲▼), each its half."""
+        names = tap_buttons(label)
+        if len(names) == 1:
+            self.tappable((x0, y0, x1, y1), "keys", names[0])
+        elif len(names) == 2:
+            mid = (x0 + x1) / 2
+            self.tappable((x0, y0, mid, y1), "keys", names[0])
+            self.tappable((mid, y0, x1, y1), "keys", names[1])
+
+    def tap_arrows(self, y0, y1, left, right):
+        """A picked row's ◀ value ▶, its ◀ ending at left and its ▶ at right: each a way to change it."""
+        self.tappable((left - 32, y0, left + 6, y1), "keys", "left")
+        self.tappable((right - 26, y0, right + 18, y1), "keys", "right")
+
+    def tap_rows(self, x0, x1, y, h, first, last, *what):
+        """A list's rows on the screen, first to last (items), from y down, h apart: each tappable, as what + (its
+        number,)."""
+        for r, i in enumerate(range(first, last)):
+            self.tappable((x0, y + r * h, x1, y + (r + 1) * h), *what, i)
+
     @staticmethod
     def fit(d, text, font, width):
         if d.textlength(text, font=font) <= width:
@@ -181,9 +242,11 @@ class DrawScreen:
             k, label, on = it[0], it[1], len(it) > 2 and bool(it[2])
             if credit and x + self.key_w(d, k) + 7 + d.textlength(label, font=font) > room:
                 break
+            x0 = x
             x = self.key(d, x, y, k, on) + (9 if plain else 7)
             d.text((x, y), label, font=font, fill=TEXT if plain else BODY, anchor="lm")
             x += d.textlength(label, font=font) + (26 if plain else 18)
+            self.tap_hint(x0 - 8, x - (17 if plain else 9), H - fh, H, k)   # (halfway to the next)
         if credit:
             d.text((W - 20, y), credit, font=font, fill=BODY, anchor="rm")
         elif right:
@@ -287,12 +350,15 @@ class DrawScreen:
             sd.text((tx, y), n, font=f, fill=TEXT if i == cur else MUTED, anchor="lm")
             if i == cur:
                 sd.rounded_rectangle((tx, strip_h - 7, tx + w, strip_h - 4), radius=1, fill=ACCENT)
+            self.tappable((20 + tx - gap / 2, self.STATUS_H, 20 + tx + w + gap / 2, self.HEADER), "tab", vis[i])
         img.paste(strip, (20, self.STATUS_H))
         cy = self.STATUS_H + y
         if off > 0:
             d.text((10, cy), "‹", font=F["tab_b"], fill=MUTED, anchor="mm")
+            self.tappable((0, self.STATUS_H, 20, self.HEADER), "tabs", -1)
         if off < total - avail:
             d.text((W - 10, cy), "›", font=F["tab_b"], fill=MUTED, anchor="mm")
+            self.tappable((W - 20, self.STATUS_H, W, self.HEADER), "tabs", 1)
         d.line((0, self.HEADER, W, self.HEADER), fill=LINE)
 
     def app_title(self, d, title, right=None, right_fill=MUTED):
@@ -629,6 +695,7 @@ class DrawScreen:
         self.tops[self.tab] = top
 
         x0, x1 = 12, W - 22
+        self.tap_rows(0, W, top_y, self.ROW_H, top, min(top + rows, n), "sel", "sels", self.tab)
         # one column width for the artwork, so titles line up when posters and stills mix
         slot = max([self.plex_size(it)[0] for it in items[top:top + rows]
                     if not it.get("icon")] or [0])
@@ -717,6 +784,8 @@ class DrawScreen:
                     break
                 x = 12 + c * cw + (cw - tw) // 2
                 y = self.LIST_TOP + 2 + r * self.CELL_H + (self.CELL_H - th) // 2
+                self.tappable((12 + c * cw, self.LIST_TOP + 2 + r * self.CELL_H, 12 + (c + 1) * cw,
+                               self.LIST_TOP + 2 + (r + 1) * self.CELL_H), "sel", "sels", self.tab, i)
                 if i == sel:
                     d.rounded_rectangle((x - 5, y - 5, x + tw + 5, y + th + 5), radius=10,
                                         outline=ACCENT, width=3)

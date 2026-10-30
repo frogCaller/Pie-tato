@@ -14,7 +14,8 @@ from ..library import LIBRARY
 from ..weather import place_text, wx_words
 from ..stocks import money
 from ..voice import BOT_VOICES, voice_name, VOICE_SAMPLE, voices_here
-from ..listen import LISTEN_MB, PATIENCE, WAKE, WAKE_MOST, have_vosk, mics, supported as listen_supported, tidy_phrase
+from ..listen import (LISTEN_MB, PATIENCE, WAKE, WAKE_MOST, WEB_MIC, have_vosk, mics, supported as listen_supported,
+                      tidy_phrase)
 from ..bot import (
     Friend, FRIEND_BUBBLE, FRIEND_CHATTER, FRIEND_FACES, FRIEND_HEAD, FRIEND_HELLO_AFTER, FRIEND_KEEP,
     FRIEND_PAGES, FRIEND_PIC_ROOM, FRIEND_SIGHT, FRIEND_TOPICS)
@@ -147,6 +148,12 @@ class BotScreen:
         return tidy_phrase(self.friend.conf.get("wake")) or WAKE
 
     def bot_mic(self):
+        """The microphone it listens with: a web page's, while it has Mic here on; else bot_mic_set's."""
+        if time.monotonic() < getattr(self, "web_mic_until", 0.0):
+            return WEB_MIC
+        return self.bot_mic_set()
+
+    def bot_mic_set(self):
         """The microphone picked in Settings > Bot (its sound card's id), or "" for the first there is."""
         return clean_name(self.friend.conf.get("mic"), 40)
 
@@ -253,7 +260,7 @@ class BotScreen:
     def listen_mic_step(self, d):
         """Settings > Bot > Microphone: the next one (Auto: the first there is)."""
         ids = [""] + [c["id"] for c in mics()]
-        cur = self.bot_mic()
+        cur = self.bot_mic_set()
         i = ids.index(cur) if cur in ids else 0
         self.friend_set(mic=ids[(i + d) % len(ids)])
 
@@ -600,6 +607,8 @@ class BotScreen:
             return self.bot_wake()
         if key == "f_mic":
             cur = self.bot_mic()
+            if cur == WEB_MIC:
+                return "The web page's"                # (Mic here, on for now)
             return next((c["name"] for c in mics() if c["id"] == cur), cur) if cur else "Auto"
         return {"f_server": fr.server or "Not set", "f_model": fr.model or "Pick one",
                 "f_name": fr.name or "Not set", "f_chatter": fr.chatter_text()}.get(key, "")

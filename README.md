@@ -114,9 +114,31 @@ The GPi Case's own buttons, or any USB or Bluetooth game controller (Xbox, PlayS
 Open `http://<your Pi's IP address>:5432` on your phone or computer. Anyone on your WiFi
 can open it, so if you share your WiFi, give it a password in the page's Settings.
 
-**Screen** shows what's on the Pi's screen in media mode, has a remote, and puts cartoons,
-films, news, sports, radio, a camera or any app on it. You can also talk to your bot there, and
-pair Bluetooth devices.
+**Screen** is the Pi's screen in media mode, and it works like the Pi: tap something on it to pick
+it, and tap it again to open it. Swipe or scroll to move along a list. Back and Home are under it,
+and the whole remote is behind Remote. When the Pi has a box to type in, one comes up under the
+screen too, so you can type on your phone or computer. Screen also puts cartoons, films, news,
+sports, radio, a camera or any app on the Pi. You can talk to your bot there, and pair Bluetooth
+devices.
+
+Under the screen there are three more buttons:
+
+- **Play here**: what you pick plays on your phone or computer instead of the Pi. That's your videos
+  and music, cartoons, films and radio, and NES, SNES, Game Boy, GBA, Genesis, Master System, Game
+  Gear, PlayStation, N64 and DS games. Games play in [EmulatorJS](https://emulatorjs.org), which the
+  Pi gets from npm the first time you play that kind of game (about 5 MB). A game's save comes from
+  the Pi and goes back to it as you play, so you can carry on on the Pi. Plex, Jellyfin, live
+  channels, PSP and Dreamcast games, and games in more than one file (a `.cue`) still play on the Pi.
+- **Sound here**: the Pi's sound plays on your phone or computer instead of the Pi. It's a moment
+  behind the picture.
+- **Mic here**: the bot hears you through your phone's or computer's microphone instead of one
+  plugged into the Pi (with Settings > Bot > Listens on). Browsers only let a page use your
+  microphone over a secure connection, so the Pi has a secure page too:
+  `https://<your Pi's IP address>:5443`. The first time, your browser warns you about it, because
+  the Pi made its own certificate. Go on to the page from there.
+
+If Sound here or Mic here says to run setup.sh again, run `sudo bash setup.sh` once more. It adds
+the sound card they use.
 
 **Draw** is paper the shape of the Pi's screen. Draw with your finger or the mouse, add words or a
 photo, and press Show on the Pi: it stays on the screen until you press B, and it's kept in

@@ -135,6 +135,8 @@ class PlayerScreen:
         if was[0] == "bluetooth":
             gone = was[1] not in [dev for dev, _ in bt_outputs()]
             lost = (bt_output_name(was[1]) or "Bluetooth") if gone else ""
+        elif was[0] == "web":                          # (Sound here off: back to the Pi, playing on, as it was there)
+            gone, lost = False, ""
         else:
             gone = sound_moves(was[0]) and was[0] not in [c for c, _ in sound_cards()]
             lost = usb_name(was[0]) if gone else ""
@@ -370,7 +372,10 @@ class PlayerScreen:
 
     def play(self, queue, i, start=None, show=True, note=None):
         """Plays queue[i]. Music and radio open Now playing, unless show is False (the next song, or one at
-        start-up): you stay where you are. note: what a video's curtain says as it starts, instead."""
+        start-up): you stay where you are. note: what a video's curtain says as it starts, instead. (Picked on the
+        web page with Play here on: it plays there instead, if it can.)"""
+        if self.here_take(queue, i):
+            return
         if queue[i]["kind"] in ("plexvideo", "jfvideo"):
             return self.play_plex(queue, i)
         self.stop()

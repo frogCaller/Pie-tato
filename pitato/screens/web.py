@@ -1,21 +1,41 @@
 """What the web page asks for: what's on the screen, and putting things there."""
 import io
+import math
 import os
 import re
 import time
+import urllib.parse
 
 from ..config import clean_name, home_dir
 from ..util import classify, IMAGE_EXTS, item, title_of
 from ..net import cam_address, cam_host, cam_is_local, cam_key
-from ..screen import grab_screen, screen_size
+from ..screen import grab_screen, screen_size, slow_pi, web_sound, WEB_SOUND
 from ..radio import RADIO_GENRES, RADIO_STATIONS, RADIO_TTL, rb_stations
 from ..tv import CLASSIC, FILM_BADGES, FILMS, live_pick, TOON_BADGES
-from ..library import LIBRARY, read_streams, SCREEN_KINDS, VOLUME_STEP
+from ..library import LIBRARY, LISTEN_KINDS, read_streams, SCREEN_KINDS, VOLUME_STEP
 from ..home import draw_icon, HOME_ICONS
 from ..cameras import CAM_FOUND_FOR, edit_cameras, read_cameras
 from ..voice import BOT_VOICES, VOICE_MB, voices_here
 from ..bot import FRIEND_FACES
 from ..www import clean_title
+from ..games import BIOS_FOLDER, games_dir, save_name, SAVES_FOLDER
+from .bluetooth import BT_PICKABLE
+from .chromium import CHROME_MENU
+from .games import GAME_MENU
+
+SWIPE_MOST = 12              # presses a swipe (or a mouse's wheel, at once) stands for, at most
+HERE_VIDEO = (".mp4", ".m4v", ".webm", ".mov", ".mkv")                          # Play here: what a browser plays
+HERE_AUDIO = (".mp3", ".m4a", ".aac", ".ogg", ".oga", ".opus", ".flac", ".wav")
+HERE_GAMES = {"nes": "fceumm", "snes": "snes9x", "gb": "gambatte", "gbc": "gambatte", "gba": "mgba",   # ...a game's
+              "genesis": "segaMD", "sms": "smsplus", "gg": "segaGG", "n64": "mupen64plus_next",   # system, as
+              "ps1": "pcsx_rearmed", "nds": "melonds"}                                          # EmulatorJS has it
+HERE_ONE_FILE = (".cue", ".m3u", ".gdi")    # games in more than one file: they stay on the Pi
+HERE_BIOS = ("scph5501.bin", "scph5500.bin", "scph5502.bin", "scph1001.bin", "scph7001.bin")   # a PS1's, if it's there
+HERE_MOST = 300              # songs handed over with the one picked, at most
+WEB_HOLD = 15.0              # seconds Sound here and Mic here stay on after webui.py last says so (it does every 5)
+FRAME_WAIT = 20.0            # seconds the web page's request for the next picture waits for one, at most
+VIDEO_LOOK = (2.0, 4.0)      # ...while a video plays (no pictures drawn: a look at the screen), seconds between looks
+                             # (a Pi Zero's: longer)
 
 
 class WebScreen:
@@ -89,18 +109,36 @@ class WebScreen:
                 "learning": self.learn_status(),
                 "size": list(self.screen_dims() if self.fb else screen_size()),
                 "canvas": [self.fb.w, self.fb.h] if self.fb else None,   # (what the menus, and drawings, are drawn at)
-                "plex": self.plex.signed_in, "msg": self.msg}
+                "plex": self.plex.signed_in, "msg": self.msg, "kb": self.web_kb()}
 
-    def web_screen(self):
+    def web_kb(self):
+        """The box to type in that's on the screen (its title, and what's in it so far), for the web page to type
+        in too; None when there isn't one."""
+        kb = self.kb if self.active and self.view == "keys" else None
+        if not kb:
+            return None
+        return {"title": kb.get("title", ""), "text": kb.get("text", ""), "limit": kb.get("limit", 60)}
+
+    def web_screen(self, after=None, wait=0.0):
         """(bytes, type): the menus exactly as drawn, or a snapshot of the real screen while a
-        video plays. Never the terminal: that stays on the Pi."""
+        video plays. Never the terminal: that stays on the Pi. after: the picture the web page has already (its
+        number): this waits for the next (wait: seconds, at most)."""
+        shot = self.web_shot(after, wait)
+        return shot and shot[:2]
+
+    def web_shot(self, after=None, wait=0.0):
+        """(bytes, type, the number of the menus' last picture): web_screen's, and which picture it is (a video's: a
+        look at the screen as it is, a JPEG, with the number of the menus' last picture still)."""
+        if after is not None:
+            self.web_frame_wait(after, wait)
         fb = self.fb
         if not self.active:
             return None
+        frame = getattr(fb, "frames", 0) if fb is not None else 0
         if self.active and fb is not None and not self.proc_owns_screen() and getattr(fb, "last", None):
-            key = ("menus", getattr(fb, "frames", 0))
+            key = ("menus", frame)
             if self.shot[0] == key:
-                return self.shot[1], self.shot[2]
+                return self.shot[1], self.shot[2], frame
             buf = io.BytesIO()
             fb.last.save(buf, "PNG", compress_level=1)    # quick to make on a Pi Zero
             out = (buf.getvalue(), "image/png")
@@ -115,7 +153,346 @@ class WebScreen:
                 img.save(buf, "PNG")
                 out = (buf.getvalue(), "image/png")
         self.shot = (key, out[0], out[1])
+        return out[0], out[1], frame
+
+    def web_frame_wait(self, after, wait):
+        """(The control server's thread.) Till the screen's picture isn't the one numbered after (the web page's
+        already), or wait seconds: a video's plays meanwhile, so it's looked at every few seconds instead."""
+        try:
+            after, wait = int(after), max(0.0, min(float(wait), FRAME_WAIT))
+        except (TypeError, ValueError, OverflowError):
+            return
+        start = time.monotonic()
+        while time.monotonic() - start < wait:
+            fb = self.fb
+            if not self.active or fb is None or getattr(fb, "frames", None) != after:
+                return
+            if self.proc_owns_screen() and time.monotonic() - start >= VIDEO_LOOK[1 if slow_pi() else 0]:
+                return
+            time.sleep(0.03)
+
+    # -- the web page's copy of the screen: tapped, swiped, scrolled, and typed under ----------------------------
+    def web_touch(self, cmd):
+        """A tap, a swipe or a mouse's wheel on the web page's copy of the screen, or what's typed under it:
+        ([the buttons it stands for, to be pressed as the remote's are], the answer). Some it does itself: a row
+        picked, a list scrolled, words typed."""
+        c = cmd.get("cmd")
+        if self.view == "update":
+            return [], {"error": "The Pi is updating. It restarts when it's done"}
+        if c == "type":
+            return [], self.web_type(cmd.get("text"), cmd.get("enter") is True)
+        if self.fb is None:
+            return [], {"error": "There's no screen"}
+        try:
+            x, y = float(cmd.get("x") or 0), float(cmd.get("y") or 0)   # (shares of the picture, 0 to 1; a wheel's:
+        except (TypeError, ValueError):                                 # y, its notches)
+            return [], {"error": "Bad request"}
+        if not (math.isfinite(x) and math.isfinite(y)):
+            return [], {"error": "Bad request"}
+        W, H = self.fb.w, self.fb.h
+        if c == "tap":
+            return (self.web_tap(x * W, y * H) if 0 <= x <= 1 and 0 <= y <= 1 else []), {"ok": True}
+        if c == "swipe":
+            return self.web_swipe(max(-1.0, min(1.0, x)) * W, max(-1.0, min(1.0, y)) * H), {"ok": True}
+        if c == "scroll":
+            return self.web_scroll(max(-SWIPE_MOST, min(SWIPE_MOST, round(y)))), {"ok": True}
+        return [], {"error": "Unknown request"}
+
+    def taps_now(self):
+        """Where a tap does what on the screen's picture now ([] if that picture wasn't drawn as the menus are: a
+        video's on, or one was put up some other way)."""
+        if self.proc_owns_screen() or self.taps_at is None or self.taps_at != getattr(self.fb, "frames", None):
+            return []
+        return self.taps
+
+    def web_tap(self, x, y):
+        """A tap at x, y (the menus' pixels): what's there does what it does (draw.py put down where things are, as
+        it drew them); anywhere else, what a tap does on that page, if anything."""
+        for (x0, y0, x1, y1), what in reversed(self.taps_now()):
+            if x0 <= x < x1 and y0 <= y < y1:
+                return self.tap_do(what)
+        return self.tap_elsewhere(x, y)
+
+    def tap_do(self, what):
+        """What a place on the screen does when it's tapped (draw.py's tappable put it down): [buttons to press], or
+        [] when it's done here."""
+        kind, args = what[0], what[1:]
+        if kind == "keys":                             # a button along the bottom, or ◀ ▶ by a value
+            return list(args)
+        if kind == "sel":                              # a row, a tile, an app: picked, or opened if it was
+            return self.tap_pick(*args)
+        if kind in ("tab", "tabs") and self.view == "list":
+            vis = self.visible_tabs()
+            here = vis.index(self.strip_tab())
+            step = args[0] if kind == "tabs" else vis.index(args[0]) - here if args[0] in vis else 0
+            if step:
+                self.switch_tab(step)
+                self.dirty = True
+            return []
+        if kind == "kb" and self.view == "keys" and self.kb:   # a key on the keyboard on the screen
+            self.kb["r"], self.kb["c"] = args
+            return ["a"]
+        if kind == "www" and self.view == "list" and self.tab_type() == "www" and self.www_on_page():
+            if args[0] < len(self.www["targets"]):     # a link, a box or a button on a page: opened
+                self.www["focus"] = args[0]
+                return ["a"]
+            return []
+        if kind == "bt" and self.view == "list" and self.tab_type() == "settings" and self.set_page == "bluetooth":
+            rows = self.bt_rows()
+            k = args[0]
+            if k < len(rows) and rows[k][0] in BT_PICKABLE:
+                if self.bt_sel(rows) == k:
+                    return ["a"]
+                self.bt_choose(rows, k)
+                self.dirty = True
+            return []
+        return []
+
+    def tap_pick(self, owner, key, k):
+        """A row tapped (a tile, an app...): picked, as ▲▼ would; tapped again once it's picked: A. owner: where
+        what's picked is kept: 'sels' (key: a tab's list), 'attr' (key: one of these, a number), 'dict' (key: one
+        of these, a menu with its 'sel')."""
+        n = self.sel_rows(owner, key)
+        if n is None or not 0 <= k < n:
+            return []
+        if owner == "sels":
+            if key != self.tab or self.view != "list":
+                return []
+            if self.sels.get(key, 0) == k:
+                return ["a"]
+            self.sels[key] = k
+            self.confirm = (None, 0.0)
+        elif owner == "attr":
+            if (getattr(self, key, 0) or 0) % n == k:
+                return ["a"]
+            setattr(self, key, k)
+        else:
+            m = getattr(self, key)
+            if m.get("sel", 0) % n == k:
+                return ["a"]
+            m["sel"] = k
+            if "confirm" in m:
+                m["confirm"] = (None, 0.0)
+        self.dirty = True
+        return []
+
+    def sel_rows(self, owner, key):
+        """How many rows the list a row was tapped in has now (None: it isn't up)."""
+        try:
+            if owner == "sels":
+                return len(self.tab_items(key))
+            if owner == "attr":
+                rows = {"set_sel": self.settings_rows, "wx_sel": self.wx_rows, "home_sel": self.home_apps,
+                        "cam_sel": self.cam_rows, "fin_sel": self.fin_rows}[key]
+            elif isinstance(getattr(self, key, None), dict):
+                rows = {"game_menu": lambda: self.game_menu_items() if self.game is not None else GAME_MENU,
+                        "chrome_menu": lambda: CHROME_MENU, "ha_menu": self.ha_rows,
+                        "cam_menu": self.cam_menu_rows}[key]
+            else:
+                return None
+            return len(rows())
+        except (KeyError, AttributeError, TypeError, IndexError, ValueError):
+            return None
+
+    def tap_elsewhere(self, x, y):
+        """A tap where nothing's put down: on a video, pause or play; on a picture or a document, its left third
+        back and its right third on; on a help page, closed (any button closes it)."""
+        if self.proc_owns_screen():
+            return ["a"] if self.proc and self.kind in SCREEN_KINDS and not self.chromium_shown() else []
+        if self.view == "help":
+            return ["a"]
+        if self.view in ("photo", "pdf", "text"):
+            third = self.fb.w / 3
+            return ["left"] if x < third else ["right"] if x >= 2 * third else []
+        return []
+
+    def media_on(self):
+        """A video on the screen, or Now playing: ▲▼ are the volume, ◀▶ go back and on."""
+        return ((self.proc_owns_screen() and bool(self.proc) and self.kind in SCREEN_KINDS)
+                or (self.view == "now" and self.kind in LISTEN_KINDS))
+
+    def web_swipe(self, dx, dy):
+        """A finger (or a mouse, held down) moved dx, dy across the web page's copy of the screen (the menus'
+        pixels): the page moves with it. Up and down: a list scrolls; a video's (or Now playing's) volume, up
+        louder. Across: ◀▶, the way the finger went for a video (on further), the other way for the rest (the next
+        picture, page, or a screenful on comes in from the right)."""
+        if self.proc_owns_screen() and not self.media_on():
+            return []                                  # (a game: its buttons are the remote's)
+        if abs(dx) > abs(dy):
+            if self.media_on():
+                return ["right" if dx > 0 else "left"]
+            return ["right" if dx < 0 else "left"]
+        if self.media_on():
+            return ["up" if dy < 0 else "down"] * min(4, max(1, round(abs(dy) / 60)))
+        rows = max(1, round(abs(dy) / self.ROW_H))
+        if self.view == "list" and self.tab_type() == "www" and self.www_on_page():
+            self.www_scroll(-dy)                       # (a page: as far as the finger went)
+            return []
+        return self.web_scroll(rows if dy < 0 else -rows)
+
+    def web_scroll(self, n):
+        """The wheel turned n notches (more than 0: down, on), or a swipe n rows' worth: a list scrolls that far,
+        its row picked staying where it is on the screen; elsewhere, ▲ or ▼ that many times."""
+        n = max(-SWIPE_MOST, min(SWIPE_MOST, int(n)))
+        if not n or (self.proc_owns_screen() and not self.media_on()):
+            return []
+        if self.view == "list" and self.tab_type() == "www" and self.www_on_page():
+            self.www_scroll(n * self.ROW_H)
+            return []
+        taps = self.taps_now()
+        if (self.view == "list" and self.tab_type() != "photos"
+                and any(w[:3] == ("sel", "sels", self.tab) for _, w in taps)):
+            self.list_scroll(n)
+            return []
+        if self.view == "list" or self.view in ("gamemenu", "chromenu"):
+            picked = next((w[1:3] for _, w in reversed(taps) if w[0] == "sel" and w[1] in ("attr", "dict")), None)
+            if picked and picked != ("attr", "home_sel"):
+                self.list_move(*picked, n)
+                return []
+        return ["down" if n > 0 else "up"] * abs(n)
+
+    def list_scroll(self, n):
+        """A tab's list moved n rows on (back, less than 0), the row picked going with it, so it stays where it is on
+        the screen (at an end, or if the whole list fits: the pick goes on by itself)."""
+        count = len(self.tab_items())
+        if not count:
+            return
+        rows = self.visible_rows()
+        top = self.tops.get(self.tab, 0)
+        new_top = max(0, min(top + n, max(count - rows, 0)))
+        sel = self.sels.get(self.tab, 0) + n
+        self.sels[self.tab] = max(new_top, min(sel, min(new_top + rows, count) - 1))
+        self.tops[self.tab] = new_top
+        self.confirm = (None, 0.0)
+        self.dirty = True
+
+    def list_move(self, owner, key, n):
+        """A page of settings (a menu) moved n rows on: the pick, never round past the end."""
+        count = self.sel_rows(owner, key)
+        if not count:
+            return
+        if owner == "attr":
+            setattr(self, key, max(0, min((getattr(self, key, 0) or 0) % count + n, count - 1)))
+        else:
+            m = getattr(self, key)
+            m["sel"] = max(0, min(m.get("sel", 0) % count + n, count - 1))
+            if "confirm" in m:
+                m["confirm"] = (None, 0.0)
+        self.dirty = True
+
+    def web_type(self, text, enter):
+        """Typed on the web page, into the box on the screen: what's in it now (and Done, with enter). It's the web
+        page's typing, as the remote's would be (a prompt for your coding agent isn't sent from it)."""
+        kb = self.kb
+        if not (self.active and self.view == "keys" and kb):
+            return {"error": "There's no box to type in on the screen"}
+        if not isinstance(text, str):
+            return {"error": "Bad request"}
+        kb["text"] = "".join(ch for ch in text if ch.isprintable())[:kb.get("limit", 60)]
+        if kb.get("local"):
+            kb["remote"] = True                        # (the web page had a hand in it)
+        self.dirty = True
+        if enter:
+            self.keyboard_key("done")
+        return {"ok": True}
+
+    # -- Play here: what's picked on the web page's copy of the screen, played on the phone or computer instead ----
+    def here_begin(self, here):
+        """A request from the web page, with Play here on (or off): what's played meanwhile goes to it."""
+        self.web_here, self.web_handoff, self.web_said = bool(here), None, ""
+
+    def here_end(self, out):
+        """The request done: the answer, with what's to play on the phone or computer ("play"), or why it played on the
+        Pi after all ("note")."""
+        handoff, said = self.web_handoff, self.web_said
+        self.web_here, self.web_handoff, self.web_said = False, None, ""
+        if isinstance(out, dict) and "error" not in out:
+            if handoff:
+                out = dict(out, play=handoff)
+            elif said:
+                out = dict(out, note=said)
         return out
+
+    @staticmethod
+    def home_rel(path):
+        """A file's place in your home folder ("Videos/a.mp4"), as the web page hands files out; None outside it (or in
+        a hidden folder, which the web page never hands out)."""
+        try:
+            real, home = os.path.realpath(path), os.path.realpath(home_dir())
+        except (OSError, ValueError, TypeError):
+            return None
+        if not real.startswith(home + os.sep):
+            return None
+        rel = os.path.relpath(real, home)
+        return rel if not any(p.startswith(".") for p in rel.split(os.sep)) else None
+
+    def here_url(self, it):
+        """Where the phone or computer gets a video, a song or a station to play it itself: a file of yours (the web page
+        hands it out), a cartoon or a film from archive.org, a station's stream. None: it plays on the Pi."""
+        src, kind = str(it.get("src") or ""), it.get("kind")
+        if kind == "video" and src.startswith("ia:") and "/" in src[3:]:
+            ident, name = src[3:].split("/", 1)
+            return "https://archive.org/download/" + urllib.parse.quote(ident) + "/" + urllib.parse.quote(name)
+        if kind == "radio" and re.match(r"https?://", src):
+            return src
+        if kind in ("video", "audio") and src.startswith("/") and not self.is_net(src) and self.web_may_see(src):
+            rel = self.home_rel(src)
+            if rel and os.path.splitext(src)[1].lower() in (HERE_VIDEO if kind == "video" else HERE_AUDIO):
+                return "/api/home/" + urllib.parse.quote(rel)
+        return None
+
+    def here_take(self, queue, i):
+        """Play here: queue[i] (and the rest of its kind with it, a song's album) handed to the phone or computer the web
+        page's on, to play there: True. False: it plays on the Pi (one a browser can't play, or Plex's: why's noted)."""
+        if not getattr(self, "web_here", False):
+            return False
+        it = queue[i]
+        kind = it.get("kind")
+        url = self.here_url(it)
+        if url is None:
+            src = str(it.get("src") or "")
+            self.web_said = ("Plex and Jellyfin play on the Pi" if kind in ("plexvideo", "jfvideo") else
+                             "Live channels play on the Pi" if kind == "live" else
+                             "That one plays on the Pi: a browser can't play it"
+                             if src.startswith("/") and self.home_rel(src) else "That one plays on the Pi")
+            return False
+        rows, at = [], 0
+        for x in queue:
+            if x is not it and x.get("kind") != kind:
+                continue
+            u = url if x is it else self.here_url(x)
+            if u:
+                if x is it:
+                    at = len(rows)
+                rows.append({"title": x.get("title", ""), "sub": x.get("sub", ""), "url": u})
+        first = max(0, min(at - HERE_MOST // 2, len(rows) - HERE_MOST))
+        rows = rows[first:first + HERE_MOST]
+        self.web_handoff = {"kind": kind, "items": rows, "index": at - first,
+                            "start": round(self.resume_at(it) or 0, 1) if kind == "video" else 0}
+        return True
+
+    def here_take_game(self, it):
+        """Play here: a game, handed to the phone or computer the web page's on to play in its browser (EmulatorJS, with
+        your save from here, which it sends back as you play): True. False: it plays on the Pi (why's noted)."""
+        if not getattr(self, "web_here", False):
+            return False
+        src = str(it.get("src") or "")
+        core = HERE_GAMES.get(it.get("system"))
+        rel = self.home_rel(src) if src.startswith("/") and not self.is_net(src) else None
+        if not core:
+            self.web_said = "That kind of game plays on the Pi"
+            return False
+        if not rel or os.path.splitext(src)[1].lower() in HERE_ONE_FILE:
+            self.web_said = "That game plays on the Pi" + (": it's in more than one file" if rel else "")
+            return False
+        bios = ""
+        if it.get("system") == "ps1":
+            folder = os.path.join(games_dir(), BIOS_FOLDER)
+            found = next((n for n in HERE_BIOS if os.path.isfile(os.path.join(folder, n))), None)
+            bios = (self.home_rel(os.path.join(folder, found)) or "") if found else ""
+        self.web_handoff = {"kind": "game", "title": it.get("title", ""), "core": core, "rom": rel, "bios": bios,
+                            "save": SAVES_FOLDER + "/" + save_name(src) + ".srm"}
+        return True
 
     def web_icon(self, name, size=96):
         """The home screen's icon for an app, for the web page (None: no such app)."""
@@ -309,7 +686,39 @@ class WebScreen:
             return self.web_settings_do(cmd)
         if c == "sketch":                              # (opened already, by the control server)
             return self.web_sketch(cmd.get("image"))
+        if c == "websound":                            # (webui.py: a page plays the Pi's sound, still; or stopped)
+            return self.web_sound_set(cmd.get("on") is True)
+        if c == "webmic":                              # (...a page's microphone is coming in, still; or stopped)
+            return self.web_mic_set(cmd.get("on") is True)
         return {"error": "Unknown request"}
+
+    # -- Sound here and Mic here: a web page's speaker and microphone, the Pi's (webui.py keeps saying so) ------------
+    def web_sound_set(self, on):
+        """Sound here, on for a while more (or off): the Pi's sound goes to the web page, through the Loopback card. What's
+        playing moves there, and back, as it does to Bluetooth headphones (sound_tick)."""
+        was = web_sound()
+        WEB_SOUND["until"] = time.monotonic() + WEB_HOLD if on else 0.0
+        if was != on:
+            self.sound_look = 0.0                      # (sound_tick: now)
+            if self.active and not self.proc_owns_screen():
+                self.toast("Sound through the web page" if on else "Sound through the Pi again", 3)
+        return {"ok": True}
+
+    def web_mic_set(self, on):
+        """Mic here, on for a while more (or off): the bot hears the web page's microphone instead of the Pi's."""
+        self.web_mic_until = time.monotonic() + WEB_HOLD if on else 0.0
+        self.web_mic_tick()
+        return {"ok": True, "listens": self.bot_listens()}
+
+    def web_mic_tick(self):
+        """Mic here, come or gone (or not said for a while: webui.py stopped): the bot listens with that microphone."""
+        on = time.monotonic() < self.web_mic_until
+        if on == getattr(self, "web_mic_was", False):
+            return
+        self.web_mic_was = on
+        self.listen_now()                              # (bot_mic says which)
+        if self.active and self.bot_listens() and not self.proc_owns_screen():
+            self.toast("The bot hears you through the web page" if on else "The bot hears the Pi's microphone again", 3)
 
     # -- the web page's Bluetooth: looked at while it asks (its own threads; not the screen's) -------
     def web_bluetooth(self):

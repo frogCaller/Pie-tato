@@ -18,9 +18,11 @@ Settings > Controller has it (if the case sends it to the Pi at all). A keyboard
 Esc B, X Y, Q E (or [ ]) L R, P START, O SELECT; in the terminal, and in a text box, it types. Its trackpad
 (the BB9900's), or a mouse, works media mode too: a swipe the d-pad, pressed A, its right button B.
 
-The web page (webui.py) shows what's on the screen, has a remote, puts cartoons, films, news,
-radio, apps and your own files on the screen, and pairs Bluetooth devices. Its Draw tab puts a
-drawing on the whole screen until B (kept in ~/Pictures/Drawings). It talks to this script on
+The web page (webui.py) shows what's on the screen (tap it to pick and open things, as with the
+buttons), has a remote, puts cartoons, films, news, radio, apps and your own files on the screen, and
+pairs Bluetooth devices. With Play here on, what you pick plays in your phone's or computer's browser
+instead; Sound here plays the Pi's sound there, and Mic here lets the bot hear you through it. Its Draw
+tab puts a drawing on the whole screen until B (kept in ~/Pictures/Drawings). It talks to this script on
 127.0.0.1:5480.
 
 While a video plays, Y turns full screen on or off (the choice is kept for the next videos);

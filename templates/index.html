@@ -97,7 +97,7 @@
   main { max-width: 1720px; margin: 0 auto; padding: 28px; }
 
   /* ---- the screen, the player and the remote: things in the room, no boxes ---- */
-  .screen { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: 36px; align-items: start; }
+  .screen { display: grid; grid-template-columns: minmax(440px, 1.15fr) minmax(0, 1fr); gap: 36px; align-items: start; }
   .col { display: flex; flex-direction: column; gap: 26px; min-width: 0; }
   .tv-wrap { position: relative; isolation: isolate; }
   .glow {
@@ -108,14 +108,73 @@
   body.tv-dark .glow { opacity: calc(var(--glow-a) * .35); }
   .tv { position: relative; aspect-ratio: 16 / 9; border-radius: 14px; overflow: hidden; background: #000; }
   .tv::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: 0 0 0 1px rgba(255, 255, 255, .08) inset; pointer-events: none; }
-  .tv img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .tv img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+  /* the Pi's screen is its own remote: a tap picks (and, again, opens), a swipe or the wheel moves */
+  body.taps .tv { cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+  .ripple {
+    position: absolute; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; pointer-events: none;
+    background: rgba(var(--accent-rgb), .32); box-shadow: 0 0 0 2px rgba(var(--accent-rgb), .55) inset;
+    animation: ripple .42s ease-out forwards;
+  }
+  @keyframes ripple { from { transform: scale(.35); opacity: 1; } to { transform: scale(1.35); opacity: 0; } }
+  .tv-bar { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+  .tb {
+    display: inline-flex; align-items: center; gap: 7px; height: 40px; padding: 0 17px 0 13px; border-radius: 999px;
+    border: 0; background: var(--key); box-shadow: var(--key-edge); color: var(--text); font-size: 14.5px; font-weight: 600;
+    white-space: nowrap; touch-action: manipulation;
+  }
+  .tb:hover { filter: brightness(1.08); }
+  .tb.held { background: rgba(var(--accent-rgb), .22); color: var(--accent); box-shadow: 0 0 0 1px rgba(var(--accent-rgb), .5) inset; }
+  .tb.sq { width: 40px; padding: 0; justify-content: center; }
+  .tb[aria-expanded="true"] { background: rgba(var(--accent-rgb), .16); color: var(--accent); box-shadow: 0 0 0 1px rgba(var(--accent-rgb), .45) inset; }
+  .tb:disabled { opacity: .4; cursor: default; filter: none; }
+  .tb-gap { flex: 1; }
+  .tv-tip { margin: 10px 4px 0; font-size: 13px; color: var(--muted); }
+  .typer { margin-top: 14px; padding: 12px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line-2); }
+  .typer label { display: block; margin: 0 2px 8px; font-size: 13.5px; font-weight: 600; color: var(--body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .typer-row { display: flex; gap: 8px; }
+  .typer input {
+    flex: 1; min-width: 0; height: 42px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line-3);
+    background: var(--room); font-size: 16px; outline: none;
+  }
+  .typer input:focus { border-color: var(--accent); }
+  .typer .ty-go { height: 42px; padding: 0 18px; border: 0; border-radius: 12px; font-weight: 650; background: var(--accent); color: var(--on-accent); }
+  .typer .ty-no { height: 42px; padding: 0 12px; border: 0; border-radius: 12px; background: none; color: var(--muted); font-weight: 600; }
+  .typer .ty-no:hover { color: var(--text); background: var(--hover); }
+  /* Play here: on this phone or computer, where the Pi's screen was */
+  .modes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 14px 0 11px; border-radius: 999px;
+    border: 1px solid var(--line-2); background: none; color: var(--body); font-size: 14px; font-weight: 600; white-space: nowrap;
+  }
+  .chip:hover { color: var(--text); background: var(--hover); }
+  .chip[aria-pressed="true"] { border-color: transparent; background: rgba(var(--accent-rgb), .18); color: var(--accent); }
+  .secure-note { margin: 10px 4px 0; font-size: 13.5px; color: var(--body); }
+  .stage.here-on > .tv-wrap, .stage.here-on > .tv-bar { display: none; }
+  .here-box { position: relative; aspect-ratio: 16 / 9; border-radius: 14px; overflow: hidden; background: #000; }
+  .here-box.game { aspect-ratio: 4 / 3; }
+  .here-box video, .here-box iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #000; }
+  .here-box video { object-fit: contain; }
+  .here-box.song { aspect-ratio: auto; display: grid; gap: 14px; padding: 26px 24px 22px; background: var(--surface); border: 1px solid var(--line-2); }
+  .here-box.song b { font-size: 20px; font-weight: 700; overflow-wrap: anywhere; }
+  .here-box.song span { color: var(--muted); overflow-wrap: anywhere; }
+  .here-box.song audio { width: 100%; }
+  .here-what { flex: 1; min-width: 0; font-weight: 600; color: var(--body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stage:fullscreen .here-box, .stage:fullscreen .here .tv-bar { width: min(100%, calc((100vh - 80px) * 16 / 9)); margin-inline: auto; }
+  /* full screen: just the Pi's screen, as big as it goes, with Back and Home under it */
+  .stage:fullscreen { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; padding: 12px; background: #000; }
+  .stage:-webkit-full-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 12px; background: #000; }
+  .stage:fullscreen .tv-wrap { width: min(100%, calc((100vh - 80px) * var(--ar, 1.7778))); }
+  .stage:-webkit-full-screen .tv-wrap { width: min(100%, calc((100vh - 80px) * var(--ar, 1.7778))); }
+  .stage:fullscreen .glow, .stage:fullscreen #remoteBtn { display: none; }
+  .stage:-webkit-full-screen #remoteBtn { display: none; }
+  .stage:fullscreen .tv-bar { width: min(100%, calc((100vh - 80px) * var(--ar, 1.7778))); }
   .tv-msg {
     position: absolute; inset: 0; display: grid; place-items: center; align-content: center; gap: 6px; padding: 24px;
     text-align: center; color: #b3adbb; font-size: 14px; background: #0e0d11;
   }
   .tv-msg b { color: #fff; font-size: 16px; font-weight: 650; }
   .tv-msg button { margin-top: 10px; border: 0; border-radius: 999px; padding: 8px 18px; font-weight: 650; background: var(--accent); color: var(--on-accent); }
-  .tv-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; }
   .player { margin-top: 18px; }
   .p-head { display: flex; align-items: flex-end; gap: 12px; }
   .p-text { flex: 1; min-width: 0; }
@@ -162,20 +221,16 @@
     transition: background-color .08s, color .08s;
   }
   .ring .ok.held { background: rgba(var(--accent-rgb), .22); color: var(--accent); }
-  .mainkeys { display: flex; gap: 12px; }
-  .mk {
-    display: flex; align-items: center; gap: 8px; height: 46px; padding: 0 20px 0 16px; border-radius: 999px;
-    border: 0; background: var(--key); box-shadow: var(--key-edge); color: var(--text); font-size: 15px; font-weight: 600;
-  }
   .minikeys { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
   .kk {
     min-width: 40px; height: 34px; padding: 0 11px; border-radius: 10px; border: 0;
     background: var(--key); box-shadow: var(--key-edge); color: var(--body); font-size: 14px; font-weight: 650;
   }
   .kk.word { font-size: 13px; font-weight: 600; }
-  .mk:hover, .kk:hover { color: var(--text); filter: brightness(1.08); }
-  .mk.held, .kk.held { background: rgba(var(--accent-rgb), .22); color: var(--accent); box-shadow: 0 0 0 1px rgba(var(--accent-rgb), .5) inset; }
+  .kk:hover { color: var(--text); filter: brightness(1.08); }
+  .kk.held { background: rgba(var(--accent-rgb), .22); color: var(--accent); box-shadow: 0 0 0 1px rgba(var(--accent-rgb), .5) inset; }
   .remote-card.off .remote .rk:not([data-b="home"]) { opacity: .35; pointer-events: none; }
+  .remote { padding-bottom: 6px; }
   .kbd-hint { margin: 2px 0 0; text-align: center; font-size: 12.5px; color: var(--faint); }
   .pads { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line); }
   .pads-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -627,7 +682,7 @@
   @media (hover: none) { .acts { opacity: 1; } .go2 { opacity: 1; } .kbd-hint { display: none; } }
   @media (max-width: 1180px) {
     main { padding: 24px; }
-    .screen { grid-template-columns: 370px minmax(0, 1fr); gap: 28px; }
+    .screen { grid-template-columns: minmax(360px, 1fr) minmax(0, 1fr); gap: 28px; }
     .ring { --d: 208px; }
     .lib-body { grid-template-columns: 188px minmax(0, 1fr); }
     .search { width: 210px; }
@@ -701,6 +756,7 @@
     .dock button[aria-current="true"] { color: var(--text); }
     .dock button[aria-current="true"] svg { color: var(--accent); }
     .toast { bottom: calc(84px + env(safe-area-inset-bottom)); }
+    .here-box.game { aspect-ratio: auto; height: calc(100vh - var(--top) - 180px); height: calc(100svh - var(--top) - 180px); min-height: 280px; }
   }
   @media (max-width: 640px) {
     .row { grid-template-columns: 42px minmax(0, 1fr) auto; gap: 10px; padding: 7px 8px; }
@@ -712,7 +768,12 @@
     .set-row { grid-template-columns: minmax(0, 1fr); gap: 10px; }
     .set-c, .swatches, .set-ask { justify-content: flex-start; }
   }
-  @media (max-width: 380px) { .ring { --d: 196px; } .ring .ok { width: 80px; height: 80px; } }
+  @media (max-width: 440px) { .modes { gap: 6px; } .chip { gap: 5px; padding: 0 10px 0 8px; font-size: 13.5px; } }
+  @media (max-width: 380px) { .ring { --d: 196px; } .ring .ok { width: 80px; height: 80px; } .tb { padding: 0 13px 0 10px; } }
+  /* a phone on its side: the whole screen in view, with its buttons */
+  @media (max-width: 900px) and (orientation: landscape) and (max-height: 560px) {
+    .stage .tv-wrap, .stage .tv-bar { width: min(100%, calc((100vh - var(--top) - 160px) * var(--ar, 1.7778))); margin-inline: auto; }
+  }
 </style>
 </head>
 <body data-view="screen">
@@ -734,19 +795,48 @@
 <main class="screen" id="screenView">
   <div class="col">
     <section class="now" aria-label="The Pi's screen">
-      <div class="tv-wrap">
-        <div class="glow" aria-hidden="true"></div>
-        <div class="tv" id="tv">
-          <img id="shot" alt="">
-          <div class="tv-msg" id="tvMsg" hidden></div>
+      <div class="stage" id="stage">
+        <div class="tv-wrap">
+          <div class="glow" aria-hidden="true"></div>
+          <div class="tv" id="tv">
+            <img id="shot" alt="" draggable="false">
+            <div class="tv-msg" id="tvMsg" hidden></div>
+          </div>
+        </div>
+        <div class="tv-bar">
+          <button class="tb rk" type="button" data-b="b" aria-label="Back (B)"><span class="ic-back"></span>Back</button>
+          <button class="tb rk" type="button" data-b="home" aria-label="Home screen"><span class="ic-home"></span>Home</button>
+          <span class="tb-gap"></span>
+          <button class="tb" type="button" id="remoteBtn" aria-expanded="false" aria-controls="remoteBox"><span class="ic-remote-sm"></span>Remote</button>
+          <button class="tb sq" type="button" id="fullBtn" title="Full screen" aria-label="Full screen"></button>
+        </div>
+        <div class="here" id="here" hidden>
+          <div class="here-box" id="hereBox"></div>
+          <div class="tv-bar">
+            <button class="tb" type="button" id="hereClose"><span class="ic-close"></span>Close</button>
+            <span class="here-what" id="hereWhat"></span>
+            <button class="tb sq" type="button" id="herePrev" title="Previous" aria-label="Previous" hidden></button>
+            <button class="tb sq" type="button" id="hereNext" title="Next" aria-label="Next" hidden></button>
+          </div>
         </div>
       </div>
-      <div class="tv-foot">
-        <div class="seg" id="modeSeg" role="group" aria-label="What the Pi shows">
-          <button type="button" data-mode="media" aria-pressed="false">Media mode</button>
-          <button type="button" data-mode="terminal" aria-pressed="false">Terminal</button>
-        </div>
+      <div class="modes" id="modes">
+        <button class="chip" type="button" id="playHere" aria-pressed="false"><span class="ic-device"></span>Play here</button>
+        <button class="chip" type="button" id="soundHere" aria-pressed="false"><span class="ic-speaker"></span>Sound here</button>
+        <button class="chip" type="button" id="micHere" aria-pressed="false"><span class="ic-mic"></span>Mic here</button>
       </div>
+      <p class="secure-note" id="secureNote" hidden>Your browser only lets a page use your microphone over a secure
+        connection. <a id="secureLink" href="#">Open the secure page</a>. The first time, your browser warns you about
+        it, as the Pi made its own certificate: go on to the page from there.</p>
+      <form class="typer" id="typer" hidden autocomplete="off">
+        <label for="typeIn" id="typeLabel">Type here</label>
+        <div class="typer-row">
+          <input id="typeIn" type="text" enterkeyhint="done" autocapitalize="off" spellcheck="false">
+          <button class="ty-go" type="submit">Done</button>
+          <button class="ty-no" type="button" id="typeNo">Cancel</button>
+        </div>
+      </form>
+      <p class="tv-tip" id="tvTip" hidden>Tap something on the screen to pick it, and tap it again to open it. Swipe, or scroll, to move along.</p>
       <div class="player" id="player" hidden>
         <div class="p-head">
           <div class="p-text"><b id="pTitle"></b><span id="pSub"></span></div>
@@ -775,17 +865,13 @@
     </section>
 
     <section class="remote-card" id="remoteCard" aria-label="Remote">
-      <div class="remote">
+      <div class="remote" id="remoteBox" hidden>
         <div class="ring">
           <button class="rk arrow up" type="button" data-b="up" aria-label="Up"></button>
           <button class="rk arrow left" type="button" data-b="left" aria-label="Left"></button>
           <button class="rk arrow right" type="button" data-b="right" aria-label="Right"></button>
           <button class="rk arrow down" type="button" data-b="down" aria-label="Down"></button>
           <button class="rk ok" type="button" data-b="a" aria-label="OK (A)">OK</button>
-        </div>
-        <div class="mainkeys">
-          <button class="rk mk" type="button" data-b="b" aria-label="Back (B)"><span class="ic-back"></span>Back</button>
-          <button class="rk mk" type="button" data-b="home" aria-label="Home screen"><span class="ic-home"></span>Home</button>
         </div>
         <div class="minikeys">
           <button class="rk kk" type="button" data-b="l" title="L: the tab to the left">L</button>
@@ -794,6 +880,10 @@
           <button class="rk kk" type="button" data-b="y" title="Y">Y</button>
           <button class="rk kk word" type="button" data-b="select">Select</button>
           <button class="rk kk word" type="button" data-b="start">Start</button>
+        </div>
+        <div class="seg" id="modeSeg" role="group" aria-label="What the Pi shows">
+          <button type="button" data-mode="media" aria-pressed="false">Media mode</button>
+          <button type="button" data-mode="terminal" aria-pressed="false">Terminal</button>
         </div>
         <p class="kbd-hint">Your keyboard works too: arrows, Enter, Esc</p>
       </div>
@@ -892,7 +982,7 @@
 </main>
 
 <nav class="dock" aria-label="Views">
-  <button type="button" data-view="screen" aria-current="false"><span class="ic-remote"></span>Remote</button>
+  <button type="button" data-view="screen" aria-current="false"><span class="ic-tv"></span>Screen</button>
   <button type="button" data-view="library" aria-current="false"><span class="ic-library"></span>Library</button>
   <button type="button" data-view="files" aria-current="false"><span class="ic-files"></span>Files</button>
   <button type="button" data-view="settings" aria-current="false"><span class="ic-settings"></span>Settings</button>
@@ -942,6 +1032,12 @@ const ICONS = {
   spin: I('<path d="M12 3a9 9 0 1 0 9 9" stroke-width="2.4"/>', 16),
   plus: I('<path d="M12 5v14M5 12h14"/>', 18, 2.2),
   remote: I('<rect x="7" y="2.5" width="10" height="19" rx="4"/><circle cx="12" cy="8.5" r="2.2"/><path d="M10 14.5h4M10 17.5h4"/>', 22),
+  remoteSm: I('<rect x="7" y="2.5" width="10" height="19" rx="4"/><circle cx="12" cy="8.5" r="2.2"/><path d="M10 14.5h4M10 17.5h4"/>', 18),
+  tv: I('<rect x="2.5" y="4" width="19" height="13" rx="2.2"/><path d="M8 21h8"/>', 22),
+  close: I('<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>', 18),
+  device: I('<rect x="6.5" y="2.5" width="11" height="19" rx="2.6"/><path d="M11 18.3h2"/>', 17),
+  speaker: I('<path d="M4 9.5v5h3.5L12 18V6L7.5 9.5z"/><path d="M15.5 9.2a4 4 0 0 1 0 5.6M18 6.8a7.4 7.4 0 0 1 0 10.4"/>', 17),
+  mic: I('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>', 17),
   library: I('<rect x="3.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.8"/>', 22),
   files: I('<path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2h9A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/>', 22),
   pc: I('<rect x="3" y="4" width="18" height="12.5" rx="2"/><path d="M8.5 20h7M12 16.5V20"/>'),
@@ -950,7 +1046,7 @@ const ICONS = {
 };
 ICONS.pdf = ICONS.documents;
 ICONS.games = ICONS.pad;
-for (const [cls, key] of [["ic-back", "backKey"], ["ic-home", "home"], ["ic-remote", "remote"], ["ic-library", "library"], ["ic-files", "files"], ["ic-settings", "settings"]]) {
+for (const [cls, key] of [["ic-back", "backKey"], ["ic-home", "home"], ["ic-remote-sm", "remoteSm"], ["ic-tv", "tv"], ["ic-close", "close"], ["ic-device", "device"], ["ic-speaker", "speaker"], ["ic-mic", "mic"], ["ic-library", "library"], ["ic-files", "files"], ["ic-settings", "settings"]]) {
   for (const n of $$("." + cls)) n.outerHTML = ICONS[key];
 }
 
@@ -1128,7 +1224,8 @@ function goView(v) {
 for (const b of $$(".vbtn, .dock button")) b.onclick = () => goView(b.dataset.view);
 
 // ---- the screen: what's on it ----------------------------------------------------------
-const SCR = { state: null, frame: null, shotAt: 0, loading: false, timer: 0, fails: 0 };
+const SCR = { state: null, frame: null, shotAt: 0, timer: 0, fails: 0, watching: false, url: null, touchedAt: 0 };
+const HERE = { on: false, what: null, list: [], at: 0, game: null };   // Play here: on or off, and what's playing here
 const DIRS = new Set(["up", "down", "left", "right"]);
 const REPEATS = new Set([...DIRS, "a", "y"]);              // held down: again and again (where the Pi wants it)
 const VIDEO = new Set(["video", "live", "plex"]);
@@ -1143,29 +1240,56 @@ async function poll() {                                   // (in Files, now and 
   if (st) {
     SCR.state = st;
     drawState(st);
-    if (!files) maybeShot(st);
+    if (!files) watchScreen();
   } else if (SCR.fails > 1) drawOffline();
   clearTimeout(SCR.timer);
   SCR.timer = setTimeout(poll, SCR.fails > 1 ? 5000 : files ? 10000 : 1500);
 }
 function kick(ms = 200) { clearTimeout(SCR.timer); SCR.timer = setTimeout(poll, ms); }
-function maybeShot(st) {
-  if (st.mode !== "media") return;                        // the terminal stays on the Pi
-  const due = st.video ? Date.now() - SCR.shotAt > 4000 : st.frame !== SCR.frame;
-  if (due && !SCR.loading) loadShot(st.frame);
+const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
+// the screen's pictures, each as soon as it's drawn: the Pi answers a request for the next one when there is one
+// (a video's: a look every few seconds)
+function screenShown() { return !document.hidden && $("#tv").offsetParent !== null; }
+function watchScreen() {
+  if (SCR.watching || !screenShown() || !SCR.state || SCR.state.mode !== "media") return;
+  SCR.watching = true;
+  nextPicture().finally(() => { SCR.watching = false; });
 }
-function loadShot(frameNo) {
-  SCR.loading = true;
-  const img = new Image();
-  img.alt = "What's on the Pi's screen";
-  img.onload = () => {
-    img.id = "shot";
-    $("#shot").replaceWith(img);
-    SCR.frame = frameNo; SCR.shotAt = Date.now(); SCR.loading = false;
-    glowFrom(img);
-  };
-  img.onerror = () => { SCR.loading = false; SCR.shotAt = Date.now(); };
-  img.src = "/api/pi/screen?f=" + frameNo + "&t=" + Date.now();
+async function nextPicture() {
+  while (screenShown() && SCR.state && SCR.state.mode === "media") {
+    let r = null;
+    try {
+      r = await fetch("/api/pi/screen?after=" + (SCR.frame ?? -1) + "&wait=15", { cache: "no-store" });
+    } catch (e) { await sleep(2500); continue; }
+    if (!r.ok) {                                          // (the terminal, or the Pi isn't answering)
+      if (r.status === 403) SCR.frame = null;
+      await sleep(r.status === 403 ? 1500 : 3000);
+      if (r.status === 403) kick(0);
+      continue;
+    }
+    const n = parseInt(r.headers.get("X-Pitato-Frame"), 10);
+    let blob = null;
+    try { blob = await r.blob(); } catch (e) { continue; }
+    await showPicture(blob, Number.isFinite(n) ? n : null);
+  }
+}
+function showPicture(blob, n) {
+  return new Promise((done) => {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.alt = "What's on the Pi's screen";
+    img.draggable = false;
+    img.onload = () => {
+      img.id = "shot";
+      $("#shot").replaceWith(img);
+      if (SCR.url) URL.revokeObjectURL(SCR.url);
+      SCR.url = url; SCR.frame = n; SCR.shotAt = Date.now();
+      glowFrom(img);
+      done();
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); SCR.frame = n; setTimeout(done, 1000); };
+    img.src = url;
+  });
 }
 // the TV lights the room: the glow behind the picture is the picture's own colour
 const glowPad = document.createElement("canvas");
@@ -1206,7 +1330,13 @@ function drawState(st) {
   $("#status").textContent = media ? st.where || "Media mode" : "Terminal";
   document.body.classList.toggle("tv-dark", !media);
   for (const b of $$("#modeSeg button")) b.setAttribute("aria-pressed", String(b.dataset.mode === st.mode));
-  if (st.size && st.size[0] && st.size[1]) $("#tv").style.aspectRatio = st.size[0] + " / " + st.size[1];
+  if (st.size && st.size[0] && st.size[1]) {
+    $("#tv").style.aspectRatio = st.size[0] + " / " + st.size[1];
+    $("#stage").style.setProperty("--ar", (st.size[0] / st.size[1]).toFixed(4));
+  }
+  document.body.classList.toggle("taps", media);
+  $('.tb[data-b="b"]').disabled = !media;
+  drawTyper(media ? st.kb : null);
   const m = $("#tvMsg");
   if (media) { m.hidden = true; m.dataset.for = ""; }
   else if (m.dataset.for !== "terminal") {
@@ -1277,8 +1407,10 @@ for (const b of $$("#modeSeg button")) b.onclick = () => setMode(b.dataset.mode)
 let chain = Promise.resolve(), inFlight = 0;
 function press(name, repeat) {
   if (repeat && inFlight) return;                       // held down: don't pile them up
+  SCR.touchedAt = Date.now();
   inFlight++;
-  chain = chain.then(() => pi("press", { button: name, repeat: !!repeat }))
+  chain = chain.then(() => pi("press", { button: name, repeat: !!repeat, here: HERE.on }))
+    .then(handedOver)
     .catch((e) => { if (!repeat) toast(e.message); })
     .finally(() => { inFlight--; kick(150); });
 }
@@ -1331,6 +1463,416 @@ document.addEventListener("keydown", (e) => {
   if (e.repeat) { if (REPEATS.has(name)) press(name, true); return; }
   press(name); flash(name);
 });
+
+// ---- the screen itself, touched: as on the Pi, a tap picks what's there and a tap on what's picked opens it;
+// a swipe (or the mouse's wheel) moves along; what's tapped where is the Pi's to say, from where it drew things
+const tv = $("#tv");
+let gesture = null;
+function picture() {                                      // where the picture is in the TV (it's fitted, not stretched)
+  const img = $("#shot"), box = tv.getBoundingClientRect();
+  const w = img.naturalWidth, h = img.naturalHeight;
+  if (!w || !h || !box.width) return null;
+  const k = Math.min(box.width / w, box.height / h);
+  return { left: box.left + (box.width - w * k) / 2, top: box.top + (box.height - h * k) / 2, width: w * k, height: h * k };
+}
+function touch(what, body) {
+  SCR.touchedAt = Date.now();
+  inFlight++;
+  chain = chain.then(() => pi(what, Object.assign({ here: HERE.on }, body)))
+    .then(handedOver)
+    .catch((e) => toast(e.message))
+    .finally(() => { inFlight--; kick(120); });
+  return chain;
+}
+function ripple(x, y) {
+  const box = tv.getBoundingClientRect(), r = el("span", "ripple");
+  r.style.left = (x - box.left) + "px"; r.style.top = (y - box.top) + "px";
+  tv.append(r);
+  setTimeout(() => r.remove(), 450);
+}
+function tapped() {                                       // (the tip under the screen: till you've got the hang of it)
+  const n = store.get("taps", 0) + 1;
+  store.set("taps", n);
+  if (n >= 3) $("#tvTip").hidden = true;
+}
+tv.addEventListener("pointerdown", (e) => {
+  if (e.button !== 0 || !document.body.classList.contains("taps") || e.target.closest(".tv-msg")) return;
+  gesture = { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now(), far: false };
+  try { tv.setPointerCapture(e.pointerId); } catch (err) {}
+  e.preventDefault();
+});
+tv.addEventListener("pointermove", (e) => {
+  if (gesture && e.pointerId === gesture.id && Math.hypot(e.clientX - gesture.x, e.clientY - gesture.y) > 10) gesture.far = true;
+});
+tv.addEventListener("pointerup", (e) => {
+  if (!gesture || e.pointerId !== gesture.id) return;
+  const g = gesture, p = picture();
+  gesture = null;
+  if (!p) return;
+  const dx = e.clientX - g.x, dy = e.clientY - g.y;
+  if (!g.far && performance.now() - g.t < 900) {
+    const x = (e.clientX - p.left) / p.width, y = (e.clientY - p.top) / p.height;
+    if (x < 0 || x > 1 || y < 0 || y > 1) return;
+    ripple(e.clientX, e.clientY);
+    tapped();
+    touch("tap", { x, y });
+  } else if (Math.hypot(dx, dy) > 24) {
+    touch("swipe", { x: dx / p.width, y: dy / p.height });
+  }
+});
+tv.addEventListener("pointercancel", () => { gesture = null; });
+tv.addEventListener("contextmenu", (e) => { if (document.body.classList.contains("taps")) e.preventDefault(); });
+let wheelBy = 0, wheeling = false;
+tv.addEventListener("wheel", (e) => {
+  if (!document.body.classList.contains("taps") || e.ctrlKey) return;
+  e.preventDefault();
+  wheelBy += e.deltaMode === 1 ? e.deltaY * 33 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
+  wheel();
+}, { passive: false });
+function wheel() {                                        // a row a notch (100: a mouse's notch), one request at a time
+  const n = Math.trunc(wheelBy / 100);
+  if (wheeling || !n) return;
+  wheelBy -= n * 100;
+  wheeling = true;
+  touch("scroll", { y: Math.max(-12, Math.min(12, n)) }).finally(() => { wheeling = false; wheel(); });
+}
+
+// what the Pi's box (a search, an address, a password) has in it: typed here, on this keyboard
+const TY = { title: null, timer: 0, sent: null };
+function drawTyper(kb) {
+  const f = $("#typer"), inp = $("#typeIn");
+  if (!kb) {
+    if (!f.hidden) { f.hidden = true; TY.title = null; clearTimeout(TY.timer); }
+    return;
+  }
+  const fresh = f.hidden || TY.title !== kb.title;
+  f.hidden = false;
+  $("#typeLabel").textContent = kb.title || "Type here";
+  inp.maxLength = kb.limit || 60;
+  if (fresh) {
+    TY.title = kb.title; TY.sent = kb.text || "";
+    inp.value = kb.text || "";
+    if (Date.now() - SCR.touchedAt < 5000) inp.focus({ preventScroll: true });   // (you opened it from here)
+  } else if (document.activeElement !== inp && (kb.text || "") !== TY.sent) {
+    inp.value = TY.sent = kb.text || "";                  // (typed on the Pi meanwhile)
+  }
+}
+function sendTyped(enter) {
+  clearTimeout(TY.timer);
+  const text = $("#typeIn").value;
+  TY.sent = text;
+  return touch("type", { text, enter });
+}
+$("#typeIn").addEventListener("input", () => { clearTimeout(TY.timer); TY.timer = setTimeout(() => sendTyped(false), 280); });
+$("#typer").addEventListener("submit", (e) => { e.preventDefault(); sendTyped(true); $("#typeIn").blur(); });
+$("#typeIn").addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); $("#typeNo").click(); } });
+$("#typeNo").onclick = () => { clearTimeout(TY.timer); $("#typeIn").blur(); press("b"); };
+
+// the remote: put away till it's wanted
+function showRemote(open) {
+  $("#remoteBox").hidden = !open;
+  $("#remoteBtn").setAttribute("aria-expanded", String(open));
+  store.set("remote", open);
+}
+$("#remoteBtn").onclick = () => showRemote($("#remoteBox").hidden);
+for (const b of [$("#remoteBtn"), $("#fullBtn")]) b.addEventListener("mousedown", (e) => e.preventDefault());   // (the keyboard
+                                                                                                                  // stays the Pi's)
+showRemote(store.get("remote", false));
+$("#tvTip").hidden = store.get("taps", 0) >= 3;
+
+// full screen: the Pi's screen, as big as this one goes
+const stage = $("#stage");
+const fullBtn = $("#fullBtn");
+fullBtn.hidden = !(stage.requestFullscreen || stage.webkitRequestFullscreen);
+function drawFull() {
+  const on = (document.fullscreenElement || document.webkitFullscreenElement) === stage;
+  fullBtn.innerHTML = on ? ICONS.fit : ICONS.full;
+  fullBtn.title = on ? "Leave full screen" : "Full screen";
+  fullBtn.setAttribute("aria-label", fullBtn.title);
+}
+fullBtn.onclick = () => {
+  if (document.fullscreenElement || document.webkitFullscreenElement) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  else (stage.requestFullscreen || stage.webkitRequestFullscreen).call(stage);
+};
+document.addEventListener("fullscreenchange", drawFull);
+document.addEventListener("webkitfullscreenchange", drawFull);
+drawFull();
+
+// Play here: what you pick plays on this phone or computer instead, where the Pi's screen was: a video or a song in the
+// browser's own player, a game in EmulatorJS (its save goes back to the Pi). What a browser can't play stays on the Pi.
+const PHONE = matchMedia("(pointer: coarse)").matches;
+function drawHereChip() {
+  const b = $("#playHere");
+  b.setAttribute("aria-pressed", String(HERE.on));
+  b.title = HERE.on ? "What you pick plays here. Tap to play things on the Pi again"
+    : "Play what you pick on this " + (PHONE ? "phone" : "computer") + ", instead of the Pi";
+}
+$("#playHere").onclick = () => {
+  HERE.on = !HERE.on;
+  store.set("here", HERE.on);
+  drawHereChip();
+  toast(HERE.on ? "What you pick now plays here, on this " + (PHONE ? "phone" : "computer")
+    : "What you pick plays on the Pi again");
+};
+HERE.on = store.get("here", false) === true;
+drawHereChip();
+function handedOver(out) {                                // (the Pi's answer: something to play here, or why not)
+  if (out && out.play) openHere(out.play);
+  else if (out && out.note) toast(out.note);
+  return out;
+}
+function hereUrl(r) {                                     // a row of the library: where this browser plays it from
+  const src = String(r.src || "");
+  const ia = /^ia:([^/]+)\/(.+)$/.exec(src);
+  if (ia) return "https://archive.org/download/" + encodeURIComponent(ia[1]) + "/" + ia[2].split("/").map(encodeURIComponent).join("/");
+  if (r.kind === "radio" && /^https?:\/\//.test(src)) return src;
+  return null;
+}
+async function openHere(p) {
+  await closeHere();                                      // (a game open already: its save to the Pi first)
+  const box = $("#hereBox");
+  box.className = "here-box";
+  box.textContent = "";
+  HERE.what = p;
+  if (p.kind === "game") {
+    const f = document.createElement("iframe");
+    f.title = p.title || "A game";
+    f.allow = "autoplay; fullscreen; gamepad";
+    f.setAttribute("allowfullscreen", "");
+    f.src = "/play?" + qs({ core: p.core, rom: p.rom, save: p.save || "", bios: p.bios || "", name: p.title || "",
+      color: (S.info && S.info.accent) || "" });
+    box.classList.add("game");
+    box.append(f);
+    HERE.game = f;
+    HERE.list = []; HERE.at = 0;
+    $("#hereWhat").textContent = p.title || "";
+    $("#herePrev").hidden = $("#hereNext").hidden = true;
+  } else {
+    HERE.list = p.items || [];
+    HERE.at = p.index || 0;
+    playAt(HERE.at, p.start || 0);
+  }
+  $("#here").hidden = false;
+  $("#stage").classList.add("here-on");
+  $("#tvTip").hidden = true;
+}
+function playAt(i, start) {                               // a video, a song or a station: the browser's own player
+  const r = HERE.list[i];
+  if (!r) return closeHere();
+  HERE.at = i;
+  const box = $("#hereBox");
+  box.textContent = "";
+  const video = HERE.what.kind === "video";
+  box.classList.toggle("song", !video);
+  const m = document.createElement(video ? "video" : "audio");
+  m.controls = true; m.autoplay = true; m.preload = "auto";
+  if (video) m.playsInline = true;
+  m.src = r.url;
+  if (start > 5) m.addEventListener("loadedmetadata", () => { try { m.currentTime = start; } catch (e) {} }, { once: true });
+  m.addEventListener("ended", () => { if (HERE.at + 1 < HERE.list.length) playAt(HERE.at + 1, 0); });
+  m.addEventListener("error", () => toast("This browser can't play that one. With Play here off, it plays on the Pi"));
+  if (video) box.append(m);
+  else box.append(el("b", "", r.title), el("span", "", r.sub || (HERE.what.kind === "radio" ? "Radio" : "")), m);
+  $("#hereWhat").textContent = r.title;
+  for (const [id, to] of [["#herePrev", -1], ["#hereNext", 1]]) {
+    const b = $(id);
+    b.hidden = HERE.what.kind === "radio" || HERE.list.length < 2;
+    b.disabled = !HERE.list[i + to];
+  }
+  m.play().catch(() => {});                               // (a browser that waits for a tap first: its play button)
+}
+$("#herePrev").innerHTML = ICONS.prev;
+$("#hereNext").innerHTML = ICONS.next;
+$("#herePrev").onclick = () => playAt(HERE.at - 1, 0);
+$("#hereNext").onclick = () => playAt(HERE.at + 1, 0);
+function closeHere() {                                    // (a game: its save sent to the Pi first, then it goes)
+  return new Promise((resolve) => {
+    const f = HERE.game;
+    if (!HERE.what) return resolve();
+    let over = false;
+    const heard = (e) => { if (f && e.source === f.contentWindow && e.data && e.data.closed) finish(e.data.saved); };
+    const finish = (saved) => {
+      if (over) return;
+      over = true;
+      window.removeEventListener("message", heard);
+      if (saved === false) toast("The game's save didn't get to the Pi");
+      $("#hereBox").textContent = "";
+      $("#here").hidden = true;
+      $("#stage").classList.remove("here-on");
+      HERE.what = HERE.game = null;
+      kick(0);
+      resolve();
+    };
+    if (!f) return finish();
+    window.addEventListener("message", heard);
+    try { f.contentWindow.postMessage({ pietato: "close" }, location.origin); } catch (e) { finish(); }
+    setTimeout(() => finish(), 4000);
+  });
+}
+$("#hereClose").onclick = () => closeHere();
+window.addEventListener("message", (e) => {               // (the game's page: it couldn't start, say)
+  if (e.origin !== location.origin || !HERE.game || e.source !== HERE.game.contentWindow || !e.data) return;
+  if (e.data.error) toast(e.data.error + ". With Play here off, it plays on the Pi");
+});
+
+// Sound here: the Pi's sound plays on this phone or computer instead of the Pi's speaker, a moment behind it (two 16-bit
+// channels at 48 kHz, as the Pi sends them), while this page is open
+const SND = { on: false, ctx: null, stop: null, at: 0, skip: false, said: 0 };
+function drawChips() {
+  $("#soundHere").setAttribute("aria-pressed", String(SND.on));
+  $("#micHere").setAttribute("aria-pressed", String(MIC.on));
+  $("#soundHere").title = SND.on ? "The Pi's sound plays here. Tap to hear it on the Pi again"
+    : "Play the Pi's sound on this " + (PHONE ? "phone" : "computer") + " instead of the Pi";
+  $("#micHere").title = MIC.on ? "The bot hears this microphone. Tap to stop"
+    : "The bot hears you through this " + (PHONE ? "phone" : "computer") + "'s microphone instead of the Pi's";
+}
+function soundOff() {
+  SND.on = false;
+  if (SND.stop) SND.stop.abort();
+  if (SND.ctx) SND.ctx.close().catch(() => {});
+  SND.ctx = SND.stop = null;
+  drawChips();
+}
+async function soundOn() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return toast("This browser can't play the Pi's sound");
+  const ctx = new AC();                                   // (made and started while the tap's still going: allowed)
+  ctx.resume().catch(() => {});
+  Object.assign(SND, { on: true, ctx });
+  drawChips();
+  let told = false;
+  while (SND.on && SND.ctx === ctx) {
+    const stop = SND.stop = new AbortController();
+    let r = null;
+    try { r = await fetch("/api/sound", { signal: stop.signal, cache: "no-store" }); } catch (e) {}
+    if (!SND.on || SND.ctx !== ctx) break;
+    if (!r || !r.ok) {
+      let why = "The Pi isn't sending its sound";
+      try { why = (await r.json()).error || why; } catch (e) {}
+      toast(why);
+      return soundOff();
+    }
+    if (!told) toast("The Pi's sound plays here now");
+    told = true;
+    const reader = r.body.getReader();
+    let rest = null;
+    SND.at = 0;
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done || SND.ctx !== ctx) break;
+        let bytes = value;
+        if (rest) { const j = new Uint8Array(rest.length + bytes.length); j.set(rest); j.set(bytes, rest.length); bytes = j; rest = null; }
+        const n = Math.floor(bytes.length / 4);
+        if (bytes.length > n * 4) rest = bytes.slice(n * 4);
+        if (!n) continue;
+        const now = ctx.currentTime;
+        if (SND.at < now + 0.02) { SND.at = now + 0.12; SND.skip = false; }   // (behind: on again, a moment from now)
+        else if (SND.at > now + 0.4) SND.skip = true;     // (too far behind the Pi, after a hiccup: what comes is let
+        if (SND.skip && SND.at > now + 0.15) continue;    // go, until it's only a moment behind again)
+        SND.skip = false;
+        const buf = ctx.createBuffer(2, n, 48000), l = buf.getChannelData(0), rr = buf.getChannelData(1);
+        const dv = new DataView(bytes.buffer, bytes.byteOffset, n * 4);
+        for (let i = 0; i < n; i++) { l[i] = dv.getInt16(i * 4, true) / 32768; rr[i] = dv.getInt16(i * 4 + 2, true) / 32768; }
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(ctx.destination);
+        src.start(SND.at);
+        SND.at += buf.duration;
+        if (ctx.state === "running" && performance.now() - SND.said > 2000) {   // (it's playing: the Pi's told so; a
+          SND.said = performance.now();                                          // phone that's locked doesn't, and
+          fetch("/api/sound", { method: "POST" }).catch(() => {});               // the Pi plays it itself again)
+        }
+      }
+    } catch (e) {}
+    if (SND.on && SND.ctx === ctx) await sleep(1500);    // (the Pi stopped sending: again, in a moment)
+  }
+}
+$("#soundHere").onclick = () => (SND.on ? soundOff() : soundOn());
+function soundWake() {                                    // (back on the page, or a tap: a phone that stopped it, on)
+  if (SND.on && SND.ctx && SND.ctx.state !== "running" && !document.hidden) SND.ctx.resume().catch(() => {});
+}
+document.addEventListener("visibilitychange", soundWake);
+document.addEventListener("pointerdown", soundWake, true);
+
+// Mic here: the bot hears you through this phone or computer's microphone instead of the Pi's (one 16-bit channel at
+// 16 kHz, a quarter of a second at a time). A browser allows a microphone only on a secure page: the Pi has one too.
+const MIC = { on: false, stream: null, ctx: null, queue: [], sending: false, told: false };
+const MIC_WORKLET = `class PietatoMic extends AudioWorkletProcessor {
+  constructor() { super(); this.step = sampleRate / 16000; this.phase = 0; this.sum = 0; this.n = 0;
+    this.out = new Int16Array(4000); this.k = 0; }
+  process(inputs) {
+    const x = inputs[0] && inputs[0][0];
+    if (!x) return true;
+    for (let i = 0; i < x.length; i++) {
+      this.sum += x[i]; this.n++; this.phase += 1;
+      if (this.phase >= this.step) {
+        const v = Math.max(-1, Math.min(1, this.sum / this.n));
+        this.out[this.k++] = v < 0 ? v * 32768 : v * 32767;
+        this.phase -= this.step; this.sum = 0; this.n = 0;
+        if (this.k === this.out.length) { this.port.postMessage(this.out.buffer, [this.out.buffer]); this.out = new Int16Array(4000); this.k = 0; }
+      }
+    }
+    return true;
+  }
+}
+registerProcessor("pietato-mic", PietatoMic);`;
+function micOff() {
+  MIC.on = false;
+  if (MIC.stream) for (const t of MIC.stream.getTracks()) t.stop();
+  if (MIC.ctx) MIC.ctx.close().catch(() => {});
+  Object.assign(MIC, { stream: null, ctx: null, queue: [] });
+  drawChips();
+}
+async function micSend() {                                // (one request at a time; more than two seconds behind: dropped)
+  if (MIC.sending) return;
+  MIC.sending = true;
+  while (MIC.on && MIC.queue.length) {
+    if (MIC.queue.length > 8) MIC.queue.splice(0, MIC.queue.length - 8);
+    const chunk = MIC.queue.shift();
+    try {
+      const r = await fetch("/api/mic", { method: "POST", body: chunk, headers: { "Content-Type": "application/octet-stream" } });
+      const out = await r.json().catch(() => ({}));
+      if (!r.ok) { toast(out.error || "The Pi didn't take the microphone"); micOff(); break; }
+      if (out.listens === false && !MIC.told) { MIC.told = true; toast("The bot isn't listening: turn on Settings › Bot › Listens"); }
+    } catch (e) { await sleep(500); }
+  }
+  MIC.sending = false;
+}
+async function micOn() {
+  if (!window.isSecureContext || !(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) {
+    $("#secureNote").hidden = false;                       // (this page isn't the secure one: there, it's allowed)
+    $("#secureLink").href = "https://" + location.hostname + ":5443/" + location.hash;
+    return;
+  }
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const ctx = new AC();
+  ctx.resume().catch(() => {});
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  } catch (e) {
+    ctx.close().catch(() => {});
+    return toast("The microphone wasn't allowed. Your browser's settings for this page can allow it");
+  }
+  try {
+    await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([MIC_WORKLET], { type: "text/javascript" })));
+  } catch (e) {
+    for (const t of stream.getTracks()) t.stop();
+    ctx.close().catch(() => {});
+    return toast("This browser can't send its microphone");
+  }
+  const node = new AudioWorkletNode(ctx, "pietato-mic");
+  node.port.onmessage = (e) => { if (MIC.on) { MIC.queue.push(e.data); micSend(); } };
+  const hush = ctx.createGain();                          // (heard, not played: it goes on to the speaker silent, so
+  hush.gain.value = 0;                                    // the browser keeps it going)
+  ctx.createMediaStreamSource(stream).connect(node).connect(hush).connect(ctx.destination);
+  Object.assign(MIC, { on: true, stream, ctx, told: false });
+  drawChips();
+  toast("The bot hears you through this " + (PHONE ? "phone" : "computer") + " now");
+}
+$("#micHere").onclick = () => (MIC.on ? micOff() : micOn());
+drawChips();
 
 // ---- controllers ---------------------------------------------------------------------
 function drawPads(list, learning) {
@@ -1739,6 +2281,19 @@ async function playRows(rows, i, node) {
   if (go) go.innerHTML = ICONS.spin;
   const start = Math.max(0, Math.min(i - 300, rows.length - 600));     // at most 600 go along
   const list = rows.slice(start, start + 600).map(({ title, sub, src, kind, uuid }) => ({ title, sub, src, kind, uuid }));
+  if (HERE.on && hereUrl(rows[i])) {                     // Play here: in this browser (the ones like it go along)
+    const kind = rows[i].kind === "radio" ? "radio" : "video";
+    const here = list.filter((r) => hereUrl(r) && (r.kind === "radio" ? "radio" : "video") === kind);
+    openHere({ kind, index: here.indexOf(list[i - start]),
+      items: here.map((r) => ({ title: r.title, sub: r.sub || "", url: hereUrl(r) })) });
+    L.busy = false;
+    if (node) node.classList.remove("busy");
+    if (go) go.innerHTML = ICONS.play;
+    $("#stage").scrollIntoView({ block: "nearest", behavior: "smooth" });
+    if (S.view === "library" && matchMedia("(max-width: 900px)").matches) goView("screen");
+    return;
+  }
+  if (HERE.on) toast("That one plays on the Pi");
   try {
     const r = await pi("play", { items: list, index: i - start, where: WHERE[L.tab] || "" });
     toast("Playing " + (r.title || rows[i].title));

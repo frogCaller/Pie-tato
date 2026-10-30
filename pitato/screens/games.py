@@ -133,6 +133,8 @@ class GameScreen:
 
     # -- playing ---------------------------------------------------------------------
     def game_open(self, it):
+        if self.here_take_game(it):                    # (picked on the web page, with Play here on: played there)
+            return
         g = {"path": it["src"], "title": it["title"], "system": it.get("system", "")}
         name = system(g["system"])[2]
         core = find_core(g["system"])
@@ -352,6 +354,9 @@ class GameScreen:
         self.tops[self.tab] = top
         px0 = W - GAME_PANEL_W - 16                     # the picture beside the list
         x0, x1 = 12, px0 - 14
+        self.tap_rows(0, x1 + 8, top_y, self.ROW_H, top, min(top + rows, n), "sel", "sels", self.tab)
+        if cur and cur.get("kind") != "info":           # (the picked one's picture: a tap plays it)
+            self.tappable((px0 - 6, top_y, W, self.fb.h - self.FOOTER), "keys", "a")
         for r, i in enumerate(range(top, min(top + rows, n))):
             it = items[i]
             y = top_y + r * self.ROW_H
@@ -756,6 +761,10 @@ class GameScreen:
         for k, (job, label) in enumerate(menu):
             ry = my0 + 64 + k * rh
             sel = k == m["sel"]
+            self.tappable((mx0, ry - 2, mx0 + mw, ry + rh - 2), "sel", "dict", "game_menu", k)
+            if sel and job in GAME_CHANGE:             # ◀ value ▶: each end, a way to change it
+                self.tappable((mx0 + mw - 150, ry - 2, mx0 + mw - 75, ry + rh - 2), "keys", "left")
+                self.tappable((mx0 + mw - 75, ry - 2, mx0 + mw, ry + rh - 2), "keys", "right")
             if sel:
                 d.rounded_rectangle((mx0 + 8, ry, mx0 + mw - 8, ry + rh - 4), radius=10, fill=ROW)
                 d.rounded_rectangle((mx0 + 8, ry + 10, mx0 + 12, ry + rh - 14), radius=2, fill=ACCENT)
