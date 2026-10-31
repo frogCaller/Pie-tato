@@ -81,7 +81,8 @@ It starts on a home screen of apps:
   page's Settings
 - **TV**: Plex (Continue watching, Watchlist, Live TV with news and sports), Jellyfin, about 250 old
   cartoons and 150 old films from the Internet Archive, and your own streams
-- **Music**, **Radio**, **Photos** (filters, delete), **Videos** (picks up where you left off)
+- **Music** and **Radio** (on Now playing, SELECT puts on lofi art: a quiet scene on the whole screen),
+  **Photos** (filters, delete), **Videos** (picks up where you left off)
 - **Weather** (press START there to set where you are, and °F or °C), and **Finance**: stock and coin prices
   and charts. Press Y on Finance to look up more to add
 - **Files**: PDFs, documents, text, pictures, video and music, on the Pi or on your other computers
@@ -91,23 +92,28 @@ It starts on a home screen of apps:
 - **Bot**: talks through Ollama on another computer, sees through your camera and takes pictures,
   out loud if you give it a voice. At work, it acts out what your coding agent is doing, rings a
   bell when it's done, and sends it prompts you type
-- **Simulator**: Rock Paper Scissors (pick a winner before the first capture), Game of Life, Forest Fire
+- **Simulator**: a Clock with the time and the date (A switches between a dial and big figures, and START has
+  its seconds and colours), Rock Paper Scissors (pick a winner before the first capture), Game of Life, Forest Fire
   and the Mandelbrot set, which takes you on dives (or press the d-pad to explore it, A to zoom in and
   Y to zoom out). Press SELECT to watch one full screen. It can also start cmatrix, hollywood, nyancat,
   cacafire and htop without a keyboard: in cmatrix, ◀▶ change its colour and ▲▼ its speed; in htop, ▲▼ move
   through what's running and X or Y sort it by CPU or memory; and B stops any of them
 - **Games**: Snake (press X and a decision model on your bot's computer plays it for you), and your own
-  Game Boy, Game Boy Advance, NES, SNES, Genesis, Master System, Game Gear and PlayStation games, and
-  N64, PSP, DS and Dreamcast games on a Pi 4 or 5 or a PC. Two can play on two controllers
+  Game Boy, Game Boy Advance, NES, SNES, Genesis, Master System, Game Gear, Neo Geo, Neo Geo Pocket and
+  PlayStation games, and N64, PSP, DS and Dreamcast games on a Pi 4 or 5 or a PC. Two can play on two
+  controllers
 - **System**: a dashboard of the Pi's temperature, how busy it is, its memory, storage and network. SELECT
   shows it as a list instead, with Update software, Reboot and Shut down
 - **Settings**: WiFi, Bluetooth, the home screen's style, background, colours, video size, a TV or monitor's
-  resolution, sound, controller
+  resolution, battery saver, sound, controller
 - If you'd rather see the apps on the whole screen, set Settings > Full screen apps to On. The status
   bar, the tabs and the button hints go away, leaving just the app's name at the top. The buttons work
   the same, and L and R still switch apps
 - If your screen is mounted on its side or upside down, Settings > Rotate screen turns the picture to
   match: the apps, games, videos and the console
+- On a battery (in a GPi Case, or on a laptop), the screen goes dark after three minutes with nothing
+  happening, to save power. Music keeps playing, and any button wakes it. Settings > Battery saver turns
+  this on or off on any Pi. Turning down the case's brightness saves the most
 
 ![Media mode](docs/screens.png)
 
@@ -148,7 +154,8 @@ Under the screen there are three more buttons:
   Gear, PlayStation, N64 and DS games. Games play in [EmulatorJS](https://emulatorjs.org), which the
   Pi gets from npm the first time you play that kind of game (about 5 MB). A game's save comes from
   the Pi and goes back to it as you play, so you can carry on on the Pi. Plex, Jellyfin, live
-  channels, PSP and Dreamcast games, and games in more than one file (a `.cue`) still play on the Pi.
+  channels, Neo Geo, Neo Geo Pocket, PSP and Dreamcast games, and games in more than one file (a `.cue`)
+  still play on the Pi.
 - **Sound here**: the Pi's sound plays on your phone or computer instead of the Pi. It's a moment
   behind the picture.
 - **Mic here**: the bot hears you through your phone's or computer's microphone instead of one
@@ -194,9 +201,10 @@ steer it, press START on it there for its settings: Flip left and right, and Fli
 ## Games
 
 Put your games in the `Games` folder in your home folder. It has a folder for each: `gb`, `gbc`, `gba`,
-`nes`, `snes`, `genesis`, `sms`, `gg` and `ps1`, and on a Pi 4 or 5 or a PC, `n64`, `psp`, `nds` and `dc`. You
-can also drop them on the web page (zips work too, for the cartridge ones). They're played by mGBA, Nestopia,
-Snes9x, Genesis Plus GX, PCSX ReARMed, Mupen64Plus-Next, PPSSPP, melonDS and Flycast.
+`nes`, `snes`, `genesis`, `sms`, `gg`, `ngp`, `ngpc`, `neogeo` and `ps1`, and on a Pi 4 or 5 or a PC, `n64`,
+`psp`, `nds` and `dc`. You can also drop them on the web page (zips work too, for the cartridge ones). They're
+played by mGBA, Nestopia, Snes9x, Genesis Plus GX, Beetle NeoPop, FinalBurn Neo, PCSX ReARMed, Mupen64Plus-Next,
+PPSSPP, melonDS and Flycast.
 
 In a game, Home opens its menu: save or load a state, start over, the players, the volume, the picture
 size, the AI player (see Bot below), or quit. For the picture, Fit keeps the game's shape, Sharp uses
@@ -211,8 +219,10 @@ next one to press a button is player 2 (an N64 or Dreamcast game takes four).
 - PlayStation: `.cue` and `.bin`, `.chd`, `.pbp` or `.m3u` files. Change discs in the game's menu.
 - Dreamcast: `.gdi` (keep each game's tracks in a folder of its own), `.chd`, `.cdi` or `.cue` files. L
   and R are its triggers, as are L2 and R2.
-- A BIOS isn't needed, but if you have one from your own console, put it in `Games/BIOS` and more
-  PlayStation games work (for a Dreamcast, that's `dc_boot.bin`; a few games need it).
+- Neo Geo (on a Pi 2 or newer): each game is a zip with the name FinalBurn Neo knows it by (like
+  `mslug.zip`), and they need the Neo Geo's BIOS, `neogeo.zip`, in `Games/BIOS`. SELECT puts in a coin.
+- Other than that, a BIOS isn't needed, but if you have one from your own console, put it in `Games/BIOS`
+  and more PlayStation games work (for a Dreamcast, that's `dc_boot.bin`; a few games need it).
 
 Press Y on the Games tab to find pictures of your games. If you have a lot of them, press Start to
 search by name (or by console, like `gba`), and B to see them all again.

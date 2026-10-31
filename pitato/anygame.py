@@ -50,8 +50,9 @@ CAME = {"new": "something new", "same": "nothing new", "nothing": "nothing chang
 
 # each system's buttons: what the model's told each is, and the button as the emulator takes it (libretro's names:
 # a PlayStation's go by where they are, so Cross is libretro's B, and a Dreamcast's too, its triggers libretro's L2
-# and R2; an N64's A and B are libretro's B and Y, Z its L2; a Genesis's A B C are libretro's Y B A, and a Master
-# System's 1 and 2 its B and A). The first two go with a direction too (a jump or an attack on the move).
+# and R2; an N64's A and B are libretro's B and Y, Z its L2; a Genesis's A B C are libretro's Y B A, a Master
+# System's 1 and 2 its B and A, a Neo Geo's A B C D its B A Y X, and a Neo Geo Pocket's A and B its B and A). The first
+# two go with a direction too (a jump or an attack on the move).
 NINTENDO = (("A", "a"), ("B", "b"), ("Start", "start"), ("Select", "select"))
 BUTTONS = {
     "gb": NINTENDO, "gbc": NINTENDO, "nes": NINTENDO,
@@ -63,6 +64,9 @@ BUTTONS = {
     "genesis": (("B", "b"), ("C", "a"), ("A", "y"), ("Start", "start")),
     "sms": (("1", "b"), ("2", "a"), ("Pause", "start")),
     "gg": (("1", "b"), ("2", "a"), ("Start", "start")),
+    "ngp": (("A", "b"), ("B", "a"), ("Option", "start")),
+    "ngpc": (("A", "b"), ("B", "a"), ("Option", "start")),
+    "neogeo": (("A", "b"), ("B", "a"), ("C", "y"), ("D", "x"), ("Start", "start"), ("Coin", "select")),
     "n64": (("A", "b"), ("B", "y"), ("Z", "l2"), ("L", "l"), ("R", "r"), ("Start", "start")),
     "ps1": (("Cross", "b"), ("Square", "y"), ("Circle", "a"), ("Triangle", "x"), ("L1", "l"), ("R1", "r"),
             ("L2", "l2"), ("R2", "r2"), ("Start", "start"), ("Select", "select")),
@@ -70,7 +74,7 @@ BUTTONS = {
             ("Start", "start"), ("Select", "select")),
     "dc": (("A", "b"), ("B", "a"), ("X", "y"), ("Y", "x"), ("L", "l2"), ("R", "r2"), ("Start", "start")),
 }
-PAUSES = ("Start", "Pause")  # (the button that pauses: not one to suggest trying, as a person would)
+PAUSES = ("Start", "Pause", "Option")   # (the button that pauses: not one to suggest trying, as a person would)
 STICK_SYSTEMS = ("n64", "dc")   # its games move with the stick, not the d-pad
 DIRECTIONS = (("up", "Up", ("ly", -PUSH)), ("down", "Down", ("ly", PUSH)), ("left", "Left", ("lx", -PUSH)),
               ("right", "Right", ("lx", PUSH)))

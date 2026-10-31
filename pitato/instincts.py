@@ -74,6 +74,8 @@ ROLES = {
     "nds": {"gas": "A", "brake": "B", "jump": "B", "run": "Y", "attack": ("Y", "X", "B", "A"), "fire": "Y"},
     "genesis": {"gas": "B", "brake": "A", "jump": "C", "run": "", "attack": ("A", "B", "C"), "fire": "B"},
     "sms": SEGA8_ROLES, "gg": SEGA8_ROLES,
+    "ngp": dict(NINTENDO_ROLES, run=""), "ngpc": dict(NINTENDO_ROLES, run=""),
+    "neogeo": {"gas": "A", "brake": "B", "jump": "B", "run": "", "attack": ("A", "B", "C", "D"), "fire": "A"},
     "n64": {"gas": "A", "brake": "B", "jump": "A", "run": "", "attack": ("B", "A"), "fire": "A"},
     "ps1": SONY_ROLES, "psp": SONY_ROLES,
     "dc": {"gas": "R", "brake": "L", "jump": "A", "run": "", "attack": ("X", "A", "B", "Y"), "fire": "A"},

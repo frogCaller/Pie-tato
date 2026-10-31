@@ -59,7 +59,10 @@ def run(ui, media, control=None, stop=None):
 
     def home():
         """HOME: media mode on or off; in a game, the game's menu (or back to the game); cmatrix or hollywood
-        stops; Chromium's menu (or back to Chromium)."""
+        stops; Chromium's menu (or back to Chromium). The screen resting: it wakes, and that's all."""
+        if media.active and media.resting:            # (TURBO tapped, or SELECT and START: as HOME)
+            media.stir()
+            return
         if media.active and (media.game_home() or media.prog_home() or media.chromium_home()):
             menu_held.clear()
             return
@@ -67,6 +70,9 @@ def run(ui, media, control=None, stop=None):
 
     def button(name, down, pad=None):
         """A button, from a controller (pad: which, for a game's players) or the web page's remote."""
+        if down and media.active and media.resting:   # (the screen resting: a press wakes it, and does nothing else)
+            media.stir()
+            return
         if name == MEDIA_TOGGLE:
             if down:
                 home()
@@ -210,6 +216,8 @@ def run(ui, media, control=None, stop=None):
         media.keyreader.exclude = set(pads.by_path)
         if new:
             media.dirty = True
+            if not quiet:
+                media.stir()                           # (something plugged in: someone's there)
             if not quiet and media.active and not media.proc_owns_screen():
                 named = [d for d in new if not getattr(d, "mouse", False)] or new   # (a keyboard and its trackpad:
                 media.toast(f"{named[-1].dev.name} connected", 2)                  # the keyboard's name)
@@ -238,6 +246,11 @@ def run(ui, media, control=None, stop=None):
         c = cmd.get("cmd")
         if c not in ("websound", "webmic"):            # (webui.py's own word, not someone on the web page)
             media.web_guard = True
+            if c in ("tap", "swipe", "scroll") and media.active and media.resting:
+                media.stir()                           # (the screen resting: a touch wakes it, and does nothing else)
+                return {"ok": True}
+            if c != "press":                           # (a press wakes it as a button does)
+                media.stir()
         if c == "press":
             name = cmd.get("button")
             if name not in BUTTONS:

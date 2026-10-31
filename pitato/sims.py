@@ -41,6 +41,9 @@ class Sim:
     poke_label = None               # X: what it does, or None
     options = ()
     restart_for = ()                # options it starts again for
+    bare = False                    # drawn on the page itself, in the middle: no box, no numbers beside it
+    paced = False                   # its picture changes now and then (frame_in says when), not frame by frame
+    backdrop = SIM_FLOOR            # what's behind it on the whole screen
 
     def __init__(self, w, h, rng=None, values=None):
         self.w, self.h = w, h
@@ -77,6 +80,10 @@ class Sim:
         self.restart()
 
     def update(self, dt):
+        return None
+
+    def frame_in(self, wall):
+        """A paced sim: seconds until its picture next changes (wall: time.time())."""
         return None
 
     def poke(self):

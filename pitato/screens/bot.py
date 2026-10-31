@@ -318,6 +318,7 @@ class BotScreen:
     def bot_heard(self, text):
         """You said something to the bot (the wake phrase, then this): it answers, out loud when it has a voice,
         and its page comes up (unless you're typing, or looking at something)."""
+        self.stir()                                    # (the screen awake, if it was resting)
         if self.msg == "Listening…":
             self.msg = None
         fr = self.friend

@@ -81,6 +81,9 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
                 after it, from where it was
   Radio       - real stations by genre, popular near you, or search by name (from the free
                 Radio Browser directory), and your own list in static/radio.txt
+                Now playing (music or radio): SELECT puts on lofi art, a quiet pixel-art scene on the whole
+                screen (a rainy window, a rooftop at dusk or a night train: each song or station has its
+                own), what's playing in its corner; SELECT again for the usual page. It's kept for next time
   Camera      - a USB camera plugged into this Pi (there by itself, while it's plugged in), cameras
                 on your other Pis (PiE-ink, or this repo's camera.py: setup.sh
                 --camera) or any camera on your network (its address and port: the picture is
@@ -105,20 +108,22 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
                 the time it answers; the game never waits for it (Keeps up: how many of the snake's
                 moves it decided in time; for the rest it goes straight on). X again, and it's yours.
                 START picks the model.
-                Your own games, in the Games folder: Game Boy, GBA, NES, SNES, Genesis, Master System, Game
-                Gear, PlayStation and (on a Pi 4 or 5) N64, PSP, DS and Dreamcast play here (HOME is a game's
-                menu: save states, discs, players, the picture (Fill: the whole screen, an N64 game drawn wide on
-                a TV), quit). Two players (four on an N64 or a Dreamcast) each have a controller: the
-                one that started the game is player 1, the next one pressed player 2. An N64
-                game takes the sticks as they are: the right one is its C buttons (or R2 held with A B X Y),
-                L2 is Z; on a controller with no stick, the d-pad is one. A PSP game's buttons go by where
-                they are (the bottom one is Cross), and the left stick is its own. A DS game (melonDS, on the
-                64-bit Raspberry Pi OS) shows both screens side by side (its menu's Screens: other ways);
-                the right stick moves a pointer on the touch screen and R2 touches it (or the d-pad and A,
-                with its menu's Touch screen), L2 blows on the microphone, the left stick is the d-pad. A
-                Dreamcast game (Flycast) goes by place too (the bottom one is A), L and R are its triggers as
-                L2 and R2 are, and the left stick is its own; a Dreamcast BIOS isn't needed (dc_boot.bin in
-                Games/BIOS, if you have it, for the few games that do).
+                Your own games, in the Games folder: Game Boy, GBA, NES, SNES, Genesis, Master System, Game Gear,
+                Neo Geo, Neo Geo Pocket, PlayStation and (on a Pi 4 or 5) N64, PSP, DS and Dreamcast play here
+                (HOME is a game's menu: save states, discs, players, the picture (Fill: the whole screen, an N64
+                game drawn wide on a TV), quit). Two players (four on an N64 or a Dreamcast) each have a
+                controller: the one that started the game is player 1, the next one pressed player 2. An N64 game
+                takes the sticks as they are: the right one is its C buttons (or R2 held with A B X Y), L2 is Z;
+                on a controller with no stick, the d-pad is one. A PSP game's buttons go by where they are (the
+                bottom one is Cross), and the left stick is its own. A DS game (melonDS, on the 64-bit Raspberry
+                Pi OS) shows both screens side by side (its menu's Screens: other ways); the right stick moves a
+                pointer on the touch screen and R2 touches it (or the d-pad and A, with its menu's Touch screen),
+                L2 blows on the microphone, the left stick is the d-pad. A Dreamcast game (Flycast) goes by place
+                too (the bottom one is A), L and R are its triggers as L2 and R2 are, and the left stick is its
+                own; a Dreamcast BIOS isn't needed (dc_boot.bin in Games/BIOS, if you have it, for the few games
+                that do). A Neo Geo game (FinalBurn Neo, on a Pi 2 or newer) is a zip named as it knows it
+                (mslug.zip), and needs the Neo Geo's BIOS, neogeo.zip, in Games/BIOS (or beside it); SELECT puts
+                in a coin. A Neo Geo Pocket or Pocket Color game (Beetle NeoPop): .ngp or .ngc.
                 Any game: its menu's AI player has a decision model on your bot's computer play it,
                 looking at the screen (pitato/anygame.py): an action game by instinct, many times a
                 second (pitato/instincts.py: racing, platformers, fighting, shooters), any other a button
@@ -153,6 +158,9 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
                 takes it through coder_hooks.py's channel), Y rings the bell, X turns its sounds
                 off, up and down set the volume, START shows how to connect an agent
   Simulator   - little worlds to watch, each in a box beside its numbers or full screen (SELECT):
+    Clock       - the time and the date in the middle of the page: a dial (the date under its middle) or big
+                figures (AM or PM and the seconds beside them, the date under them); A switches between
+                them, START has the look, the seconds and the colour (Settings > Clock: 12 or 24 hours)
     Rock Paper Scissors - pieces bounce around, and one hit by its counter switches sides until
                 one team is left; left and right pick a winner before the first capture
     Game of Life - Conway's rules (or HighLife, Day & Night, Seeds), cells coloured by age
@@ -185,7 +193,9 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
                 its code to type), the home screen's style (Bright, Glass or Cards: the weather on it
                 once Weather knows where you are), background and colours, clock, full screen apps (just the
                 app's name along the top, no bars or buttons), video size, rotate screen (a screen on its
-                side: the menus, games, videos and the terminal turned 90°, 180° or 270°), sound (Auto: Bluetooth
+                side: the menus, games, videos and the terminal turned 90°, 180° or 270°), battery saver
+                (Auto: on its battery, in a GPi Case or a laptop, the screen goes dark after three minutes with
+                nothing happening; music plays on, and any button wakes it), sound (Auto: Bluetooth
                 headphones or a speaker while they're connected, else a USB speaker while it's plugged
                 in, else a TV on HDMI (a monitor that says it has no sound: the headphone jack), else
                 the Pi's own; or HDMI, headphones, a USB speaker...; a microphone isn't listed),

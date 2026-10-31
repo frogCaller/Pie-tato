@@ -11,6 +11,7 @@
   screen.py         the screen, the framebuffer, sound outputs (Bluetooth headphones too), a TV or
                     monitor's resolution, and a screen on its side (the picture turned)
   radio.py          internet radio
+  lofi.py           Now playing's lofi art: three pixel-art scenes, drawn here
   tv.py             the TV tab's shelves: old cartoons and films, live channels' words
   library.py        what's in each tab, and what plays things
   home.py           the home screen's icons and background
@@ -32,6 +33,7 @@
   shrink.py         big videos made smaller for this Pi, in the background
   update.py         System > Update software: a newer version (git), put in by setup.sh --update
   sims.py           the Simulator's worlds
+  clock.py          the Simulator's Clock
   mandelbrot.py     the Mandelbrot set
   snake.py          Snake, and its AI's thread
   games.py          your own games: finding them and their emulators, one while it runs

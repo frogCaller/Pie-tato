@@ -580,6 +580,7 @@ class SettingsScreen:
                      self.friend_summary() if key == "friend" else
                      self.ha_value() if key == "homeassistant" else
                      self.sound_value() if key == "sound" else
+                     self.saver_value() if key == "battery" else
                      self.res_value() if key == "resolution" else self.setting(key))
             x1 = W - 28
             if extra and on:                          # ◀ value ▶

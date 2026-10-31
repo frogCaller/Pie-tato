@@ -91,6 +91,10 @@ class WebSettingsScreen:
                 choice("clock"), choice("app_full")]
         if "turn" in root:
             rows.append(choice("turn"))
+        battery = choice("battery")
+        if battery["value"] not in ("On", "Off"):
+            battery["value"], battery["note"] = "Auto", self.saver_why()   # (Auto: on or off now, and why)
+        rows.append(battery)
         info = self.res_info() if "resolution" in root else None
         if info:
             rows.append(choice("resolution", "Resolution", ["Auto"] + list(info[1]), value=boot_resolution() or "Auto",
@@ -290,7 +294,7 @@ class WebSettingsScreen:
         key = str(cmd.get("key") or "")
         value = cmd.get("value")
         if key in ("home_style", "clock", "app_full", "turn", "start", "start_song", "wallpaper", "accent", "sound",
-                   "screen", "units", "sim_full", "coder_sound", "ds_screens", "ds_touch") \
+                   "screen", "units", "sim_full", "coder_sound", "ds_screens", "ds_touch", "battery") \
                 or key.startswith("game_picture_"):
             return self.web_pick(key, value)
         handler = getattr(self, "web_set_" + key, None)

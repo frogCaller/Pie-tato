@@ -77,6 +77,7 @@ from .screens.hasettings import HaSettingsScreen
 from .screens.websettings import WebSettingsScreen
 from .screens.www import WwwScreen
 from .screens.chromium import ChromiumScreen
+from .screens.rest import REST_TICK, RestScreen
 
 _SAVING = threading.Lock()     # (state.json written one at a time: the shrinker's and radio's threads save too)
 UPDATE_STEP = 0.233            # seconds between the update screen's dots lighting up, one after another
@@ -87,7 +88,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             RemoteScreen, LightsScreen, CameraScreen, BotScreen, CoderScreen, SimScreen,
             SnakeScreen, GameScreen, SettingsScreen, BluetoothScreen, ControllerScreen, WeatherScreen, WebScreen,
             ComputersScreen, ProgScreen, PiholeScreen, SysDashScreen, SketchScreen, HaSettingsScreen,
-            WebSettingsScreen, WwwScreen, ChromiumScreen):
+            WebSettingsScreen, WwwScreen, ChromiumScreen, RestScreen):
     """Media mode: what the screen shows and what the buttons do there. Its state is all here; each
     app's buttons and drawing come from its part (pitato/screens/)."""
 
@@ -191,6 +192,12 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.mics_next = 0.0         # ...when it looks again
         self.listen_tried = 0.0      # ...when Vosk was last fetched
         self.listen_tries = LISTEN_TRIES   # ...and how many more times it's tried by itself, if that doesn't work
+        self.resting = False         # the screen dark, to save the battery (Settings > Battery saver; screens/rest.py)
+        self.rest_wake = False       # ...to wake (asked from another thread)
+        self.stirred = time.monotonic()   # ...when something last happened (a button, the web page)
+        self.web_watched = 0.0       # ...when the web page last asked for the screen's picture (someone's watching)
+        self.screen_off = False      # ...the screen's picture turned off while it rests
+        self.rest_wifi = None        # ...Wi-Fi's own power saving, turned on while it rests (its name: to turn off after)
         self.coder = Coder()         # the Bot at work: your coding agent, acted out
         self.coder.on_change = self.coder_changed
         self.coder.on_news = self.coder_news
@@ -223,7 +230,11 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.games_q = None          # what you typed to find a game (START on the Games tab), while it's finding it
         self.sim_opts = None         # a sim's START card: the row picked on it, or None
         self.sim_t = None            # when the sim on screen last moved on
+        self.lofi = None             # Now playing's lofi art (pitato/lofi.py), once it's been on
+        self.lofi_card = (None, None)   # ...what's playing, in its corner: (what it says, its picture)
+        self.lofi_next = 0.0         # ...when its next frame's due
         self.sim_next = 0.0          # when its next frame is due
+        self.sim_due = None          # ...for which sim, with which options (another, or them changed: one now)
         self.sim_base = (None, None, None)       # what doesn't move: (what it shows, it, the box's corners)
         self.sim_panel = (None, None, 0.0)       # the numbers beside the box: (what they show, them, when)
         self.sim_card = (None, None)             # a card over the box: (what it says, it)
@@ -507,10 +518,14 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
 
     def tick_limit(self):
         """How long the input loop may wait before the next tick."""
+        if self.resting:
+            return REST_TICK                           # (resting: a look around once a second)
         if self.view == "update":
             return max(0.0, min(0.25, self.update_next - time.monotonic()))   # (its dots' next step)
-        if self.on_sim_page() and self.sim_opts is None:
-            return max(0.0, min(0.05, self.sim_next - time.monotonic()))   # (its next frame)
+        if self.now_art():
+            return max(0.0, min(0.25, self.lofi_next - time.monotonic()))   # (the lofi art's next frame)
+        if self.on_sim_page() and self.sim_opts is None:      # (its next frame; the Clock's: a second or so off)
+            return max(0.0, min(0.25 if self.sim_paced() is not None else 0.05, self.sim_next - time.monotonic()))
         return 0.1 if self.on_camera_page() or self.on_coder_page() else 0.25
 
     def load_tab(self, i):
@@ -678,7 +693,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         while self.active and self.tab == si:
             time.sleep(wait)
             wait = 2
-            if self.active and self.tab == si and self.view == "list" and not self.proc_owns_screen():
+            if self.active and self.tab == si and self.view == "list" and not self.proc_owns_screen() \
+                    and not self.resting:
                 self.system_show(self.system_rows())
 
     def list_dir(self, path):
@@ -767,11 +783,14 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             import numpy  # noqa: F401
             self.load_fonts()
             self.fb = Framebuffer()
+            if getattr(self.fb, "power", None):        # (on, whatever it was left as: a rest that didn't end)
+                self.fb.power(True)
         except Exception as ex:      # missing package or no framebuffer
             print(f"media mode unavailable: {ex}", flush=True)
             self.fb = None
             return
         self.active = True
+        self.stirred = time.monotonic()                # (just come: a while before the screen may rest)
         self.hush_stop()                               # (media mode needs no silence to keep its speaker quiet)
         self.camera.listen()                           # PiE-inks say they're there: asked first for what they have
         if self.view not in ("photo", "pdf", "text", "update"):
@@ -806,6 +825,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         """Back to the terminal. Music and radio keep playing; video stops."""
         if not self.active:
             return
+        self.rest_end()                                # (the screen on again, for the terminal)
         self.chromium_close()                          # (its console's: media mode's in front again first)
         self.prog_stop()
         if self.learn:                                 # the controller's buttons go back to keys
@@ -845,6 +865,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         screen_out.terminal_turn_now()                 # (the terminal turned as the screen is: in text mode now)
 
     def shutdown(self):
+        self.rest_end()                                # (the screen on again: "Shutting down" goes on it)
         self.chromium_close(wait=True)                 # (first, as it's on a console of its own: it goes too)
         self.prog_stop()                               # (first: "Shutting down" can't go over it)
         self.hush_stop()
@@ -866,6 +887,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         if time.monotonic() < self.halting:
             return                                     # on its way already
         print("power switch: off, shutting down", flush=True)
+        self.rest_end()
         self.halting, self.halt_note = time.monotonic() + HALT_WAIT, "The Pi didn't shut down"
         try:
             if self.active and self.fb is not None:
@@ -993,6 +1015,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
 
     def goodbye(self):
         """'Shutting down' on the screen, left there until the power goes."""
+        self.rest_end()
         try:
             self.save_state()
             img, d = self.canvas()
@@ -1320,7 +1343,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         if self.active and self.view == "list" and self.tab_type() == "remote" \
                 and 0.25 <= now - self.remote_hit[1] < 0.6:
             self.dirty = True                         # let the pressed button go dark again
-        if self.active and (self.view == "home" or (self.view == "list" and self.tab_type() == "weather")):
+        if self.active and not self.resting and (self.view == "home" or (self.view == "list"
+                                                                         and self.tab_type() == "weather")):
             self.weather.refresh(full=self.view == "list")   # only does anything when it's due
         if self.voice_arrived:
             self.voice_use(self.voice_arrived)
@@ -1331,6 +1355,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.bot_heard(self.ears_said.pop(0))
         self.listen_tick(now)                          # (a microphone plugged in or taken out: Listens, Auto)
         self.ears_tick()
+        self.rest_tick(now)                            # (the screen dark, to save the battery, or awake again)
         if self.voice.error and self.voice.error != self.voice_told:
             self.voice_told = self.voice.error
             if self.on_friend_page() or (self.view == "list" and self.tab_type() == "settings"
@@ -1338,7 +1363,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
                 self.toast(self.voice.error, 5)
         elif not self.voice.error:
             self.voice_told = ""
-        if self.on_friend_page():
+        if self.on_friend_page() and not self.resting:  # (resting: it doesn't talk to an empty room)
             fr = self.friend
             gap = fr.chatter() * 60
             if gap and fr.ready() and not fr.busy and \
@@ -1368,14 +1393,26 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
                 fps = min(fps, 5)                      # (a Pi Zero on a TV: each frame scaled up costs it more)
             self.coder_next = now + 1.0 / fps
             self.dirty = True
+        if self.on_sim_page() and self.sim_opts is None:
+            s = self.sims.get(LIBRARY[self.tab].get("sim"))
+            due = (self.tab, tuple(sorted(s.values.items())) if s is not None else ())
+            if due != self.sim_due:                    # (another sim, or its options changed: the Clock's minute
+                self.sim_due, self.sim_next = due, 0.0  # wait is over)
         if self.on_sim_page() and self.sim_opts is None and now >= self.sim_next:
-            fps = SIM_FPS if self.fb is None or getattr(self.fb, "same", True) or not self.pi_slow else SIM_FPS_BIG
-            nxt = self.sim_next + 1.0 / fps              # (a steady beat; behind, it starts again)
-            self.sim_next = nxt if nxt > now else now + 1.0 / fps
+            paced = self.sim_paced()
+            if paced is not None:                      # (the Clock: as each second begins, and not in between)
+                self.sim_next = now + paced.frame_in(time.time())
+            else:
+                fps = SIM_FPS if self.fb is None or getattr(self.fb, "same", True) or not self.pi_slow else SIM_FPS_BIG
+                nxt = self.sim_next + 1.0 / fps          # (a steady beat; behind, it starts again)
+                self.sim_next = nxt if nxt > now else now + 1.0 / fps
+            self.dirty = True
+        if self.now_art() and not self.resting and now >= self.lofi_next:   # (Now playing's lofi art: its rain...)
+            self.lofi_next = now + 1.0 / self.lofi_fps()
             self.dirty = True
         if self.coder.heard and not self.setting("coder_seen"):
             self.set_setting("coder_seen", "yes")     # (an agent has found it: no more "how to connect")
-        if (self.fin_auto and self.active and self.view == "list"
+        if (self.fin_auto and self.active and not self.resting and self.view == "list"
                 and self.tab_type() == "finance" and now >= self.fin_next):
             self.press_finance("right", False)
         if self.plex.pin and self.active and self.tab_type() == "plex" and now >= self.next_status:
@@ -1498,6 +1535,10 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
 
     def press(self, name, repeat=False):
         """Returns 'exit' when media mode should close."""
+        if self.resting:                               # (resting: the press wakes the screen, and does nothing else)
+            self.stir()
+            return None
+        self.stir()
         if self.view == "update":                      # (updating: nothing to press till the Pi restarts)
             return None
         if self.prog is not None:                      # the buttons are cmatrix's and htop's keys (the others': B)
@@ -1599,7 +1640,13 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             elif name in ("left", "right") and not radio:
                 self.cmd(f"seek {10 if name == 'right' else -10} 0")
                 self.paused = False
-            elif name in ("l", "select") or (radio and name == "left"):
+            elif name == "select":                     # lofi art on the whole screen, or not (kept for next time)
+                on = self.setting("now_art") != "On"
+                self.set_setting("now_art", "On" if on else "Off")
+                self.lofi_next = 0.0
+                if on:
+                    self.toast("Lofi art. SELECT to leave it", 3)
+            elif name == "l" or (radio and name == "left"):
                 self.skip(-1)
             elif name in ("r", "start") or (radio and name == "right"):
                 self.skip(1)
@@ -1844,7 +1891,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         """Redraw the screen if something changed (never over a video, or 'Shutting down'): just the camera's
         picture, if that's all that did."""
         if not (self.active and (self.dirty or self.cam_fresh or self.update_step) and self.fb) \
-                or time.monotonic() < self.halting:
+                or time.monotonic() < self.halting or self.resting:
             return
         if self.proc_owns_screen():
             return

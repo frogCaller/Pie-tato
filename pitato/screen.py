@@ -120,6 +120,13 @@ def slow_pi():
             or bool(re.search(r"Compute Module( 3)?( Plus)? Rev", m)))
 
 
+def first_pi():
+    """The first Pis (1, A+, B+, the first Compute Module) and the Pi Zero and Zero W, not the Zero 2: too slow for a
+    Neo Geo (setup.sh builds no FinalBurn Neo on them)."""
+    m = pi_model()
+    return ("Zero" in m and "Zero 2" not in m) or "Raspberry Pi Model" in m or "Compute Module Rev" in m
+
+
 def screen_size():
     """The screen's real size, as it's seen (turned, if it's on its side): 640x480 on the GPi Case, 1920x1080 on
     most TVs."""
@@ -566,6 +573,12 @@ def sound_route(choice):
     return sound_card(choice) or ""
 
 
+def sound_on_hdmi(route):
+    """A route that's a screen's own sound: HDMI (or DisplayPort), the Pi's or a PC's (powering that screen down
+    would quiet it too)."""
+    return bool(route) and (bool(HDMI_CARD.fullmatch(route)) or route.endswith(HDMI_ROUTE))
+
+
 def sound_place(choice):
     """sound_route, and which Bluetooth headphones: ("bluetooth", their BlueZ object), or (a card's id or "", "")."""
     route = sound_route(choice)
@@ -801,6 +814,17 @@ class Framebuffer:
         self.f = open(dev, "r+b", buffering=0)
         self.turn = TURN if turn is None else (turn if turn in TURNS else 0)
         self.setup(*fb_geometry(self.f))
+
+    def power(self, on):
+        """The screen's picture on, or off (a TV or monitor goes to sleep; a screen of the Pi's own goes dark, as far as
+        its light lets it). True if the screen did as it was asked."""
+        for how in ((0,) if on else (4, 1)):           # FBIOBLANK: unblank; power down, else blank
+            try:
+                fcntl.ioctl(self.f, 0x4611, how)
+                return True
+            except OSError:
+                continue
+        return False
 
     def turn_to(self, turn):
         """Turned another way, from the next picture on (the screen's black, to start)."""

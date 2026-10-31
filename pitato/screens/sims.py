@@ -7,11 +7,12 @@ from ..library import LIBRARY
 from ..sims import (
     ForestFire, Life, RockPaperScissors, RPS_COLOUR, RPS_TEAMS, SIM_BOX, sim_clock,
     SIM_FLOOR, SIM_FULL, SIM_IN, SIM_PANEL)
+from ..clock import Clock, CLOCK_LOOKS
 from ..mandelbrot import Mandelbrot
 from ..snake import Snake
 
 
-SIMS = {s.key: s for s in (RockPaperScissors, Life, ForestFire, Mandelbrot, Snake)}
+SIMS = {s.key: s for s in (Clock, RockPaperScissors, Life, ForestFire, Mandelbrot, Snake)}
 
 
 class SimScreen:
@@ -38,11 +39,25 @@ class SimScreen:
         """Full screen: just the sim, on the whole screen (for every sim)."""
         return self.setting("sim_full") == "On"
 
+    def sim_paced(self):
+        """The sim on this page, if its picture changes only now and then (the Clock: each second), else None."""
+        s = self.sims.get(LIBRARY[self.tab].get("sim")) if self.tab_type() == "sim" else None
+        return s if getattr(s, "paced", False) else None
+
+    def sim_bare(self):
+        """The sim on this page is drawn on the page itself (the Clock): no box, nothing beside it."""
+        kind = SIMS.get(LIBRARY[self.tab].get("sim")) if self.tab_type() == "sim" else None
+        return bool(getattr(kind, "bare", False))
+
     def sim_layout(self):
         """(the box, its numbers beside it, what changes from one frame to the next) on this screen: on a
-        bigger one than the GPi Case's, the box is as much wider and taller, the numbers still at its right."""
-        dx = (self.fb.w if self.fb else 640) - 640
-        dy = (self.fb.h if self.fb else 480) - 480
+        bigger one than the GPi Case's, the box is as much wider and taller, the numbers still at its right. A
+        bare sim (the Clock): the page between its bars, all of it."""
+        W, H = (self.fb.w, self.fb.h) if self.fb else (640, 480)
+        dx, dy = W - 640, H - 480
+        if self.sim_bare():
+            box = (0, SIM_BOX[1], W, SIM_BOX[3] + dy)
+            return box, box, box
         box = (SIM_BOX[0], SIM_BOX[1], SIM_BOX[2] + dx, SIM_BOX[3] + dy)
         panel = (SIM_PANEL[0] + dx, SIM_PANEL[1], SIM_PANEL[2] + dx, SIM_PANEL[3] + dy)
         return box, panel, (box[0], box[1], panel[2], panel[3])
@@ -52,7 +67,7 @@ class SimScreen:
         the whole screen."""
         if self.sim_full():
             return ((0, 0, self.fb.w, self.fb.h) if self.fb else (0, 0, 640, 480)), 0
-        return self.sim_layout()[0], SIM_IN
+        return self.sim_layout()[0], 0 if self.sim_bare() else SIM_IN
 
     def sim_game(self):
         """The sim on this page: made the first time it's opened, with your options, and kept while
@@ -71,6 +86,8 @@ class SimScreen:
                 s.calls = [min(calls), calls[1]]
         elif (s.w, s.h) != (w, h):
             s.refit(w, h)
+        if kind is Clock:
+            s.hours24 = self.setting("clock") == "24-hour"     # (Settings > Clock)
         return s
 
     def sim_set_full(self, on):
@@ -92,8 +109,8 @@ class SimScreen:
         self.dirty = True
 
     def press_sim(self, name, repeat):
-        """A sim: A pauses (Rock Paper Scissors: starts, pauses, plays again), X pokes it, Y starts it
-        again, SELECT is full screen, START has its options, B goes back to the list. In Rock Paper
+        """A sim: A pauses (Rock Paper Scissors: starts, pauses, plays again; the Clock: its other look), X pokes
+        it, Y starts it again, SELECT is full screen, START has its options, B goes back to the list. In Rock Paper
         Scissors, left and right pick a winner (until the first capture)."""
         s = self.sim_game()
         if self.sim_opts is not None:
@@ -107,6 +124,13 @@ class SimScreen:
             if not repeat:
                 self.press_snake(s, name)
             self.dirty = True
+            return None
+        if s.key == "clock" and name in ("a", "x", "y"):
+            if name == "a" and not repeat:                 # A: the other look (kept, as START's card keeps it)
+                look = CLOCK_LOOKS[(CLOCK_LOOKS.index(s.values["look"]) + 1) % len(CLOCK_LOOKS)]
+                self.set_setting("sim_clock_look", look)
+                s.configure({"look": look})
+                self.dirty = True
             return None
         if repeat:
             return None
@@ -524,11 +548,11 @@ class SimScreen:
             self.sim_feet_taps[hints] = self.taps_cut(mark)
         if card_open or not full:                      # (each frame: where they are, for the web page's taps)
             self.tap_again(getattr(self, "sim_feet_taps", {}).get(hints))
-        fresh = False
+        fresh, bare = False, s.bare
         if full:
-            key = ("full", fb.w, fb.h)
+            key = ("full", fb.w, fb.h, s.backdrop)
             if key != self.sim_base[0]:
-                self.sim_base = (key, Image.new("RGB", (fb.w, fb.h), SIM_FLOOR), None)
+                self.sim_base = (key, Image.new("RGB", (fb.w, fb.h), s.backdrop), None)
         else:
             if (self.status_sig, ACCENT, self.tab_off) != self.sim_head[0]:     # the clock, the tabs
                 img, d = self.canvas()
@@ -537,13 +561,14 @@ class SimScreen:
                 self.sim_head = ((self.status_sig, ACCENT, self.tab_off), img.crop((0, 0, fb.w, self.HEADER + 1)))
                 self.sim_head_taps = self.taps_cut(mark)
             self.tap_again(getattr(self, "sim_head_taps", None))
-            key = (self.sim_head[0], hints)
+            key = (self.sim_head[0], hints, bare)
             if key != self.sim_base[0]:
                 img, d = self.canvas()
                 img.paste(self.sim_head[1], (0, 0))
                 img.paste(self.sim_feet[hints], (0, fb.h - self.FOOTER))
-                d.rounded_rectangle(self.sim_layout()[0], radius=10, fill=SIM_FLOOR, outline=LINE)
-                self.sim_base = (key, img, self.sim_corners(img))
+                if not bare:                           # (the Clock: on the page itself)
+                    d.rounded_rectangle(self.sim_layout()[0], radius=10, fill=SIM_FLOOR, outline=LINE)
+                self.sim_base = (key, img, [] if bare else self.sim_corners(img))
             if s.key == "rps":
                 sig = ("rps", s.phase, s.pick, s.is_open(), tuple(s.calls), s.round, ACCENT)   # drawn at once
                 pkey = (sig, tuple(s.counts()), int(s.clock), s.captures, len(s.history))     # ...or every 0.25 s
@@ -551,12 +576,12 @@ class SimScreen:
                 sig = (s.key, self.tab, tuple(label for label, _ in s.stats()), ACCENT)
                 pkey = (sig, tuple(s.stats()), len(s.history), s.look())
             old = self.sim_panel[0]
-            fresh = old is None or old[0] != sig or (pkey != old and now - self.sim_panel[2] >= 0.25)
+            fresh = not bare and (old is None or old[0] != sig or (pkey != old and now - self.sim_panel[2] >= 0.25))
             if fresh:
                 self.sim_panel = (pkey, self.rps_scores(s, sig) if s.key == "rps" else self.sim_numbers(s, sig), now)
         img = self.sim_base[1].copy()
         (bx, by, _, _), inset = self.sim_box()
-        if not full:
+        if not full and not bare:
             img.paste(self.sim_panel[1], self.sim_layout()[1][:2])
         s.draw(img, bx + inset, by + inset)
         if not full:

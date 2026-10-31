@@ -87,7 +87,10 @@ LOG_ARGS = 6             # an emulator's printf (its log): what's after the form
                          # says are used, and none of a format with fractions in it (they're elsewhere)
 LOG = C.CFUNCTYPE(None, C.c_int, C.c_char_p, *([C.c_void_p] * LOG_ARGS))
 LOG_SPEC = re.compile(r"%([-+ #0]*)(\*|\d+)?(?:\.(\*|\d*))?(hh|h|ll|l|j|z|t|q)?([diouxXcsp%])")
-LOG_CORES = ("Mupen64Plus-Next", "ParaLLEl N64", "PPSSPP", "Flycast")   # emulators that crash with nowhere to log to
+MISSING_CHIP = re.compile(r"\[FBNeo\] ROM at index \d+ with name (\S+) and CRC \S+ is required")   # (FinalBurn Neo's
+                                                                                    # words for a chip a zip hasn't got)
+LOG_CORES = ("Mupen64Plus-Next", "ParaLLEl N64", "PPSSPP", "Flycast",   # emulators that crash with nowhere to log to,
+             "FinalBurn Neo", "FinalBurn Neo (neogeo subset)")    # ...and one that says there which chips are missing
 LOG_MOST = 200           # lines an emulator puts in the log, at most, a game (a PSP game can go on and on)
 SWAP_FRAMES = 60         # frames the tray stays open when the disc's changed (so the game sees it)
 RESUME_TRIES = 3         # frames run to pick up where you were, for an emulator that won't before it's running
@@ -636,6 +639,7 @@ class Core:
         self.gpu, self.hw, self.gpu_error = None, None, ""   # (a game drawn in 3D: the graphics chip)
         self.log_cb = LOG(self.log)
         self.logged = 0                                # (lines it's put in the log)
+        self.missing = []                              # the chips an arcade game's zip hasn't got, as its emulator says
         self.disk, self.disk_ext = None, False         # (a game on discs: changing them)
         self.regions = []                              # its memory, where the game sees it: (start, length, pointer)
         self.saves, self.name = saves, name
@@ -668,7 +672,8 @@ class Core:
             if ext == "zip" and set(exts) & {".cue", ".iso", ".chd", ".pbp", ".cso", ".m3u"}:   # (a disc's, zipped)
                 raise GameError("Unzip this game to play it")
             try:
-                if ext == "zip":                       # a cartridge's, zipped: out of it while it plays
+                if ext == "zip" and "zip" not in kinds:   # a cartridge's, zipped: out of it while it plays (an arcade
+                                                        # emulator's games are zips of chips: it opens them itself)
                     buf, size, inside = game_data(game, exts)
                     self.scratch = scratch_dir()
                     game = os.path.join(self.scratch, os.path.basename(inside))
@@ -702,12 +707,17 @@ class Core:
             self.disk.set_initial_image(first_disc[0], first_disc[1].encode())   # (the disc you were on)
         gi = GameInfo(self.game_path, C.cast(self.data, C.c_void_p) if self.data is not None else None, size, None)
         self.game_info = gi                            # (kept while it plays: melonDS reads it again to start over)
-        if not L.retro_load_game(C.byref(gi)):
+        loaded = bool(L.retro_load_game(C.byref(gi)))
+        if loaded and self.missing:                    # (FinalBurn Neo "loads" it, to show its own screen saying so)
+            L.retro_unload_game()
+            loaded = False
+        if not loaded:
             L.retro_deinit()
             self.close_gpu()
             if self.scratch:
                 shutil.rmtree(self.scratch, ignore_errors=True)
-            raise GameError(self.gpu_error or "This game didn't load")
+            raise GameError(self.gpu_error or ("Parts of this game aren't in its zip (or in neogeo.zip). It may be "
+                                               "from another version" if self.missing else "This game didn't load"))
         L.retro_set_controller_port_device(0, JOYPAD)
         L.retro_get_system_av_info(C.byref(self.av))
         self.loaded = True
@@ -869,6 +879,9 @@ class Core:
             text = log_text(fmt.decode(errors="replace"), args).strip()
         except Exception:                             # (it mustn't take the game down)
             text = fmt.decode(errors="replace").strip()
+        m = MISSING_CHIP.match(text)
+        if m:
+            self.missing.append(m.group(1))
         if self.logged > LOG_MOST:
             text = "... (and more: no more of it)"
         print(f"game: the emulator says {text!r}", file=sys.stderr, flush=True)

@@ -131,6 +131,9 @@ class WebScreen:
     def web_shot(self, after=None, wait=0.0):
         """(bytes, type, the number of the menus' last picture): web_screen's, and which picture it is (a video's: a
         look at the screen as it is, a JPEG, with the number of the menus' last picture still)."""
+        self.web_watched = time.monotonic()           # (someone's watching the screen on the web page: it doesn't
+        if self.resting:                               # rest, and wakes if it was)
+            self.stir()
         if after is not None:
             self.web_frame_wait(after, wait)
         fb = self.fb

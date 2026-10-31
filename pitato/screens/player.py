@@ -20,6 +20,7 @@ from ..library import (
     AUDIO_PLAYER, LIBRARY, LISTEN_KINDS, LOCAL_CACHE, NET_CACHE, PLAYER_NICE, RADIO_CACHE, resolve,
     SCREEN_KINDS, video_player, video_scale)
 from ..plex import PLEX_CACHE
+from ..lofi import LofiArt, lofi_scene, SCENES
 
 
 HUSH_RETRY = 60.0     # seconds before trying again if the speaker's silence wouldn't play
@@ -555,7 +556,71 @@ class PlayerScreen:
             self.cmd(f"pausing_keep volume {self.volume} 1")
         self.dirty = True
 
+    # -- Now playing's lofi art (SELECT there) --------------------------------------------------------------
+    def now_art(self):
+        """Music or radio's Now playing is on the screen, with its lofi art (SELECT)."""
+        return (self.active and self.view == "now" and self.kind in LISTEN_KINDS
+                and self.setting("now_art") == "On")
+
+    def lofi_fps(self):
+        it = self.cur or {}
+        return getattr(SCENES.get(lofi_scene(it.get("src") or it.get("title"))), "fps", 4)
+
+    def lofi_words(self):
+        """(what's playing, and who by or what's on: Paused while it is)."""
+        it = self.cur or {"title": "", "src": "", "sub": ""}
+        if self.kind == "radio":
+            title, sub = it.get("title", ""), self.meta.get("song") or it.get("sub") or ""
+        else:
+            title = self.meta.get("title") or it.get("title", "")
+            sub = self.meta.get("artist") or os.path.basename(os.path.dirname(it.get("src", "")))
+        return title, ("Paused" if self.paused else sub)
+
+    def lofi_caption(self, title, sub, room, bar):
+        """What's playing, in a dark see-through card for the corner: an RGBA picture."""
+        from PIL import Image, ImageDraw
+        F = self.fonts
+        probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+        title, sub = self.fit(probe, title, F["head"], room - 32), self.fit(probe, sub, F["small"], room - 32)
+        w = int(max(probe.textlength(title, font=F["head"]), probe.textlength(sub, font=F["small"]), 120)) + 32
+        h = 70 if bar else 60
+        img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        d.rounded_rectangle((0, 0, w - 1, h - 1), radius=12, fill=(14, 12, 26, 196))
+        d.text((16, 22), title, font=F["head"], fill=TEXT, anchor="lm")
+        d.text((16, 44), sub, font=F["small"], fill=ACCENT if self.paused else BODY, anchor="lm")
+        return img
+
+    def render_lofi(self):
+        """Now playing with its lofi art: a quiet scene on the whole screen (each song or station its own), what's
+        playing in the corner (and how far through it is), nothing else."""
+        from PIL import ImageDraw
+        W, H = self.fb.w, self.fb.h
+        it = self.cur or {"title": "", "src": ""}
+        if self.lofi is None:
+            self.lofi = LofiArt()
+        img = self.lofi.frame(lofi_scene(it.get("src") or it.get("title")), W, H, time.monotonic())
+        radio = self.kind == "radio"
+        length = 0 if radio else (self.meta.get("length") or self.length(it) or 0)
+        title, sub = self.lofi_words()
+        key = (title, sub, self.paused, W, bool(length), ACCENT)
+        if self.lofi_card[0] != key:
+            self.lofi_card = (key, self.lofi_caption(title, sub, int(W * 0.62), bool(length)))
+        card = self.lofi_card[1]
+        x, y = 18, H - 18 - card.height
+        img.paste(card, (x, y), card)
+        d = ImageDraw.Draw(img)
+        if length:                                     # how far through it is: a thin line along the card's foot
+            x0, x1, by = x + 16, x + card.width - 16, y + card.height - 13
+            d.rounded_rectangle((x0, by, x1, by + 3), radius=1, fill=LINE)
+            d.rounded_rectangle((x0, by, x0 + max(3, (x1 - x0) * min(self.pos / length, 1)), by + 3), radius=1,
+                                fill=ACCENT)
+        self.msg_pill(d)                               # (a notice, over it)
+        self.fb.show(img)
+
     def render_now(self):
+        if self.setting("now_art") == "On":
+            return self.render_lofi()
         F = self.fonts
         img, d = self.canvas()
         W = self.fb.w
@@ -610,10 +675,10 @@ class PlayerScreen:
             if not self.shuffle and self.qi + 1 < len(self.queue):
                 nxt = self.fit(d, "Next: " + self.queue[self.qi + 1]["title"], F["small"], W - 48)
                 d.text((24, by + 58), nxt, font=F["small"], fill=MUTED, anchor="lm")
-            hints = [("A", "Play/pause" if not self.paused else "Play"), ("◀▶", "Seek"),
-                     ("L R", "Prev/next"), ("Y", "Shuffle"), ("B", "List")]
+            hints = [("A", "Pause" if not self.paused else "Play"), ("◀▶", "Seek"),
+                     ("L R", "Prev/next"), ("Y", "Shuffle"), ("SELECT", "Art"), ("B", "List")]
         else:
             hints = [("A", "Pause" if not self.paused else "Play"), ("◀▶", "Station"),
-                     ("▲▼", "Volume"), ("B", "List")]
+                     ("▲▼", "Volume"), ("SELECT", "Art"), ("B", "List")]
         self.footer(d, hints)
         self.fb.show(img)

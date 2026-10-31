@@ -865,7 +865,7 @@ class DrawScreen:
             cols = [
                 ("Music & radio", [("A", "Pause / play"), ("◀▶", "Seek / station"),
                                    ("L R", "Prev / next"), ("▲▼", "Volume"), ("Y", "Shuffle")]),
-                ("", [("B", "Back to the list"), ("HOME", "Terminal"),
+                ("", [("SELECT", "Lofi art"), ("B", "Back to the list"), ("HOME", "Terminal"),
                       ("", "Music keeps playing in"), ("", "the terminal")]),
             ]
         else:

@@ -266,6 +266,7 @@ on_exit() {
   set +e
   stop_spin
   let_go
+  if [ -n "$SWAPPED" ]; then swapoff "$SWAPPED" 2>/dev/null; rm -f "$SWAPPED"; fi   # (a build's swap file)
   if [ -n "$BUILDING" ]; then rm -rf "$BUILDING"; fi
   if [ "$FINISHED" != yes ]; then
     echo
@@ -630,6 +631,119 @@ if [ "$BIG" = yes ]; then
   fi
 else
   echo "(Dreamcast games need a Pi 4 or 5: no Dreamcast emulator on this one.)"
+fi
+
+# Neo Geo Pocket and Pocket Color: Beetle NeoPop, built here from its source (Debian doesn't have it), on any Pi
+NEOPOP=a50d5ac288a81f2104ddf43195a4efdd15c72227
+neopop_source() {  # neopop_source FOLDER
+  local -x GIT_TERMINAL_PROMPT=0     # (a question from git would wait unseen: an error instead)
+  git init -q "$1/src" \
+    && git -C "$1/src" fetch -q --depth 1 https://github.com/libretro/beetle-ngp-libretro.git "$NEOPOP" \
+    && git -C "$1/src" -c advice.detachedHead=false checkout -q FETCH_HEAD
+}
+build_neopop() {
+  local jobs tmp
+  jobs=$(nproc 2>/dev/null || echo 1)
+  if [ "$(awk '/MemTotal/ {print int($2 / 1024)}' /proc/meminfo)" -lt 1000 ]; then jobs=1; fi   # (a Pi Zero's 512 MB)
+  apt-get install -y build-essential git || return 1
+  tmp="$(mktemp -d /var/tmp/neopop-XXXXXX)" || return 1
+  BUILDING="$tmp"
+  working "Downloading" "$tmp/build.log" neopop_source "$tmp" \
+    && working "Building" "$tmp/build.log" make -C "$tmp/src" -j"$jobs" \
+    || { tail -n 20 "$tmp/build.log"; rm -rf "$tmp"; return 1; }
+  install -d "$CORES" && install -m 644 "$tmp/src/mednafen_ngp_libretro.so" "$CORES/" || { rm -rf "$tmp"; return 1; }
+  echo "$NEOPOP" > "$CORES/mednafen_ngp.version"
+  rm -rf "$tmp"
+}
+if [ "$(cat "$CORES/mednafen_ngp.version" 2>/dev/null)" = "$NEOPOP" ] && [ -f "$CORES/mednafen_ngp_libretro.so" ]; then
+  echo "The Neo Geo Pocket emulator (Beetle NeoPop) is built already."
+else
+  step "Building the Neo Geo Pocket emulator (Beetle NeoPop): $(how_long "a few minutes" "a minute or so")"
+  build_neopop || echo "(Couldn't build Beetle NeoPop: Neo Geo Pocket games won't start.)"
+fi
+
+# Neo Geo: FinalBurn Neo, built here from its source with just its Neo Geo games (all of it would take hours on a
+# Pi), and its error screen's plain letters instead of its big font of Chinese ones (half a GB of memory to build).
+# Its list of the games it knows goes beside it: media mode finds them by their names (mslug.zip). Their BIOS,
+# neogeo.zip, isn't in it: that goes in ~/Games/BIOS. On a Pi with little memory, a swap file helps it build (taken
+# away again after)
+FBNEO=16e0f2339591bc023d4560255c000e508417f562
+SWAPPED=""
+fbneo_source() {  # fbneo_source FOLDER
+  local -x GIT_TERMINAL_PROMPT=0     # (a question from git would wait unseen: an error instead)
+  local lr="$1/src/src/burner/libretro"
+  git init -q "$1/src" \
+    && git -C "$1/src" fetch -q --depth 1 https://github.com/libretro/FBNeo.git "$FBNEO" \
+    && git -C "$1/src" -c advice.detachedHead=false checkout -q FETCH_HEAD \
+    && sed -i 's/UG_FontSelect(FONT_SourceHanSansCN_Medium_13X17);/UG_FontSelect(FONT_8X8);/' "$lr/ugui_tools.c" \
+    && sed -i '/SourceHanSansCN_Medium_13X17\.c/d' "$lr/Makefile.common" \
+    && grep -q "UG_FontSelect(FONT_8X8);" "$lr/ugui_tools.c"
+}
+fbneo_make() {   # fbneo_make FOLDER JOBS PLATFORM (its list of games first: just the Neo Geo's)
+  make -C "$1/src/src/burner/libretro" SUBSET=neogeo generate-files \
+    && make -C "$1/src/src/burner/libretro" SUBSET=neogeo platform="$3" -j"$2"
+}
+swap_on() {        # swap_on FILE: 1 GB more room for a build, if the card has it to spare
+  local free
+  free=$(df -Pm "$(dirname "$1")" | awk 'NR == 2 {print $4}')
+  [ "${free:-0}" -gt 2000 ] || return 1
+  dd if=/dev/zero of="$1" bs=1M count=1024 status=none && chmod 600 "$1" && mkswap "$1" > /dev/null \
+    && swapon "$1" && SWAPPED="$1"
+}
+swap_off() {
+  if [ -n "$SWAPPED" ]; then swapoff "$SWAPPED" 2>/dev/null || true; rm -f "$SWAPPED"; SWAPPED=""; fi
+}
+build_fbneo() {
+  local plat jobs mem tmp
+  case "$(dpkg --print-architecture 2>/dev/null || uname -m)" in
+    arm64|aarch64)
+      case "$MODEL" in
+        *"Pi 4"*|*"Pi 5"*|*"Compute Module 4"*|*"Compute Module 5"*) plat=rpi4_64 ;;   # (a Pi 5's card runs in a Pi 4)
+        *"Pi 3"*|*"Zero 2"*|*"Compute Module 3"*) plat=rpi3_64 ;;
+        *) plat=unix ;;
+      esac
+      if [ "$IMAGE" = yes ]; then plat=rpi3_64; fi ;;     # (an image: the slowest 64-bit Pi's, which all run)
+    armhf|armv7l)                                         # (the 32-bit Raspberry Pi OS: no Pi 4 build of its own)
+      case "$MODEL" in
+        *"Pi 3"*|*"Pi 4"*|*"Pi 5"*|*"Zero 2"*|*"Compute Module 3"*|*"Compute Module 4"*) plat=rpi3 ;;
+        *"Pi 2"*) plat=rpi2 ;;
+        *) plat=unix ;;
+      esac
+      if [ "$IMAGE" = yes ]; then plat=rpi2; fi ;;        # (an image: the Pi 2's, which the newer ones run too)
+    *) plat=unix ;;
+  esac
+  jobs=$(nproc 2>/dev/null || echo 1)
+  mem=$(awk '/MemTotal/ {print int($2 / 1024)}' /proc/meminfo)
+  if [ "$mem" -lt 1500 ]; then jobs=1; elif [ "$mem" -lt 3000 ] && [ "$jobs" -gt 2 ]; then jobs=2; fi
+  apt-get install -y build-essential git perl || return 1
+  for old in /var/tmp/fbneo-*/swap; do              # (one a power cut left behind: its gigabyte back)
+    if [ -f "$old" ] && ! grep -qF "$old " /proc/swaps; then rm -f "$old"; fi
+  done
+  tmp="$(mktemp -d /var/tmp/fbneo-XXXXXX)" || return 1
+  BUILDING="$tmp"
+  if [ "$mem" -lt 1000 ]; then swap_on "$tmp/swap" || true; fi   # (a Pi Zero's 512 MB)
+  working "Downloading" "$tmp/build.log" fbneo_source "$tmp" \
+    && working "Building" "$tmp/build.log" fbneo_make "$tmp" "$jobs" "$plat" \
+    || { tail -n 20 "$tmp/build.log"; swap_off; rm -rf "$tmp"; return 1; }
+  swap_off
+  install -d "$CORES" && install -m 644 "$tmp/src/src/burner/libretro/fbneo_neogeo_libretro.so" "$CORES/" \
+    && install -m 644 "$tmp/src/gamelist.txt" "$CORES/fbneo_neogeo.gamelist.txt" || { rm -rf "$tmp"; return 1; }
+  echo "$FBNEO" > "$CORES/fbneo_neogeo.version"
+  rm -rf "$tmp"
+}
+case "$MODEL" in
+  *"Zero 2"*) ;;
+  *Zero*|"Raspberry Pi Model"*|*"Compute Module Rev"*) NEO_OLD=yes ;;   # (the first Pis, and the Zero W: too slow)
+esac
+case "$(dpkg --print-architecture 2>/dev/null || uname -m)" in armel|armv6l) NEO_OLD=yes ;; esac
+if [ "${NEO_OLD:-no}" = yes ] && [ "$IMAGE" != yes ]; then
+  echo "(Neo Geo games need a Pi 2 or newer: no Neo Geo emulator on this one.)"
+elif [ "$(cat "$CORES/fbneo_neogeo.version" 2>/dev/null)" = "$FBNEO" ] && [ -f "$CORES/fbneo_neogeo_libretro.so" ] \
+    && [ -f "$CORES/fbneo_neogeo.gamelist.txt" ]; then
+  echo "The Neo Geo emulator (FinalBurn Neo) is built already."
+else
+  step "Building the Neo Geo emulator (FinalBurn Neo): $(how_long "about half an hour on a Pi Zero 2, 10 minutes on a Pi 4" "a few minutes")"
+  build_fbneo || echo "(Couldn't build FinalBurn Neo: Neo Geo games won't start.)"
 fi
 
 # Chromium, from Web's first page on a Pi 4 or 5: the whole web on the whole screen. cage shows it there with no
@@ -1084,9 +1198,12 @@ mkdir -p "$USER_HOME/Videos" "$USER_HOME/Music" "$USER_HOME/Pictures" "$USER_HOM
   "$USER_HOME/Games/BIOS"
 chown "$USER_NAME:$USER_NAME" "$USER_HOME/Videos" "$USER_HOME/Music" "$USER_HOME/Pictures" \
   "$USER_HOME/Documents" "$USER_HOME/Games" "$USER_HOME/Games/BIOS"
-GAME_FOLDERS="gb gbc gba nes snes genesis sms gg ps1"
+GAME_FOLDERS="gb gbc gba nes snes genesis sms gg ngp ngpc neogeo ps1"
 case "$MODEL" in *"Pi 4"*|*"Pi 5"*|*"Compute Module 4"*|*"Compute Module 5"*) GAME_FOLDERS="$GAME_FOLDERS n64 psp nds dc" ;; esac
 if [ "$PC" = yes ]; then GAME_FOLDERS="$GAME_FOLDERS n64 psp nds dc"; fi
+if [ "${NEO_OLD:-no}" = yes ] && [ "$IMAGE" != yes ]; then   # (no Neo Geo emulator on this Pi: no folder for its games)
+  GAME_FOLDERS="${GAME_FOLDERS/ neogeo/}"
+fi
 for sys in $GAME_FOLDERS; do                       # a folder for each kind of game, so it's clear where they go
   if [ ! -d "$USER_HOME/Games/$sys" ]; then
     mkdir "$USER_HOME/Games/$sys" && chown "$USER_NAME:$USER_NAME" "$USER_HOME/Games/$sys"

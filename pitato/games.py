@@ -1,12 +1,13 @@
 """Your own games: the ones in the Games folder, the emulators that play them (libretro cores, from
-Debian's packages, and PCSX ReARMed, Mupen64Plus, PPSSPP, melonDS and Flycast, built by setup.sh), their pictures (box
-art from libretro's thumbnails, found by No-Intro's and Redump's lists of games), and a game while it runs
-(pitato/emulator.py, in a process of its own)."""
+Debian's packages, and PCSX ReARMed, Mupen64Plus, PPSSPP, melonDS, Flycast, Beetle NeoPop and FinalBurn Neo, built by
+setup.sh), their pictures (box art from libretro's thumbnails, found by No-Intro's and Redump's lists of games, or by a
+Neo Geo game's name), and a game while it runs (pitato/emulator.py, in a process of its own)."""
 import array
 import difflib
 import glob
 import hashlib
 import io
+import json
 import os
 import re
 import subprocess
@@ -21,7 +22,7 @@ import zlib
 
 from .config import CACHE_DIR, home_dir
 from .discs import cue_files, cue_fixed, dc_title, DISC_EXTS, disc_info, disc_number, gdi_files, m3u_files
-from .screen import slow_pi
+from .screen import first_pi, slow_pi
 from .util import UA
 
 # what plays what: key, badge, name, the files, and the emulators (libretro cores), the first installed one.
@@ -34,6 +35,9 @@ GAME_SYSTEMS = [
     ("genesis", "MD", "Genesis / Mega Drive", (".md", ".gen", ".smd", ".bin"), ("genesis_plus_gx", "picodrive")),
     ("sms", "SMS", "Master System", (".sms",), ("genesis_plus_gx", "picodrive", "smsplus")),
     ("gg", "GG", "Game Gear", (".gg",), ("genesis_plus_gx", "picodrive")),
+    ("ngp", "NGP", "Neo Geo Pocket", (".ngp",), ("mednafen_ngp", "race")),
+    ("ngpc", "NGPC", "Neo Geo Pocket Color", (".ngc", ".ngpc", ".npc"), ("mednafen_ngp", "race")),
+    ("neogeo", "NEO", "Neo Geo", (".zip",), ("fbneo_neogeo", "fbneo")),
     ("n64", "N64", "Nintendo 64", (".z64", ".n64", ".v64"), ("mupen64plus_next", "parallel_n64")),
     ("ps1", "PS1", "PlayStation", (".cue", ".chd", ".pbp", ".m3u", ".iso", ".bin"),
      ("pcsx_rearmed", "swanstation", "mednafen_psx", "beetle_psx")),
@@ -42,29 +46,39 @@ GAME_SYSTEMS = [
     ("dc", "DC", "Dreamcast", (".gdi", ".cdi", ".chd", ".cue", ".m3u"), ("flycast",)),
 ]
 DISC_SYSTEMS = ("ps1", "psp", "dc")              # discs: what's in the file says (pitato/discs.py)
+ARCADE_SYSTEMS = ("neogeo",)                     # its games are sets of chips in a zip, named as its emulator knows
+                                                 # them (mslug.zip): the name says which (neogeo_sets)
 SHARED_EXTS = (".bin",)                          # a Genesis game's, or a PlayStation disc's: what's in it says which
-GAME_EXTS = {e: s[0] for s in GAME_SYSTEMS if s[0] not in DISC_SYSTEMS for e in s[3]
+GAME_EXTS = {e: s[0] for s in GAME_SYSTEMS if s[0] not in DISC_SYSTEMS + ARCADE_SYSTEMS for e in s[3]
              if e not in SHARED_EXTS}            # cartridges: a file says which (a zip too)
 GENESIS_FOLDERS = ("genesis", "megadrive", "mega drive", "md", "sega genesis", "sega mega drive",
                    "sega - mega drive - genesis")   # (a .bin in one: a Genesis game, whatever it says)
 NEEDS_3D = ("n64", "psp", "dc")   # drawn in 3D by the graphics chip: a Pi 4 or 5 (pitato/gpu.py)
 FAST_PI_ONLY = NEEDS_3D + ("nds",)   # ...and a DS's two processors and screens: a Pi 4 or 5 too
+NEW_PI_ONLY = ("neogeo",)            # a Neo Geo's: a Pi 2 or newer (not the first Pis, or a Pi Zero W)
 ANALOG_SYSTEMS = ("n64", "psp", "nds", "dc")   # its games take the sticks as they are, not as the d-pad (a DS's:
                                          # the right one moves the pointer on its touch screen, pitato/screens/games.py)
 OWN_FILES = ("n64", "psp", "dc")   # its emulator keeps files of its own (settings, shaders, a PSP's fonts, a
                                    # Dreamcast's clock): not in Games/BIOS
-GAME_PLAYERS = {"nes": 2, "snes": 2, "genesis": 2, "sms": 2, "ps1": 2, "n64": 4, "dc": 4}   # how many play its games
+GAME_PLAYERS = {"nes": 2, "snes": 2, "genesis": 2, "sms": 2, "neogeo": 2, "ps1": 2, "n64": 4, "dc": 4}   # how many play its games
                                                  # at once, each on a controller of their own (the rest: one, on any)
 GAME_PACKAGES = {"mgba": "libretro-mgba", "nestopia": "libretro-nestopia", "snes9x": "libretro-snes9x",
                  "genesis_plus_gx": "libretro-genesisplusgx",
                  "mupen64plus_next": "mupen64plus_next", "pcsx_rearmed": "pcsx_rearmed", "ppsspp": "ppsspp",
-                 "melonds": "melonds", "flycast": "flycast"}
+                 "melonds": "melonds", "flycast": "flycast", "mednafen_ngp": "mednafen_ngp",
+                 "fbneo_neogeo": "fbneo_neogeo"}
 DC_BIOS = ("dc_boot.bin", "dc_bios.bin")         # a Dreamcast's own BIOS, if it's in Games/BIOS (or Games/BIOS/dc):
                                                  # Flycast plays without it, and with it the few games that need it
 GENERIC_NAMES = ("disc", "game", "gdi", "image")   # a .gdi named for what it is, not the game (GDEMU's disc.gdi): its
                                                    # folder's name instead (or the disc's own, its folder a number)
 NEEDS_BIOS = {"mednafen_psx": ("scph5500.bin", "scph5501.bin", "scph5502.bin"),   # (the rest manage without)
-              "beetle_psx": ("scph5500.bin", "scph5501.bin", "scph5502.bin")}
+              "beetle_psx": ("scph5500.bin", "scph5501.bin", "scph5502.bin"),
+              "fbneo_neogeo": ("neogeo.zip",), "fbneo": ("neogeo.zip",)}   # (a Neo Geo's: beside its games will do)
+FBNEO_CORES = ("fbneo_neogeo", "fbneo")          # FinalBurn Neo: just its Neo Geo games (setup.sh's), or all of it
+NEOGEO_LIST = "fbneo_neogeo.gamelist.txt"        # FinalBurn Neo's list of the games it knows, beside it (setup.sh)
+NEOGEO_NOT_GAMES = ("neogeo", "neocdz")          # sets in it that aren't games: the BIOS, and the Neo Geo CD's
+NEOGEO_CHIPS = (".p1", ".c1")                    # a Neo Geo game's chips, as its zip names them (201-p1.p1, 201-c1.c1)
+NEOGEO_LOOK = 5.0                                # seconds between looks for FinalBurn Neo's list (a new one, or none)
 CORE_DIRS = ("/usr/lib/*/libretro", "/usr/lib/libretro", "/usr/local/lib/libretro",
              "/home/*/.config/retroarch/cores")
 GAMES_FOLDER, SAVES_FOLDER, BIOS_FOLDER, IMAGES_FOLDER = "Games", "Saves", "BIOS", "Images"
@@ -78,9 +92,9 @@ def system(key):
 
 
 def playable(key):
-    """A system this Pi plays. N64, PSP, DS and Dreamcast games need a Pi 4 or 5: on an older Pi they aren't shown at
-    all."""
-    return not (key in FAST_PI_ONLY and slow_pi())
+    """A system this Pi plays. N64, PSP, DS and Dreamcast games need a Pi 4 or 5, and Neo Geo games a Pi 2 or newer: on
+    an older Pi they aren't shown at all."""
+    return not (key in FAST_PI_ONLY and slow_pi()) and not (key in NEW_PI_ONLY and first_pi())
 
 
 def game_title(path):
@@ -103,7 +117,7 @@ _zips = {}                                         # a zip -> (its size and time
 
 
 def zip_system(path):
-    """The system of the first game in a zip, or None."""
+    """The system of the first game in a zip (a Neo Geo game's chips: neogeo), or None."""
     try:
         st = os.stat(path)
     except OSError:
@@ -126,6 +140,8 @@ def zip_system(path):
                         found = "genesis" if genesis_header(f.read(0x110)) else None
                 if found:
                     break
+            if not found and any(i.filename.lower().endswith(NEOGEO_CHIPS) for i in z.infolist()):
+                found = "neogeo"
     except ZIP_TROUBLE:
         found = None                                   # (a zip with a password, squeezed some other way, or damaged)
     _zips[path] = (key, found)
@@ -188,7 +204,11 @@ def game_kind(path, top=None):
                 return None
         return GAME_EXTS[ext]
     if ext == ".zip":
-        return zip_system(path)
+        stem = os.path.splitext(os.path.basename(path))[0].lower()
+        if stem in NEOGEO_NOT_GAMES:
+            return None                                # (the Neo Geo's BIOS, beside its games)
+        kind = zip_system(path)
+        return "neogeo" if kind is None and stem in neogeo_sets() else kind
     if ext in SHARED_EXTS and genesis_bin(path, top or games_dir()):
         return "genesis"
     if ext in DISC_EXTS:
@@ -274,7 +294,8 @@ def find_games(folder=None):
             continue
         sysk = game_kind(path, folder)
         if sysk and playable(sysk):
-            found.append({"path": path, "title": game_title(path), "system": sysk})
+            found.append({"path": path, "title": neogeo_title(path) if sysk == "neogeo" else game_title(path),
+                          "system": sysk})
     out = one_per_game(found)
     out.sort(key=lambda g: (g["title"].lower(), g["path"]))
     return out
@@ -290,14 +311,65 @@ def find_core(key):
     return None
 
 
-def bios_missing(core):
-    """The BIOS file an emulator can't start without, when it isn't in Games/BIOS ('' when it's fine)."""
-    need = NEEDS_BIOS.get(os.path.basename(core).replace("_libretro.so", ""), ())
+def bios_missing(core, game=None):
+    """The BIOS file an emulator can't start without, when it isn't in Games/BIOS ('' when it's fine). A Neo Geo's
+    can be beside the game, or in Games/BIOS/fbneo, too (FinalBurn Neo looks there; the others only in Games/BIOS)."""
+    name = os.path.basename(core).replace("_libretro.so", "")
+    need = NEEDS_BIOS.get(name, ())
+    bios = os.path.join(games_dir(), BIOS_FOLDER)
+    have = set()
+    more = (os.path.join(bios, "fbneo"), os.path.dirname(game) if game else None) if name in FBNEO_CORES else ()
+    for folder in (bios,) + more:
+        try:
+            have.update(os.listdir(folder) if folder else ())
+        except OSError:
+            pass
+    return need[min(1, len(need) - 1)] if need and not any(n in have for n in need) else ""
+
+
+_neogeo = {"looked": None, "key": None, "sets": {}}
+
+
+def neogeo_sets():
+    """The Neo Geo games FinalBurn Neo knows, by their zips' names: {"mslug": (its name, its parent's set or "")}, from
+    its list beside it (setup.sh puts it there). Empty without it. (Looked at again every few seconds, at most.)"""
+    now = time.monotonic()
+    if _neogeo["looked"] is not None and now - _neogeo["looked"] < NEOGEO_LOOK:
+        return _neogeo["sets"]
+    _neogeo["looked"] = now
+    core = find_core("neogeo")
+    path = os.path.join(os.path.dirname(core), NEOGEO_LIST) if core else ""
     try:
-        have = set(os.listdir(os.path.join(games_dir(), BIOS_FOLDER)))
+        key = (path, os.stat(path).st_mtime) if path else None
     except OSError:
-        have = set()
-    return need[1] if need and not any(n in have for n in need) else ""
+        key = None
+    if key != _neogeo["key"]:
+        sets = {}
+        try:
+            with open(path, encoding="utf-8", errors="replace") if key else io.StringIO() as f:
+                for line in f:                         # | name | status | full name | parent | year | company | ...
+                    cols = [c.strip() for c in line.strip().strip("|").split("|")]
+                    if line.startswith("| ") and len(cols) >= 4 and cols[0] not in ("name",) + NEOGEO_NOT_GAMES:
+                        sets[cols[0].lower()] = (cols[2], cols[3].lower())
+        except OSError as ex:
+            print(f"games: couldn't read FinalBurn Neo's list of games ({ex})", flush=True)
+        _neogeo["key"], _neogeo["sets"] = key, sets
+    return _neogeo["sets"]
+
+
+def neogeo_title(path):
+    """A Neo Geo game's name, as FinalBurn Neo calls its set (its first name, without its tags): mslug.zip is Metal
+    Slug - Super Vehicle-001. Its file's name, if it isn't one it knows."""
+    stem = os.path.splitext(os.path.basename(path))[0]
+    known = neogeo_sets().get(stem.lower())
+    return (plain_title(known[0].split(" / ")[0]) or stem) if known and known[0] else stem
+
+
+def neogeo_unknown(path):
+    """A Neo Geo game FinalBurn Neo doesn't know by its zip's name (it plays them only by the names it knows): True.
+    (Without its list, nobody can say: False.)"""
+    sets = neogeo_sets()
+    return bool(sets) and os.path.splitext(os.path.basename(path))[0].lower() not in sets
 
 
 def save_name(path):
@@ -316,9 +388,13 @@ LIBRETRO_NAMES = {"gb": "Nintendo - Game Boy", "gbc": "Nintendo - Game Boy Color
                   "snes": "Nintendo - Super Nintendo Entertainment System", "n64": "Nintendo - Nintendo 64",
                   "ps1": "Sony - PlayStation", "psp": "Sony - PlayStation Portable", "nds": "Nintendo - Nintendo DS",
                   "genesis": "Sega - Mega Drive - Genesis", "sms": "Sega - Master System - Mark III",
-                  "gg": "Sega - Game Gear", "dc": "Sega - Dreamcast"}
+                  "gg": "Sega - Game Gear", "dc": "Sega - Dreamcast", "ngp": "SNK - Neo Geo Pocket",
+                  "ngpc": "SNK - Neo Geo Pocket Color", "neogeo": "SNK - Neo Geo"}
+ART_PAIRS = (("gb", "gbc"), ("ngp", "ngpc"))     # both lists looked in: a colour game's file can end .gb or .ngp
 N64_ORDERS = {b"\x37\x80\x40\x12": "H", b"\x40\x12\x37\x80": "I"}   # .v64, .n64: the bytes swapped in twos, fours
 GAME_LISTS = "https://raw.githubusercontent.com/libretro/libretro-database/master/metadat/{kind}/{system}.dat"
+ART_TREE = "https://api.github.com/repos/libretro-thumbnails/{repo}/git/trees/master?recursive=1"   # (an arcade's
+                                                 # games: no list of them, so the names of the pictures there are)
 ART_SOURCES = ("https://thumbnails.libretro.com/{system}/{kind}/{name}.png",
                "https://raw.githubusercontent.com/libretro-thumbnails/{repo}/master/{kind}/{name}.png")
 ART_KINDS = ("Named_Boxarts", "Named_Titles")    # the box, or else the title screen
@@ -512,9 +588,12 @@ class GameList:
             pass
         if text is None:
             try:
-                kind = "redump" if self.key in DISC_SYSTEMS else "no-intro"
-                data = fetch(GAME_LISTS.format(kind=kind, system=urllib.parse.quote(system_name)), timeout=60)
-                text = data.decode("utf-8", errors="replace")
+                if self.key in ARCADE_SYSTEMS:         # (the pictures' names, a line each)
+                    text = arcade_art_names(system_name)
+                else:
+                    kind = "redump" if self.key in DISC_SYSTEMS else "no-intro"
+                    data = fetch(GAME_LISTS.format(kind=kind, system=urllib.parse.quote(system_name)), timeout=60)
+                    text = data.decode("utf-8", errors="replace")
                 os.makedirs(os.path.dirname(cache), exist_ok=True)
                 with open(cache + ".part", "w", encoding="utf-8") as f:
                     f.write(text)
@@ -525,6 +604,11 @@ class GameList:
                     text = open(cache, encoding="utf-8", errors="replace").read()   # (an old one will do)
                 except OSError:
                     return False
+        if self.key in ARCADE_SYSTEMS:
+            for name in text.splitlines():
+                if name.strip() and name not in self.words:
+                    self.add(name)
+            return True
         for name, crc in read_game_list(text):
             self.by_crc.setdefault(crc, name)
             if name not in self.words:
@@ -566,10 +650,37 @@ class GameList:
         return None
 
 
+def arcade_art_names(system_name):
+    """The names of an arcade system's pictures in libretro's thumbnails (its boxes and title screens), a line each."""
+    repo = system_name.replace(" - ", "_-_").replace(" ", "_")
+    tree = json.loads(fetch(ART_TREE.format(repo=repo), timeout=60).decode("utf-8", errors="replace"))
+    names = set()
+    for leaf in tree.get("tree", []):
+        folder, _, name = str(leaf.get("path", "")).rpartition("/")
+        if folder in ART_KINDS and name.lower().endswith(".png"):
+            names.add(name[:-4])
+    if not names:
+        raise ValueError("no pictures there")
+    return "".join(n + "\n" for n in sorted(names))
+
+
 def which_game(game, lists):
     """(the system's key, the game's name in No-Intro's or Redump's list) for one of your games: by its
-    checksum (a disc's by the code on it), else by its file's name; or the file's own name, as a last try."""
+    checksum (a disc's by the code on it), else by its file's name; or the file's own name, as a last try. A Neo
+    Geo game's: the picture named most like FinalBurn Neo's name for it, or for the game it's a version of."""
     stem = game_title(game["path"])
+    if game["system"] in ARCADE_SYSTEMS:
+        sets = neogeo_sets()
+        known = sets.get(stem.lower())
+        names = [known[0]] if known and known[0] else []
+        if known and known[1] in sets and sets[known[1]][0]:
+            names.append(sets[known[1]][0])
+        for name in names:
+            for gl in lists:
+                hit = gl.by_name(name)
+                if hit:
+                    return gl.key, hit
+        return game["system"], names[0] if names else stem
     if game["system"] in DISC_SYSTEMS:
         key = code_key(disc_info(game["path"])[1], game["system"])
         for gl in lists:
@@ -689,7 +800,7 @@ class ArtFinder:
         lists, reached = {}, False
         try:
             for g in todo:
-                keys = ("gb", "gbc") if g["system"] in ("gb", "gbc") else (g["system"],)
+                keys = next((two for two in ART_PAIRS if g["system"] in two), (g["system"],))
                 for k in keys:
                     if k not in lists:
                         gl = GameList(k)

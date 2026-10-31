@@ -12,8 +12,8 @@ from ..screen import aplay_device, screen_turn, sound_place
 from ..library import LIBRARY
 from ..snake import snake_card
 from ..games import (ANALOG_SYSTEMS, art_path, ArtFinder, bios_missing, built_for_other_pi, find_core, find_games,
-                     game_kind, GAME_PACKAGES, GAME_PLAYERS, GameRun, games_dir, has_resume, plain_title, playable,
-                     save_name, SAVES_FOLDER, system)
+                     game_kind, GAME_PACKAGES, GAME_PLAYERS, GameRun, games_dir, has_resume, neogeo_unknown,
+                     plain_title, playable, save_name, SAVES_FOLDER, system)
 from ..emulator import screen_picture
 from ..gameai import GameAI
 
@@ -146,9 +146,12 @@ class GameScreen:
             self.toast(f"The {name} emulator isn't installed. Run setup.sh again to add it"
                        if pkg else f"There's no {name} emulator here", 5)
             return
-        missing = bios_missing(core)
+        missing = bios_missing(core, g["path"])
         if missing:
             self.toast(f"{name} games need {missing} in Games/BIOS", 5)
+            return
+        if g["system"] == "neogeo" and neogeo_unknown(g["path"]):   # (it plays them only by the names it knows)
+            self.toast("The Neo Geo emulator doesn't know this game by its name. Name it as in its list, like mslug.zip", 6)
             return
         if built_for_other_pi(core):                   # (the SD card moved from a Pi 4 to a Pi 5, say)
             self.toast(f"The {name} emulator was built on another kind of Pi. Run setup.sh again to build it here", 6)
@@ -163,7 +166,8 @@ class GameScreen:
             layout = self.setting("ds_screens")
             options.append("melonds_screen_layout=" + (layout if layout in dict(DS_SCREENS) else DS_SCREENS[0][0]))
         self.view = "game"
-        self.render_curtain(g["title"], "Starting…", hints=[("HOME", "Its menu")])   # (the game draws over it)
+        self.render_curtain(g["title"], "Starting…", hints=[("HOME", "Its menu")] + (   # (the game draws over it)
+            [("SELECT", "Coin")] if g["system"] == "neogeo" else []))
         run = GameRun(g, on_change=self.game_changed)
         place = sound_place(self.setting("sound"))     # (Bluetooth headphones, if they're on: sound_tick moves it)
         try:
