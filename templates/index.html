@@ -97,8 +97,22 @@
   main { max-width: 1720px; margin: 0 auto; padding: 28px; }
 
   /* ---- the screen, the player and the remote: things in the room, no boxes ---- */
-  .screen { display: grid; grid-template-columns: minmax(440px, 1.15fr) minmax(0, 1fr); gap: 36px; align-items: start; }
-  .col { display: flex; flex-direction: column; gap: 26px; min-width: 0; }
+  /* Screen is the Pi's screen alone, as big as the window allows with its buttons in view; Library is a page of its own */
+  .screen { display: grid; grid-template-columns: minmax(0, 1fr); gap: 36px; align-items: start; }
+  body[data-view="screen"] .library { display: none; }
+  body[data-view="library"] .col { display: none; }
+  .col {
+    display: flex; flex-direction: column; gap: 26px; min-width: 0; margin-inline: auto;
+    width: min(100%, max(560px, calc((100vh - var(--top) - 236px) * var(--ar, 1.7778))));
+  }
+  /* the remote, when it's wanted: beside the screen on a wide window, so both are in view */
+  @media (min-width: 1100px) {
+    body.remote-open .col {
+      display: grid; grid-template-columns: minmax(0, 1fr) 300px; column-gap: 40px; align-items: start;
+      width: min(100%, calc(max(560px, calc((100vh - var(--top) - 236px) * var(--ar, 1.7778))) + 340px));
+    }
+    body.remote-open .remote-card { grid-column: 2; grid-row: 1; }
+  }
   .tv-wrap { position: relative; isolation: isolate; }
   .glow {
     position: absolute; inset: -9% -3%; z-index: -1; border-radius: 50%; pointer-events: none;
@@ -109,7 +123,7 @@
   .tv { position: relative; aspect-ratio: 16 / 9; border-radius: 14px; overflow: hidden; background: #000; }
   .tv::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: 0 0 0 1px rgba(255, 255, 255, .08) inset; pointer-events: none; }
   .tv img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
-  /* the Pi's screen is its own remote: a tap picks (and, again, opens), a swipe or the wheel moves */
+  /* the Pi's screen is its own remote: a tap opens what's there, a swipe or the wheel moves along */
   body.taps .tv { cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
   .ripple {
     position: absolute; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; pointer-events: none;
@@ -305,11 +319,9 @@
   .content-h > div { display: flex; align-items: center; gap: 10px; min-width: 0; }
   .content-h h3 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -.005em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .content-h .src { font-size: 13px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .content.apps-pad { padding-top: 22px; }
 
   .grid { display: grid; gap: 24px 16px; grid-template-columns: repeat(auto-fill, minmax(var(--min, 168px), 1fr)); }
   .grid.tiles { --min: 260px; gap: 10px; }
-  .grid.apps { --min: 124px; gap: 6px; }
   .item {
     position: relative; display: flex; flex-direction: column; gap: 9px; text-align: left; background: none; border: 0;
     padding: 0; color: inherit; border-radius: 12px; min-width: 0;
@@ -348,15 +360,6 @@
   .mono img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #fff; padding: 3px; }
   .mono.round { border-radius: 50%; }
   .mono.round img { object-fit: cover; padding: 0; }
-  .app {
-    display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 16px 8px 14px; border-radius: 16px;
-    border: 0; background: none; text-align: center; color: inherit;
-  }
-  .app:hover { background: var(--hover); }
-  .app img, .app .tile-i { width: 64px; height: 64px; border-radius: 17px; margin-bottom: 4px; box-shadow: 0 10px 20px -12px rgba(0, 0, 0, .7); }
-  .app .tile-i { display: grid; place-items: center; background: var(--accent); color: var(--on-accent); }
-  .app .an { font-weight: 650; font-size: 15px; }
-  .app .aa { font-size: 12.5px; color: var(--muted); line-height: 1.35; max-width: 22ch; }
   .note { padding: 56px 16px; text-align: center; color: var(--muted); font-size: 14.5px; }
   .note b { display: block; color: var(--text); font-size: 17px; font-weight: 650; margin-bottom: 6px; }
   .skel .art, .skel .mono { background: var(--raised); }
@@ -682,7 +685,6 @@
   @media (hover: none) { .acts { opacity: 1; } .go2 { opacity: 1; } .kbd-hint { display: none; } }
   @media (max-width: 1180px) {
     main { padding: 24px; }
-    .screen { grid-template-columns: minmax(360px, 1fr) minmax(0, 1fr); gap: 28px; }
     .ring { --d: 208px; }
     .lib-body { grid-template-columns: 188px minmax(0, 1fr); }
     .search { width: 210px; }
@@ -694,10 +696,8 @@
     main { padding: 16px 16px calc(96px + env(safe-area-inset-bottom)); }
     .top { padding: 0 16px; gap: 12px; }
     .top .views, .kbd-hint { display: none; }
-    .screen { grid-template-columns: minmax(0, 1fr); gap: 16px; }
-    body[data-view="screen"] .library { display: none; }
-    body[data-view="library"] .col { display: none; }
-    .col { gap: 22px; }
+    .screen { gap: 16px; }
+    .col { gap: 22px; width: auto; margin-inline: 0; }
     .library { position: static; height: auto; min-height: 0; overflow: visible; background: none; border: 0; border-radius: 0; margin: -16px -16px 0; }
     .lib-top { flex-direction: column; align-items: stretch; gap: 0; padding: 0; border-bottom: 0; }
     .ltabs { padding: 0 10px; border-bottom: 1px solid var(--line); }
@@ -711,10 +711,8 @@
     .lib-body.flat .side { display: none; }
     .content { overflow: visible; padding: 0 16px 18px; }
     .content-h { position: static; padding: 16px 0 12px; background: none; }
-    .content.apps-pad { padding-top: 14px; }
     .grid { gap: 18px 12px; --min: 140px; }
     .grid.tiles { --min: 240px; }
-    .grid.apps { --min: 96px; gap: 2px; }
     .grid.cams { --min: 220px; }
     .fr-view { grid-template-columns: minmax(0, 1fr); height: auto; min-height: 0; gap: 14px; }
     .fr-face { flex-direction: row; flex-wrap: wrap; justify-content: flex-start; gap: 8px 14px; padding: 12px 16px; text-align: left; }
@@ -724,10 +722,6 @@
     .dr { gap: 12px; }
     .dr-paper { max-width: max(300px, calc((100vh - 330px) * var(--ar, 1.3333))); }
     .dr-where { display: none; }
-    .app { padding: 12px 4px 10px; }
-    .app img, .app .tile-i { width: 58px; height: 58px; border-radius: 15px; }
-    .app .an { font-size: 13.5px; font-weight: 600; }
-    .app .aa { display: none; }
     .files { grid-template-columns: minmax(0, 1fr); gap: 18px; }
     .add { position: static; max-height: none; }
     .queue { max-height: 50vh; }
@@ -787,6 +781,7 @@
   </div>
   <nav class="views" aria-label="Views">
     <button class="vbtn" type="button" data-view="screen" aria-current="false">Screen</button>
+    <button class="vbtn" type="button" data-view="library" aria-current="false">Library</button>
     <button class="vbtn" type="button" data-view="files" aria-current="false">Files</button>
     <button class="vbtn" type="button" data-view="settings" aria-current="false">Settings</button>
   </nav>
@@ -836,7 +831,7 @@
           <button class="ty-no" type="button" id="typeNo">Cancel</button>
         </div>
       </form>
-      <p class="tv-tip" id="tvTip" hidden>Tap something on the screen to pick it, and tap it again to open it. Swipe, or scroll, to move along.</p>
+      <p class="tv-tip" id="tvTip" hidden>Tap something on the screen to open it. Swipe, or scroll, to move along.</p>
       <div class="player" id="player" hidden>
         <div class="p-head">
           <div class="p-text"><b id="pTitle"></b><span id="pSub"></span></div>
@@ -1025,7 +1020,6 @@ const ICONS = {
   full: I('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>', 17),
   fit: I('<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>', 17),
   home: I('<path d="M3.5 11 12 3.5l8.5 7.5"/><path d="M6 9.5V20h4.5v-5.5h3V20H18V9.5"/>', 18),
-  homeBig: I('<path d="M3.5 11 12 3.5l8.5 7.5"/><path d="M6 9.5V20h4.5v-5.5h3V20H18V9.5"/>', 28),
   backKey: I('<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>', 18),
   chev: (deg) => `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(${deg}deg)"><path d="m6 14.5 6-6 6 6"/></svg>`,
   pad: I('<path d="M7 7.5h10a4.5 4.5 0 0 1 4.4 5.4l-.8 3.9a2.4 2.4 0 0 1-4.2 1.1L14.6 16H9.4l-1.8 1.9a2.4 2.4 0 0 1-4.2-1.1l-.8-3.9A4.5 4.5 0 0 1 7 7.5z"/><path d="M8 10.5v3M6.5 12h3"/><circle cx="15.5" cy="11" r=".7" fill="currentColor"/><circle cx="17" cy="13" r=".7" fill="currentColor"/>', 18),
@@ -1168,7 +1162,8 @@ async function loadInfo() {
   }
 }
 function setTitle() {
-  document.title = (S.info ? S.info.name : "Pietato") + (S.view === "files" ? " · files" : S.view === "settings" ? " · settings" : " · screen");
+  document.title = (S.info ? S.info.name : "Pietato") + (S.view === "files" ? " · files" : S.view === "settings" ? " · settings"
+    : S.view === "library" ? " · library" : " · screen");
 }
 function luminance(rgb) {
   const f = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
@@ -1201,7 +1196,7 @@ function showView(v) {
   $("#screenView").hidden = v === "files" || v === "settings";
   $("#filesView").hidden = v !== "files";
   $("#settingsView").hidden = v !== "settings";
-  for (const b of $$(".vbtn")) b.setAttribute("aria-current", String(b.dataset.view === (v === "library" ? "screen" : v)));
+  for (const b of $$(".vbtn")) b.setAttribute("aria-current", String(b.dataset.view === v));
   for (const b of $$(".dock button")) b.setAttribute("aria-current", String(b.dataset.view === v));
   setTitle();
   if (v === "settings") setPoll();
@@ -1222,6 +1217,8 @@ function goView(v) {
   else location.hash = "#" + v;
 }
 for (const b of $$(".vbtn, .dock button")) b.onclick = () => goView(b.dataset.view);
+for (const b of $$(".vbtn")) b.addEventListener("mousedown", (e) => e.preventDefault());   // (clicked: the keyboard's
+                                                                                            // Enter stays the Pi's A)
 
 // ---- the screen: what's on it ----------------------------------------------------------
 const SCR = { state: null, frame: null, shotAt: 0, timer: 0, fails: 0, watching: false, url: null, touchedAt: 0 };
@@ -1333,6 +1330,7 @@ function drawState(st) {
   if (st.size && st.size[0] && st.size[1]) {
     $("#tv").style.aspectRatio = st.size[0] + " / " + st.size[1];
     $("#stage").style.setProperty("--ar", (st.size[0] / st.size[1]).toFixed(4));
+    $(".col").style.setProperty("--ar", (st.size[0] / st.size[1]).toFixed(4));   // (as wide as the window's height allows)
   }
   document.body.classList.toggle("taps", media);
   $('.tb[data-b="b"]').disabled = !media;
@@ -1572,6 +1570,7 @@ $("#typeNo").onclick = () => { clearTimeout(TY.timer); $("#typeIn").blur(); pres
 function showRemote(open) {
   $("#remoteBox").hidden = !open;
   $("#remoteBtn").setAttribute("aria-expanded", String(open));
+  document.body.classList.toggle("remote-open", open);    // (a wide window: it's beside the screen)
   store.set("remote", open);
 }
 $("#remoteBtn").onclick = () => showRemote($("#remoteBox").hidden);
@@ -2021,12 +2020,12 @@ new IntersectionObserver((es) => {
 document.addEventListener("visibilitychange", () => { if (!document.hidden) btKick(0); });
 
 // ---- the library: things to put on the screen ----------------------------------------
-const TABS = [
-  ["apps", "Apps"], ["cartoons", "Cartoons"], ["films", "Films"], ["news", "News"],
+const TABS = [                  // (the Pi's apps are on its screen: tapped there)
+  ["cartoons", "Cartoons"], ["films", "Films"], ["news", "News"],
   ["sports", "Sports"], ["radio", "Radio"], ["streams", "Your streams"], ["cameras", "Cameras"], ["friend", "Bot"],
   ["draw", "Draw"],
 ];
-const OWN = new Set(["apps", "cameras", "friend", "draw"]);   // tabs that draw a page of their own
+const OWN = new Set(["cameras", "friend", "draw"]);   // tabs that draw a page of their own
 const WHERE = { cartoons: "Cartoons", films: "Free Movies", news: "News", sports: "Sports", radio: "Radio", streams: "Streams" };
 const PLEX = {
   cartoons: [["plex:anime", "Anime"], ["plex:toons", "Cartoon channels"]],
@@ -2034,7 +2033,7 @@ const PLEX = {
 };
 const POSTERS = new Set(["cartoons", "films"]);
 const L = {
-  cat: null, tab: store.get("ltab", "apps"), folder: store.get("lfolder", {}), q: "", fetched: {}, busy: false,
+  cat: null, tab: store.get("ltab", "cartoons"), folder: store.get("lfolder", {}), q: "", fetched: {}, busy: false,
 };
 async function loadCatalog() {
   if (L.cat) { drawLibrary(); return; }
@@ -2081,7 +2080,7 @@ function drawLibTabs() {
 const searchAll = () => !!L.q && POSTERS.has(L.tab);
 function drawLibrary() {
   if (!L.cat) return;
-  if (!TABS.some(([k]) => k === L.tab) || (L.tab === "streams" && !L.cat.streams.length)) L.tab = "apps";
+  if (!TABS.some(([k]) => k === L.tab) || (L.tab === "streams" && !L.cat.streams.length)) L.tab = "cartoons";
   drawLibTabs();
   const tab = L.tab;
   const folders = foldersFor(tab);
@@ -2104,10 +2103,8 @@ function drawLibrary() {
     side.append(b);
   }
   $("#libBody").classList.toggle("flat", !folders.length);
-  $("#content").classList.toggle("apps-pad", tab === "apps");
   $("#searchWrap").hidden = OWN.has(tab);
   $("#search").placeholder = { radio: "Search stations", cartoons: "Search cartoons", films: "Search films" }[tab] || "Search";
-  if (tab === "apps") return drawApps();
   if (tab === "cameras") return drawCameras();
   if (tab === "friend") return drawFriend();
   if (tab === "draw") return drawDraw();
@@ -2289,8 +2286,8 @@ async function playRows(rows, i, node) {
     L.busy = false;
     if (node) node.classList.remove("busy");
     if (go) go.innerHTML = ICONS.play;
+    if (S.view === "library") goView("screen");          // (where it plays: the Screen's)
     $("#stage").scrollIntoView({ block: "nearest", behavior: "smooth" });
-    if (S.view === "library" && matchMedia("(max-width: 900px)").matches) goView("screen");
     return;
   }
   if (HERE.on) toast("That one plays on the Pi");
@@ -2303,34 +2300,6 @@ async function playRows(rows, i, node) {
   if (go) go.innerHTML = ICONS.play;
   kick(100);
 }
-function drawApps() {
-  const box = $("#content");
-  ++libToken;
-  box.textContent = "";
-  const grid = el("div", "grid apps");
-  const tiles = [{ name: "Home screen", about: "All the apps", home: true }].concat(L.cat.apps);
-  for (const a of tiles) {
-    const b = button("app");
-    let pic;
-    if (a.home) { pic = el("span", "tile-i"); pic.innerHTML = ICONS.homeBig; }
-    else {
-      pic = document.createElement("img");
-      pic.alt = ""; pic.width = pic.height = 58; pic.loading = "lazy";
-      pic.src = "/api/pi/icon?" + qs({ name: a.name, size: 128 });
-    }
-    b.append(pic, el("span", "an", a.name), el("span", "aa", a.about || ""));
-    b.onclick = async () => {
-      try {
-        if (a.name === "Terminal") await pi("mode", { to: "terminal" });
-        else await pi("open", a.home ? { home: true } : { app: a.name });
-      } catch (e) { toast(e.message); }
-      kick(100);
-    };
-    grid.append(b);
-  }
-  box.append(grid);
-}
-
 // ---- cameras: yours, what each one sees, and the ones heard on the network --------------------------
 const shortAddr = (a) => a.replace(/^https?:\/\//, "");
 const CAMS = { pics: {}, said: {}, bot: false };            // the last picture of each, and what the bot said

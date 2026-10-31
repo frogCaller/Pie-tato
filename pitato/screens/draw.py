@@ -7,7 +7,7 @@ from ..theme import (
     MUTED, ROW, TEXT, WARN)
 from ..config import home_dir
 from ..util import clock, human_size, short_path
-from ..system import cpu_temp, HOT_C, wifi_bars, wifi_quality
+from ..system import cpu_temp, HOT_C, on_pc, wifi_bars, wifi_quality
 from ..library import LIBRARY, LISTEN_KINDS
 from ..screen import slow_pi
 from ..home import mix
@@ -18,7 +18,7 @@ KEY_FILL = (62, 68, 79)      # a button, in the hints along the bottom
 FOOT_NOTE = (206, 211, 218)  # the home screen's line about the app picked
 BASE_ROOM = 480 - 48 - 76    # the GPi Case's screen between its bars: what a page with a set layout is drawn for
 FULL_VIEWS = ("list", "now", "photo", "pdf", "text")   # what Full screen apps puts on the whole screen
-UPDATE_DOTS = 3              # the dots under Updating Pietato, lit one after another
+UPDATE_DOTS = 3              # the dots under Updating Pie-tato, lit one after another
 TAP_KEYS = {"A": "a", "B": "b", "X": "x", "Y": "y", "L": "l", "R": "r", "L2": "l2", "R2": "r2", "START": "start",
             "ST": "start", "SELECT": "select", "SEL": "select", "HOME": "home", "ANY": "a",
             "▲": "up", "▼": "down", "◀": "left", "▶": "right"}   # a hint's button, as a tap on the web page presses it
@@ -908,6 +908,7 @@ class DrawScreen:
         F = self.fonts
         img, d = self.canvas()
         W, H = self.fb.w, self.fb.h
+        title, status = on_pc(title), on_pc(status)    # (on a PC: "the PC", not "the Pi")
         d.text((W / 2, H / 2 - 18), self.fit(d, title, F["big"], W - 60),
                font=F["big"], fill=TEXT, anchor="mm")
         d.text((W / 2, H / 2 + 18), status, font=F["small"], fill=MUTED, anchor="mm")
@@ -920,13 +921,13 @@ class DrawScreen:
 
 
     def render_update(self, dots_only=False):
-        """While it updates (System > Update software), till the Pi restarts by itself: Updating Pietato, and dots
+        """While it updates (System > Update software), till the Pi restarts by itself: Updating Pie-tato, and dots
         under it, lit one after another (update_tick moves them on). dots_only: they're all that's changed."""
         F = self.fonts
         img, d = self.canvas()
         W, H = self.fb.w, self.fb.h
         self.status_bar(d)                             # (the time and WiFi: no tabs, there's nowhere to go)
-        d.text((W / 2, H / 2 - 22), self.fit(d, "Updating Pietato", F["big"], W - 60), font=F["big"], fill=TEXT,
+        d.text((W / 2, H / 2 - 22), self.fit(d, "Updating Pie-tato", F["big"], W - 60), font=F["big"], fill=TEXT,
                anchor="mm")
         box = self.update_dots(d, W / 2, H / 2 + 28)
         if dots_only and hasattr(self.fb, "show_part"):

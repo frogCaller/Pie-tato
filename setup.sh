@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# setup.sh - set up Raspberry Pi OS Lite (Bookworm) on any Raspberry Pi with a screen
+# setup.sh - set up Raspberry Pi OS Lite (Bookworm) on any Raspberry Pi with a screen, or Ubuntu 24.04 on a PC
 #   - in a RetroFlag GPi Case 2W (Pi Zero 2 W): the case screen as the console (with
 #     GPIO 18/19 left free for the speaker), the case speaker, and its power switch:
 #     switching off shuts the Pi down safely (GPIO 26 and 27, as RetroFlag's own script)
@@ -7,6 +7,8 @@
 #     (picked as the Pi starts, GPIO 18 saying which; Pietato restarts the Pi when it's
 #     docked or taken out), the case's sound, and its power switch, as the 2W's
 #   - on any other Pi: the screen on HDMI as it is
+#   - on a PC (Intel or AMD, Ubuntu): every emulator built for it, and it starts in Pietato; with Ubuntu's desktop,
+#     the terminal instead of the desktop at start-up (System > Desktop starts the desktop till it restarts)
 #   - game controller buttons as keys + media mode (the case buttons, or any USB or
 #     Bluetooth controller), which opens at start-up on a home screen of app icons: TV (Plex,
 #     cartoons, free movies, news, sports, streams, a TV remote through Home Assistant),
@@ -122,7 +124,7 @@ spin() {           # (working's moving line, while its file is there)
       if [ -n "$p" ]; then pct=" $p%"; fi
       cols=$(stty size <&3 2> /dev/null); cols=${cols#* }
       [ "${cols:-0}" -gt 20 ] 2> /dev/null || cols=80
-      line="  ${marks:i++%4:1} $what$pct  $(elapsed "$t")  Still working: leave the Pi on"
+      line="  ${marks:i++%4:1} $what$pct  $(elapsed "$t")  Still working: leave the $MACHINE on"
       printf '\r%s\033[K' "${line:0:cols-1}"                # (one line, however narrow the screen)
     elif [ "$t" -ge "$next" ]; then
       echo "  $what: still working ($((t / 60)) min so far)"
@@ -143,6 +145,9 @@ stop_spin() {
 elapsed() {        # elapsed SECONDS: 4:05, or 1:02:05
   if [ "$1" -ge 3600 ]; then printf '%d:%02d:%02d' $(($1 / 3600)) $(($1 % 3600 / 60)) $(($1 % 60))
   else printf '%d:%02d' $(($1 / 60)) $(($1 % 60)); fi
+}
+how_long() {       # how_long PI PC: how long it takes, on a Pi or on a PC
+  if [ "$PC" = yes ]; then echo "$2"; else echo "$1"; fi
 }
 fetch_source() {   # fetch_source URL FOLDER: a .tar.gz, unpacked into FOLDER
   curl -fsSL "$1" | tar -xz -C "$2" --strip-components=1
@@ -223,6 +228,19 @@ for f in pitato.py pitato/app.py pitato/webui.py pitato/coder_hooks.py templates
   fi
 done
 
+if [ -d /boot/firmware ]; then BOOT=/boot/firmware; else BOOT=/boot; fi
+CONFIG="$BOOT/config.txt"
+MODEL="$(tr -d '\0' 2> /dev/null < "${PITATO_MODEL_FILE:-/proc/device-tree/model}" || true)"   # (none where an
+                                                                                                # image is made)
+# a computer of your own (Intel or AMD, with Ubuntu) rather than a Pi: no config.txt, no GPi Case, and every emulator
+PC=no
+if [[ "$MODEL" != *"Raspberry Pi"* ]] && [ ! -f "$CONFIG" ] && [ "$IMAGE" != yes ]; then
+  case "$(dpkg --print-architecture 2>/dev/null || uname -m)" in
+    amd64|x86_64) PC=yes ;;
+  esac
+fi
+if [ "$PC" = yes ]; then MACHINE=computer; else MACHINE=Pi; fi     # (what to leave on while it works)
+
 # Until it's done, a shutdown asked for gently (a Pi 5's power button, the GPi Case's switch, poweroff without
 # sudo) waits. Nothing can stop a pulled plug, so it says to leave the Pi on. If it stops early (an error, Ctrl+C),
 # it says so, and clears away the emulator it was partway through building
@@ -231,7 +249,7 @@ BUILDING=""        # (that emulator's folder in /var/tmp)
 HOLD=""
 if command -v systemd-inhibit > /dev/null 2>&1; then
   systemd-inhibit --what=shutdown:sleep:handle-power-key --mode=block --who="Pietato setup" \
-    --why="Setting up Pietato: leave the Pi on until it says All set" \
+    --why="Setting up Pietato: leave the $MACHINE on until it says All set" \
     bash -c 'while kill -0 "$1" 2> /dev/null; do sleep 2; done' _ "$$" > /dev/null 2>&1 &   # (ends with setup.sh)
   HOLD=$!
 fi
@@ -257,13 +275,8 @@ trap on_exit EXIT
 trap 'exit 130' INT      # (Ctrl+C stops it, even when what was running when you pressed it took it in its stride)
 
 
-if [ -d /boot/firmware ]; then BOOT=/boot/firmware; else BOOT=/boot; fi
-CONFIG="$BOOT/config.txt"
-
 # --------------------------------------------------------------------------
 # a GPi Case needs its own screen and sound settings (the 2W's, or the GPi Case 2's); any other Pi uses HDMI
-MODEL="$(tr -d '\0' 2> /dev/null < "${PITATO_MODEL_FILE:-/proc/device-tree/model}" || true)"   # (none where an
-                                                                                                # image is made)
 CM4=no          # a Compute Module 4 (not a 4S): what the GPi Case 2 takes
 case "$MODEL" in
   *"Compute Module 4 "*|*"Compute Module 4") CM4=yes ;;
@@ -276,17 +289,16 @@ if grep -q '^# >>> gpi-case setup >>>' "$CONFIG" 2>/dev/null; then
     WAS=2w
   fi
 fi
-SLOW=no         # Pi Zero, 1, 2 and 3: video on a big TV is smoother at 720p
-case "$MODEL" in
-  *Zero*|"Raspberry Pi 3"*|"Raspberry Pi 2"*|"Raspberry Pi Model"*|"Raspberry Pi Compute Module 3"*) SLOW=yes ;;
-esac
 BIG=no          # a Pi 4 or 5: N64, PSP, DS and Dreamcast games too (their emulators built here), and Chromium
 case "$MODEL" in
   *"Pi 4"*|*"Pi 5"*|*"Compute Module 4"*|*"Compute Module 5"*) BIG=yes ;;
 esac
 if [ "$IMAGE" = yes ]; then  # (an image, for any Pi: made on another computer, whose own model doesn't count)
-  BIG=yes SLOW=no
+  BIG=yes
   if [ -z "$GPI" ]; then GPI=no; fi
+fi
+if [ "$PC" = yes ]; then     # (a PC: every emulator, and Chromium; never in a GPi Case)
+  BIG=yes GPI=no CASE=""
 fi
 if [ -z "$GPI" ] && [ "$UPDATE" = yes ]; then       # (as it was set up: the case's settings there, or not)
   if [ -n "$WAS" ]; then GPI=yes CASE="${CASE:-$WAS}"; else GPI=no; fi
@@ -312,11 +324,17 @@ if [ "$GPI" = yes ] && [ "$CASE" = 2 ]; then
   echo "Setting up for the GPi Case 2: its screen (or a TV, in its dock), sound and buttons."
 elif [ "$GPI" = yes ]; then
   echo "Setting up for the GPi Case 2W: its screen, speaker and buttons."
+elif [ "$PC" = yes ]; then
+  echo "Setting up this computer. Plug in any USB or Bluetooth game controller."
 else
   echo "Setting up for a screen on HDMI${MODEL:+ ($MODEL)}. Plug in any USB or Bluetooth game controller."
 fi
-echo "The first time takes a while: an hour or more on a Pi 4, as it builds the game emulators."
-echo "Leave the Pi on until it says All set."
+if [ "$PC" = yes ]; then
+  echo "The first time takes a while (about half an hour) as it builds the game emulators."
+else
+  echo "The first time takes a while: an hour or more on a Pi 4, as it builds the game emulators."
+fi
+echo "Leave the $MACHINE on until it says All set."
 
 # --------------------------------------------------------------------------
 step "Installing packages"
@@ -407,7 +425,7 @@ build_pcsx_rearmed() {
 if [ "$(cat "$CORES/pcsx_rearmed.version" 2>/dev/null)" = "$PCSX_REARMED" ] && [ -f "$CORES/pcsx_rearmed_libretro.so" ]; then
   echo "The PlayStation emulator (PCSX ReARMed) is built already."
 else
-  step "Building the PlayStation emulator (PCSX ReARMed): a few minutes, longer on a Pi Zero"
+  step "Building the PlayStation emulator (PCSX ReARMed): $(how_long "a few minutes, longer on a Pi Zero" "a few minutes")"
   if ! build_pcsx_rearmed; then
     echo "(Couldn't build PCSX ReARMed. Trying Debian's Beetle PSX instead: it needs scph5501.bin in"
     echo " ~/Games/BIOS, and it's too slow for a Pi Zero.)"
@@ -419,12 +437,14 @@ fi
 # chip (OpenGL ES 3), which older Pis don't have
 MUPEN64PLUS=12edd2c74a517ff86dfa8cfc71ad75e4c10486d5
 build_mupen64plus() {
-  local plat arch jobs tmp mem
+  local plat arch jobs tmp mem gles=""
   # (the system's own kind, not the kernel's: a 32-bit Raspberry Pi OS can run a 64-bit kernel). A Pi 5
-  # runs the Pi 4's build: the same OpenGL ES 3 drawing, without the extras it'd add
+  # runs the Pi 4's build: the same OpenGL ES 3 drawing, without the extras it'd add. A PC: its own build,
+  # drawing with OpenGL ES 3 too (media mode's way of drawing a 3D game: pitato/gpu.py)
   case "$(dpkg --print-architecture 2>/dev/null || uname -m)" in
     arm64|aarch64) arch=aarch64; plat=rpi4_64 ;;
     armhf|armv7l) arch=arm; plat=rpi4 ;;
+    amd64|x86_64) arch=x86_64; plat=unix; gles="FORCE_GLES3=1" ;;
     *) return 1 ;;
   esac
   jobs=$(nproc 2>/dev/null || echo 1)
@@ -436,7 +456,7 @@ build_mupen64plus() {
   BUILDING="$tmp"
   working "Downloading" "$tmp/build.log" \
       fetch_source "https://github.com/libretro/mupen64plus-libretro-nx/archive/$MUPEN64PLUS.tar.gz" "$tmp" \
-    && working "Building" "$tmp/build.log" make -C "$tmp" platform="$plat" ARCH="$arch" -j"$jobs" \
+    && working "Building" "$tmp/build.log" make -C "$tmp" platform="$plat" ARCH="$arch" $gles -j"$jobs" \
     || { tail -n 20 "$tmp/build.log"; rm -rf "$tmp"; return 1; }
   install -d "$CORES" && install -m 644 "$tmp/mupen64plus_next_libretro.so" "$CORES/" || { rm -rf "$tmp"; return 1; }
   echo "$MUPEN64PLUS" > "$CORES/mupen64plus_next.version"
@@ -447,7 +467,7 @@ if [ "$BIG" = yes ]; then
       && [ -f "$CORES/mupen64plus_next_libretro.so" ]; then
     echo "The N64 emulator (Mupen64Plus-Next) is built already."
   else
-    step "Building the N64 emulator (Mupen64Plus-Next): about 20 minutes on a Pi 4, less on a Pi 5"
+    step "Building the N64 emulator (Mupen64Plus-Next): $(how_long "about 20 minutes on a Pi 4, less on a Pi 5" "a few minutes")"
     build_mupen64plus || echo "(Couldn't build Mupen64Plus-Next: N64 games won't start.)"
   fi
 else
@@ -487,6 +507,7 @@ build_ppsspp() {
   case "$(dpkg --print-architecture 2>/dev/null || uname -m)" in
     arm64|aarch64) arch=aarch64 ;;
     armhf|armv7l) arch=armv7 ;;
+    amd64|x86_64) arch=x86_64 ;;
     *) return 1 ;;
   esac
   jobs=$(nproc 2>/dev/null || echo 1)
@@ -510,7 +531,7 @@ if [ "$BIG" = yes ]; then
       && [ -f "$CORES/PPSSPP/compat.ini" ]; then
     echo "The PSP emulator (PPSSPP) is built already."
   else
-    step "Building the PSP emulator (PPSSPP): about an hour on a Pi 4, 20 minutes on a Pi 5"
+    step "Building the PSP emulator (PPSSPP): $(how_long "about an hour on a Pi 4, 20 minutes on a Pi 5" "about 15 minutes")"
     build_ppsspp || echo "(Couldn't build PPSSPP: PSP games won't start.)"
   fi
 else
@@ -528,7 +549,8 @@ melonds_source() {  # melonds_source FOLDER
     && git -C "$1/src" -c advice.detachedHead=false checkout -q FETCH_HEAD
 }
 build_melonds() {
-  local jobs mem tmp
+  local jobs mem tmp plat=rpi4_64
+  if [ "$PC" = yes ]; then plat=unix; fi            # (a PC's: melonDS's JIT for Intel and AMD)
   jobs=$(nproc 2>/dev/null || echo 1)
   mem=$(awk '/MemTotal/ {print int($2 / 1024)}' /proc/meminfo)
   if [ "$mem" -lt 1500 ]; then jobs=1; elif [ "$mem" -lt 3000 ] && [ "$jobs" -gt 2 ]; then jobs=2; fi
@@ -536,7 +558,7 @@ build_melonds() {
   tmp="$(mktemp -d /var/tmp/melonds-XXXXXX)" || return 1
   BUILDING="$tmp"
   working "Downloading" "$tmp/build.log" melonds_source "$tmp" \
-    && working "Building" "$tmp/build.log" make -C "$tmp/src" platform=rpi4_64 -j"$jobs" \
+    && working "Building" "$tmp/build.log" make -C "$tmp/src" platform="$plat" -j"$jobs" \
     || { tail -n 20 "$tmp/build.log"; rm -rf "$tmp"; return 1; }
   install -d "$CORES" && install -m 644 "$tmp/src/melonds_libretro.so" "$CORES/" || { rm -rf "$tmp"; return 1; }
   echo "$MELONDS" > "$CORES/melonds.version"
@@ -544,11 +566,11 @@ build_melonds() {
 }
 if [ "$BIG" = yes ]; then
   case "$(dpkg --print-architecture 2>/dev/null || uname -m)" in
-    arm64|aarch64)
+    arm64|aarch64|amd64|x86_64)
       if [ "$(cat "$CORES/melonds.version" 2>/dev/null)" = "$MELONDS" ] && [ -f "$CORES/melonds_libretro.so" ]; then
         echo "The DS emulator (melonDS) is built already."
       else
-        step "Building the DS emulator (melonDS): about 10 minutes on a Pi 4, less on a Pi 5"
+        step "Building the DS emulator (melonDS): $(how_long "about 10 minutes on a Pi 4, less on a Pi 5" "a few minutes")"
         build_melonds || echo "(Couldn't build melonDS: DS games won't start.)"
       fi ;;
     *) echo "(DS games need the 64-bit Raspberry Pi OS: no DS emulator on this one.)" ;;
@@ -564,10 +586,14 @@ fi
 FLYCAST=v2.7
 flycast_source() {  # flycast_source FOLDER
   local -x GIT_TERMINAL_PROMPT=0     # (a question from git would wait unseen: an error instead)
+  local x86=""
+  case "$(dpkg --print-architecture 2>/dev/null || uname -m)" in
+    amd64|x86_64|i386|i686) x86=core/deps/xbyak ;;    # (a PC's quick way of running the Dreamcast's processor)
+  esac
   # its source, and the parts it's built from (not what other systems need, nor its own window and menus)
   git -c advice.detachedHead=false clone -q --depth 1 --branch "$FLYCAST" https://github.com/flyinghead/flycast.git "$1/src" \
     && git -C "$1/src" submodule update -q --init --depth 1 --recursive -- core/deps/libchdr core/deps/tinygettext \
-         core/deps/asio
+         core/deps/asio $x86
 }
 flycast_make() {   # flycast_make FOLDER JOBS (OpenGL ES 3, drawn in for media mode: no Vulkan)
   cmake -S "$1/src" -B "$1/build" -DCMAKE_BUILD_TYPE=Release -DLIBRETRO=ON -DUSE_GLES=ON -DUSE_VULKAN=OFF \
@@ -598,7 +624,7 @@ if [ "$BIG" = yes ]; then
   if [ "$(cat "$CORES/flycast.version" 2>/dev/null)" = "$(flycast_built)" ] && [ -f "$CORES/flycast_libretro.so" ]; then
     echo "The Dreamcast emulator (Flycast) is built already."
   else
-    step "Building the Dreamcast emulator (Flycast): about 20 minutes on a Pi 4, less on a Pi 5"
+    step "Building the Dreamcast emulator (Flycast): $(how_long "about 20 minutes on a Pi 4, less on a Pi 5" "a few minutes")"
     build_flycast || echo "(Couldn't build Flycast: Dreamcast games won't start.)"
   fi
 else
@@ -611,8 +637,16 @@ fi
 # Pietato starts it (as root), so no password is asked.
 if [ "$BIG" = yes ] && [ "$CASE" != 2w ]; then
   step "Installing Chromium, for the whole web from Web's first page (about 300 MB)"
-  if apt-get install -y cage xwayland wlr-randr fonts-liberation fonts-noto-color-emoji \
-      && { apt-get install -y chromium || apt-get install -y chromium-browser; }; then
+  CHROMIUM_PKGS="chromium chromium-browser"     # (Debian's, or its older name)
+  if grep -qx 'ID=ubuntu' "${PITATO_OS_RELEASE:-/etc/os-release}" 2>/dev/null; then   # (Ubuntu's: it puts in the
+    CHROMIUM_PKGS=chromium-browser                                                    # chromium snap)
+  fi
+  chromium_install() {
+    local pkg
+    for pkg in $CHROMIUM_PKGS; do apt-get install -y "$pkg" && return 0; done
+    return 1
+  }
+  if apt-get install -y cage xwayland wlr-randr fonts-liberation fonts-noto-color-emoji && chromium_install; then
     cat > /etc/pam.d/pietato-chromium <<'EOF'
 # Pietato's Chromium: a session of your own on its console. Pietato starts it, as root, so no password is asked.
 auth      required  pam_unix.so nullok
@@ -839,28 +873,14 @@ if [ -f /etc/rc.local ] && grep -qE '^[^#]*RetroFlag/SafeShutdown\.py' /etc/rc.l
 fi
 
 else
-  if grep -q '^# >>> gpi-case setup >>>' "$CONFIG"; then
+  if grep -q '^# >>> gpi-case setup >>>' "$CONFIG" 2>/dev/null; then     # (a PC has no config.txt)
     step "Taking the GPi Case settings out of $CONFIG (backup saved next to it)"
     cp "$CONFIG" "$CONFIG.bak-$(date +%Y%m%d-%H%M%S)"
     sed -i '/^# >>> gpi-case setup >>>/,/^# <<< gpi-case setup <<</d' "$CONFIG"
     # HDMI screens need KMS, which the case's settings had turned off
     sed -i -E 's/^#dtoverlay=vc4-kms-v3d/dtoverlay=vc4-kms-v3d/' "$CONFIG"
   fi
-  CMDLINE="$BOOT/cmdline.txt"
-  PICKED="$(grep -oE 'video=HDMI-A-1:[0-9]+x[0-9]+' "$CMDLINE" 2>/dev/null | head -n 1 | sed 's/.*://')"
-  if [ "$SLOW" = yes ] && [ -n "$PICKED" ] && [ "$PICKED" != 1280x720 ]; then
-    echo "The TV picture stays at $PICKED (Settings > Resolution changes it)."
-  elif [ "$SLOW" = yes ] && [ -f "$CMDLINE" ] && [ "$UPDATE" != yes ] && [ "$IMAGE" != yes ]; then   # (an update: as it is)
-    echo
-    echo "This Pi plays video more smoothly on a TV set to 720p than at 1080p."
-    read -r -p "Set the TV picture to 720p? [Y/n] " ans
-    if [[ ! "$ans" =~ ^[Nn] ]]; then
-      cp "$CMDLINE" "$CMDLINE.bak-$(date +%Y%m%d-%H%M%S)"
-      sed -i -E 's/ *video=HDMI-A-1:[^ ]*//; 1 s/$/ video=HDMI-A-1:1280x720@60/' "$CMDLINE"
-    elif grep -q 'video=HDMI-A-1:1280x720@60' "$CMDLINE"; then
-      sed -i -E 's/ *video=HDMI-A-1:1280x720@60//' "$CMDLINE"      # this script's 720p, undone
-    fi
-  fi
+  # (the screen's own resolution, as it is: Settings > Resolution changes it)
 fi
 
 # --------------------------------------------------------------------------
@@ -922,6 +942,15 @@ AUTO
 fi
 
 # --------------------------------------------------------------------------
+# A PC with a desktop (Ubuntu Desktop's): it starts in the terminal instead, with Pietato on the screen, as a Pi does.
+# System > Desktop starts the desktop when you want it, and the computer restarting comes back to Pietato. (Not on
+# an update: you may have set it back yourself.)
+if [ "$PC" = yes ] && [ "$UPDATE" != yes ] && [ "$(systemctl get-default 2>/dev/null)" = graphical.target ]; then
+  step "This computer starts in Pietato now, not the desktop (System > Desktop starts the desktop)"
+  systemctl set-default multi-user.target
+fi
+
+# --------------------------------------------------------------------------
 step "Installing the web page (port 5432, and 5443 for its secure page)"
 install -d /usr/local/share/pitato/templates
 install -m 644 "$HERE/pitato/webui.py" /usr/local/share/pitato/
@@ -978,7 +1007,31 @@ cat > /etc/modprobe.d/pietato-loopback.conf <<'ALOOP'
 options snd-aloop index=7 id=Loopback pcm_substreams=2
 ALOOP
 echo snd-aloop > /etc/modules-load.d/pietato-loopback.conf
-modprobe snd-aloop 2>/dev/null || echo "(The Loopback sound card didn't load yet: Sound here and Mic here work after a restart.)"
+if ! modprobe snd-aloop 2>/dev/null; then
+  if [ "$PC" = yes ]; then                         # (Ubuntu keeps it in its kernel's extra modules)
+    apt-get install -y "linux-modules-extra-$(uname -r)" > /dev/null 2>&1 || true
+  fi
+  modprobe snd-aloop 2>/dev/null || echo "(The Loopback sound card didn't load yet: Sound here and Mic here work after a restart.)"
+fi
+if command -v wireplumber > /dev/null 2>&1; then   # (a desktop's PipeWire leaves the card alone: it's not a speaker)
+  install -d /etc/wireplumber/main.lua.d /etc/wireplumber/wireplumber.conf.d
+  cat > /etc/wireplumber/main.lua.d/51-pietato-loopback.lua <<'WPLUA'
+-- Pietato: the Loopback card is the web page's (Sound here, Mic here), not a speaker or a microphone of yours
+table.insert(alsa_monitor.rules, {
+  matches = { { { "device.name", "matches", "alsa_card.platform-snd_aloop.*" } } },
+  apply_properties = { ["device.disabled"] = true },
+})
+WPLUA
+  cat > /etc/wireplumber/wireplumber.conf.d/51-pietato-loopback.conf <<'WPCONF'
+# Pietato: the Loopback card is the web page's (Sound here, Mic here), not a speaker or a microphone of yours
+monitor.alsa.rules = [
+  {
+    matches = [ { device.name = "~alsa_card.platform-snd_aloop.*" } ]
+    actions = { update-props = { device.disabled = true } }
+  }
+]
+WPCONF
+fi
 install -d /etc/alsa/conf.d
 cat > /etc/alsa/conf.d/60-pietato-web.conf <<'WEBPCM'
 # Pietato: the Pi's sound for the web page's Sound here, mixed into the Loopback card (webui.py hands it out)
@@ -1030,6 +1083,7 @@ chown "$USER_NAME:$USER_NAME" "$USER_HOME/Videos" "$USER_HOME/Music" "$USER_HOME
   "$USER_HOME/Documents" "$USER_HOME/Games" "$USER_HOME/Games/BIOS"
 GAME_FOLDERS="gb gbc gba nes snes genesis sms gg ps1"
 case "$MODEL" in *"Pi 4"*|*"Pi 5"*|*"Compute Module 4"*|*"Compute Module 5"*) GAME_FOLDERS="$GAME_FOLDERS n64 psp nds dc" ;; esac
+if [ "$PC" = yes ]; then GAME_FOLDERS="$GAME_FOLDERS n64 psp nds dc"; fi
 for sys in $GAME_FOLDERS; do                       # a folder for each kind of game, so it's clear where they go
   if [ ! -d "$USER_HOME/Games/$sys" ]; then
     mkdir "$USER_HOME/Games/$sys" && chown "$USER_NAME:$USER_NAME" "$USER_HOME/Games/$sys"
@@ -1086,7 +1140,10 @@ fi
 
 # --------------------------------------------------------------------------
 step "Bluetooth"
-rfkill unblock bluetooth || true
+if ! command -v rfkill > /dev/null 2>&1; then    # (Ubuntu Server's hasn't it: Pietato turns Bluetooth back on with it)
+  apt-get install -y rfkill > /dev/null 2>&1 || true
+fi
+rfkill unblock bluetooth 2>/dev/null || true
 if [ -f /etc/bluetooth/main.conf ]; then
   if grep -qE '^\s*#?\s*AutoEnable' /etc/bluetooth/main.conf; then
     sed -i -E 's/^\s*#?\s*AutoEnable\s*=.*/AutoEnable=true/' /etc/bluetooth/main.conf
@@ -1099,7 +1156,7 @@ systemctl enable --now bluetooth || true
 # them while they're connected). Only as the player (A2DP source): the Pi isn't a speaker for your phone. Left
 # out where PipeWire or PulseAudio looks after Bluetooth's sound (a desktop): the two would trip over each other.
 if command -v wireplumber >/dev/null 2>&1 || command -v pulseaudio >/dev/null 2>&1; then
-  echo "(PipeWire or PulseAudio has Bluetooth's sound on this Pi: BlueALSA left out.)"
+  echo "(PipeWire or PulseAudio has Bluetooth's sound on this $MACHINE: BlueALSA left out.)"
 elif apt-get install -y bluez-alsa-utils libasound2-plugin-bluez && command -v bluealsa >/dev/null 2>&1; then
   install -d /etc/systemd/system/bluealsa.service.d
   cat > /etc/systemd/system/bluealsa.service.d/pitato.conf <<BLUEALSA
@@ -1121,10 +1178,10 @@ step "TV Remote through Home Assistant (optional)"
 if grep -qE '^\s*token\s*=\s*\S' "$STATIC/homeassistant.txt" 2>/dev/null; then
   echo "Keeping your existing $STATIC/homeassistant.txt"
 elif [ "$UPDATE" = yes ] || [ "$IMAGE" = yes ]; then
-  echo "No Home Assistant yet: add it any time in its Settings, on the Pi or the web page."
+  echo "No Home Assistant yet: add it any time in its Settings, on the $MACHINE or the web page."
 else
   echo "The Home tab's TV Remote and Lights work through Home Assistant. You can add it now,"
-  echo "or later in its Settings, on the Pi or the web page (easier for pasting the token)."
+  echo "or later in its Settings, on the $MACHINE or the web page (easier for pasting the token)."
   echo "Make a token in Home Assistant: your profile > Security > Long-lived access tokens."
   read -r -p "Home Assistant address, e.g. homeassistant.local:8123 (blank to skip): " ha_url
   if [ -n "$ha_url" ]; then
@@ -1199,6 +1256,9 @@ if [ "$GPI" = yes ]; then
   echo "All set. Reboot to apply the screen and audio settings."
 else
   echo "All set. Reboot to start."
+fi
+if [ "$PC" = yes ] && [ -e /etc/systemd/system/display-manager.service ]; then
+  echo "This computer starts in Pietato. System > Desktop starts the desktop, and restarting comes back to Pietato."
 fi
 echo "It starts on the home screen (Settings > At start-up can make it the terminal)."
 if [ -f "$AUTOLOGIN" ]; then

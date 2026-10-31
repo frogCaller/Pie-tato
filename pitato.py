@@ -5,6 +5,8 @@ pitato.py - game controller buttons as keyboard keys, plus a media mode.
 Made for the RetroFlag GPi Case 2W and GPi Case 2, and works on any Raspberry Pi with a screen: a TV or
 monitor on HDMI, or the GPi Case's own. The menus are drawn at 640x480 and scaled up to fit. In the GPi
 Case 2's dock (the TV on), the picture's on the TV: docked or taken out, the Pi restarts with it there.
+It works on a PC (Intel or AMD) with Ubuntu too: the PC starts in it, like a console, and System > Desktop
+starts Ubuntu's desktop instead, till the PC restarts (pitato/system.py's is_pc).
 
 Controllers: the GPi Case's buttons, or any USB or Bluetooth game controller (Xbox, PlayStation,
 8BitDo, the cheap SNES-style ones...), plugged in or out at any time; a Bluetooth one (or a keyboard,
@@ -18,12 +20,11 @@ Settings > Controller has it (if the case sends it to the Pi at all). A keyboard
 Esc B, X Y, Q E (or [ ]) L R, P START, O SELECT; in the terminal, and in a text box, it types. Its trackpad
 (the BB9900's), or a mouse, works media mode too: a swipe the d-pad, pressed A, its right button B.
 
-The web page (webui.py) shows what's on the screen (tap it to pick and open things, as with the
-buttons), has a remote, puts cartoons, films, news, radio, apps and your own files on the screen, and
-pairs Bluetooth devices. With Play here on, what you pick plays in your phone's or computer's browser
-instead; Sound here plays the Pi's sound there, and Mic here lets the bot hear you through it. Its Draw
-tab puts a drawing on the whole screen until B (kept in ~/Pictures/Drawings). It talks to this script on
-127.0.0.1:5480.
+The web page (webui.py) shows what's on the screen (tap it to open things, as A would), has a remote,
+puts cartoons, films, news, radio and your own files on the screen, and pairs Bluetooth devices. With
+Play here on, what you pick plays in your phone's or computer's browser instead; Sound here plays the
+Pi's sound there, and Mic here lets the bot hear you through it. Its Draw tab puts a drawing on the
+whole screen until B (kept in ~/Pictures/Drawings). It talks to this script on 127.0.0.1:5480.
 
 While a video plays, Y turns full screen on or off (the choice is kept for the next videos);
 Settings > Video size picks Fit (all of the picture), Full screen (zoomed) or Stretch.

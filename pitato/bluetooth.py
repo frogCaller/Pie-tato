@@ -16,6 +16,7 @@ import time
 
 from .config import clean_name
 from .screen import bt_outputs
+from .system import on_pc
 
 BT_LOOK = 60            # seconds a look round lasts (X, or Find devices, looks again)
 BT_EVERY = 2.5          # seconds between looks at what's there, while a page shows it
@@ -80,13 +81,13 @@ def bt_why(err, doing="pair"):
         return ("It didn't answer. Is it in pairing mode, and close by?" if doing == "pair"
                 else "It didn't answer. Is it on, and close by?")
     if "profile-unavailable" in e or "protocol not available" in e or "not supported" in e:
-        return "The Pi has nothing it can connect it to"
+        return on_pc("The Pi has nothing it can connect it to")
     if "does not exist" in e or "unknown object" in e or "not available" in e:
         return "It's gone. Look again"
     if "in progress" in e or "busy" in e:
         return "It's busy. Try again in a moment"
     if "blocked" in e or "rfkill" in e:
-        return "Bluetooth is switched off on this Pi"
+        return on_pc("Bluetooth is switched off on this Pi")
     if "not ready" in e or "not powered" in e:
         return "Bluetooth isn't on"
     words = str(err or "").strip().splitlines()
@@ -427,7 +428,7 @@ class Bluetooth:
                 if objs is None:
                     gone = not ok and any(w in err for w in BT_GONE)
                     if gone or self.there is not True or now - self.answered_at > BT_STALE:
-                        why = "Bluetooth isn't running on this Pi" if gone else "Bluetooth isn't answering"
+                        why = on_pc("Bluetooth isn't running on this Pi") if gone else "Bluetooth isn't answering"
                         if self.why != why:
                             print(f"bluetooth: {why} ({err[:120]})", flush=True)
                         self.there, self.on, self.devices = False, False, []
@@ -437,7 +438,7 @@ class Bluetooth:
                 adapters = sorted(p for p, o in objs.items() if isinstance(o, dict) and ADAPTER in o)
                 if not adapters:
                     self.there, self.on, self.devices = False, False, []
-                    self.why = "This Pi has no Bluetooth"
+                    self.why = on_pc("This Pi has no Bluetooth")
                     return
                 self.adapter = adapters[0]
                 self.there, self.why = True, ""

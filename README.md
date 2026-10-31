@@ -3,7 +3,7 @@
 Turns your Raspberry Pi GPi Case 2W or GPi Case 2 into a pocket-sized smart media center. Versatile home
 entertainment remote where you can watch live TV, stream videos, listen to music and radio, view photos, play
 your own games, check the weather and system stats, and control your smart home through Home Assistant. It
-works on any Raspberry Pi with a TV or monitor on HDMI too.
+works on any Raspberry Pi with a TV or monitor on HDMI too, and on a regular PC with Ubuntu.
 
 <p>
   <img src="docs/tv.gif" height="260">
@@ -42,6 +42,23 @@ itself at start-up (`sudo bash setup.sh --login` keeps the password prompt), ask
 optional parts, and reboots. The first time takes a while (an hour or more on a Pi 4, as it builds
 the game emulators), so leave the Pi on until it says All set.
 
+### On a PC
+
+If you have a regular computer (Intel or AMD) with Ubuntu 24.04, Desktop or Server, you can run it there
+too and play with a USB or Bluetooth controller. Set it up the same way:
+
+```
+git clone https://github.com/frogCaller/pietato.git
+cd pietato
+sudo bash setup.sh
+```
+
+It builds every game emulator (about half an hour), so leave the computer on until it says All set.
+After that, the computer starts in Pietato, like a console. If you have Ubuntu's desktop, open System,
+press SELECT for its list and pick Desktop to use it, then restart the computer to come back to Pietato.
+Settings > Resolution sets the screen's size at start-up. With Ubuntu's desktop installed, Bluetooth
+headphones only play sound on the desktop, so in Pietato use the computer's speakers, HDMI or a USB speaker.
+
 Keep the `pietato` folder where it is: your settings live in its `static` folder. To update, press
 Update software at the top of System's list (SELECT switches System between its dashboard and the list).
 When there's a new version, the dashboard says so, and A updates from there too. It runs `git pull`, and
@@ -76,7 +93,7 @@ It starts on a home screen of apps:
   through what's running and X or Y sort it by CPU or memory; and B stops any of them
 - **Games**: Snake (press X and a decision model on your bot's computer plays it for you), and your own
   Game Boy, Game Boy Advance, NES, SNES, Genesis, Master System, Game Gear and PlayStation games, and
-  N64, PSP, DS and Dreamcast games on a Pi 4 or 5. Two can play on two controllers
+  N64, PSP, DS and Dreamcast games on a Pi 4 or 5 or a PC. Two can play on two controllers
 - **System**: a dashboard of the Pi's temperature, how busy it is, its memory, storage and network. SELECT
   shows it as a list instead, with Update software, Reboot and Shut down
 - **Settings**: WiFi, Bluetooth, the home screen's style, background, colours, video size, a TV or monitor's
@@ -114,12 +131,10 @@ The GPi Case's own buttons, or any USB or Bluetooth game controller (Xbox, PlayS
 Open `http://<your Pi's IP address>:5432` on your phone or computer. Anyone on your WiFi
 can open it, so if you share your WiFi, give it a password in the page's Settings.
 
-**Screen** is the Pi's screen in media mode, and it works like the Pi: tap something on it to pick
-it, and tap it again to open it. Swipe or scroll to move along a list. Back and Home are under it,
-and the whole remote is behind Remote. When the Pi has a box to type in, one comes up under the
-screen too, so you can type on your phone or computer. Screen also puts cartoons, films, news,
-sports, radio, a camera or any app on the Pi. You can talk to your bot there, and pair Bluetooth
-devices.
+**Screen** is the Pi's screen in media mode, and it works like the Pi: tap something on it to open
+it, and swipe or scroll to move along a list. Back and Home are under it, and the whole remote is
+behind Remote. When the Pi has a box to type in, one comes up under the screen too, so you can type
+on your phone or computer. Further down, you can set up controllers and pair Bluetooth devices.
 
 Under the screen there are three more buttons:
 
@@ -140,9 +155,12 @@ Under the screen there are three more buttons:
 If Sound here or Mic here says to run setup.sh again, run `sudo bash setup.sh` once more. It adds
 the sound card they use.
 
-**Draw** is paper the shape of the Pi's screen. Draw with your finger or the mouse, add words or a
-photo, and press Show on the Pi: it stays on the screen until you press B, and it's kept in
-`~/Pictures/Drawings`, so you can open it again in Photos. With Live on, it goes to the screen as
+**Library** puts cartoons, films, news, sports, radio or a camera on the Pi, and you can talk to your
+bot there.
+
+**Draw**, in Library, is paper the shape of the Pi's screen. Draw with your finger or the mouse, add
+words or a photo, and press Show on the Pi: it stays on the screen until you press B, and it's kept
+in `~/Pictures/Drawings`, so you can open it again in Photos. With Live on, it goes to the screen as
 you draw. If you've set up a bot, Ask your bot has it say what it sees.
 
 **Files** takes files or whole folders dropped on it. Music, videos, pictures, documents and games
@@ -171,8 +189,8 @@ steer it, press START on it there for its settings: Flip left and right, and Fli
 ## Games
 
 Put your games in the `Games` folder in your home folder. It has a folder for each: `gb`, `gbc`, `gba`,
-`nes`, `snes`, `genesis`, `sms`, `gg` and `ps1`, and on a Pi 4 or 5, `n64`, `psp`, `nds` and `dc`. You can
-also drop them on the web page (zips work too, for the cartridge ones). They're played by mGBA, Nestopia,
+`nes`, `snes`, `genesis`, `sms`, `gg` and `ps1`, and on a Pi 4 or 5 or a PC, `n64`, `psp`, `nds` and `dc`. You
+can also drop them on the web page (zips work too, for the cartridge ones). They're played by mGBA, Nestopia,
 Snes9x, Genesis Plus GX, PCSX ReARMed, Mupen64Plus-Next, PPSSPP, melonDS and Flycast.
 
 In a game, Home opens its menu: save or load a state, start over, the players, the volume, the picture
@@ -200,8 +218,8 @@ Web, in the Home tab, shows a page as its words, links and pictures, on any Pi. 
 work best, and a few are on its first page. Up and down go from link to link, A opens one, B goes back,
 Start searches or goes to an address, Y bookmarks the page, and Select shows just the article.
 
-On a Pi 4 or 5, Web's first page opens Chromium too, for the sites that need it (setup.sh puts it in, about
-300 MB). The stick or the d-pad moves the pointer, A clicks, B goes back, and L and R scroll. X types into
+On a Pi 4 or 5 or a PC, Web's first page opens Chromium too, for the sites that need it (setup.sh puts it in,
+about 300 MB). The stick or the d-pad moves the pointer, A clicks, B goes back, and L and R scroll. X types into
 the page and Start goes to an address, with Pietato's keyboard. Home opens its menu, for zoom, tabs, full
 screen, or closing it. A keyboard and a mouse work in it too. If it doesn't start,
 `journalctl -u pietato-chromium` says why.

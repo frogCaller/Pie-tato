@@ -1,6 +1,7 @@
 """What's in each tab of media mode, and what plays things."""
 from .theme import FONT
 from .config import read_lines, settings_glob
+from .system import is_pc, on_pc
 from .util import AUDIO_EXTS, item, VIDEO_EXTS
 from .tv import ia_best
 
@@ -78,7 +79,7 @@ LIBRARY = [
     {"name": "cacafire", "type": "prog", "prog": "cacafire", "parent": "Simulator", "badge": "HEAT",
      "about": "Flames made of letters", "empty": ""},
     {"name": "htop", "type": "prog", "prog": "htop", "parent": "Simulator", "badge": "PROC",
-     "about": "What's running on the Pi", "empty": ""},
+     "about": on_pc("What's running on the Pi"), "empty": ""},
 ]
 
 MEDIA_VT = 7          # spare console the menu and player draw on
@@ -95,6 +96,18 @@ VIDEO_PLAYER = ["mplayer", "-slave", "-quiet", "-vo", "fbdev2", "-sws", "0",
                 "-lavdopts", "threads=4:fast:skiploopfilter=all",
                 "-softvol", "-ao", "alsa", "-font", FONT]
 AUDIO_PLAYER = ["mplayer", "-slave", "-quiet", "-novideo", "-softvol", "-ao", "alsa"]
+
+
+def video_player():
+    """mplayer for a video: on a Pi, decoded and scaled the quick way; on a PC, which has the time to spare, at full
+    quality (H.264's smoothing of its blocks kept, and scaled bicubic)."""
+    args = list(VIDEO_PLAYER)
+    if is_pc():
+        args[args.index("-sws") + 1] = "2"
+        args[args.index("-lavdopts") + 1] = "threads=4"
+    return args
+
+
 LOCAL_CACHE = ["-cache", "8192"]
 NET_CACHE = ["-cache", "16384", "-cache-min", "10"]
 RADIO_CACHE = ["-cache", "512", "-cache-min", "20"]

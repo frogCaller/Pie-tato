@@ -16,7 +16,7 @@ import time
 from .config import home_dir
 from .screen import slow_pi
 
-CHROMIUM_NAMES = ("chromium", "chromium-browser")
+CHROMIUM_NAMES = ("chromium", "chromium-browser", "/snap/bin/chromium")   # (Ubuntu's: a snap)
 CHROMIUM_UNIT = "pietato-chromium"     # its systemd unit, while it's up
 CHROMIUM_VT = 8                        # its console (media mode's is 7)
 CHROMIUM_PAM = "pietato-chromium"      # setup.sh's PAM service for it: a session of your own, no password asked

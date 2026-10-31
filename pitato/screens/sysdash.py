@@ -5,7 +5,7 @@ import time
 
 from ..config import WEB_PORT
 from ..library import LISTEN_KINDS
-from ..system import HISTORY_EVERY, HISTORY_KEEP, HOT_C, uptime_text
+from ..system import HISTORY_EVERY, HISTORY_KEEP, HOT_C, is_pc, on_pc, uptime_text
 from ..theme import ACCENT, BODY, DONE, LINE, MUTED, ROW, TEXT, WARN
 from ..util import human_size
 from .pihole import PH_ALLOWED, PH_AXIS, PH_CLIENTS, PH_KINDS
@@ -121,6 +121,7 @@ class SysDashScreen:
         t, busy, mem, disk = n.get("temp"), n.get("busy"), n.get("mem"), n.get("disk")
         hot = t is not None and t >= HOT_C
         full = bool(disk) and disk[1] < 1 << 30
+        where = "disk" if is_pc() else "card"           # (a Pi's SD card; a PC's disk)
         tiles = [
             (["CPU temperature", "Temperature", "Temp"], f"{t:.1f} °C" if t is not None else "—",
              None if t is None else t / TEMP_FULL, SD_TEMP, hot),
@@ -128,7 +129,7 @@ class SysDashScreen:
              None if busy is None else busy / 100, SD_CPU, False),
             ([f"Memory used of {short_size(mem[1])}", "Memory used", "Memory"] if mem else ["Memory"],
              short_size(mem[0]) if mem else "—", mem[0] / mem[1] if mem else None, SD_MEM, False),
-            ([f"Free on the card of {short_size(disk[2])}", "Free on the card", "Storage free", "Free"]
+            ([f"Free on the {where} of {short_size(disk[2])}", f"Free on the {where}", "Storage free", "Free"]
              if disk else ["Storage"], short_size(disk[1]) if disk else "—",
              disk[1] / disk[2] if disk and disk[2] else None, SD_DISK, full),
         ]
@@ -192,7 +193,7 @@ class SysDashScreen:
         """Below the chart, ◀▶: the network, the temperature the last 5 minutes, this Pi, what Pietato's busy with."""
         F, W = self.fonts, self.fb.w
         key, title = SD_PANELS[self.sys_panel % len(SD_PANELS)]
-        d.text((16, top), title, font=F["label"], fill=MUTED, anchor="lm")
+        d.text((16, top), on_pc(title), font=F["label"], fill=MUTED, anchor="lm")   # (a PC's: This PC)
         for k in range(len(SD_PANELS)):                 # (which of them this is)
             cx = W - 16 - (len(SD_PANELS) - 1 - k) * 14
             on = k == self.sys_panel % len(SD_PANELS)

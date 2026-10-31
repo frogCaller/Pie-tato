@@ -219,7 +219,7 @@ class WebScreen:
         kind, args = what[0], what[1:]
         if kind == "keys":                             # a button along the bottom, or ◀ ▶ by a value
             return list(args)
-        if kind == "sel":                              # a row, a tile, an app: picked, or opened if it was
+        if kind == "sel":                              # a row, a tile, an app: picked and opened, in one tap
             return self.tap_pick(*args)
         if kind in ("tab", "tabs") and self.view == "list":
             vis = self.visible_tabs()
@@ -241,40 +241,38 @@ class WebScreen:
             rows = self.bt_rows()
             k = args[0]
             if k < len(rows) and rows[k][0] in BT_PICKABLE:
-                if self.bt_sel(rows) == k:
-                    return ["a"]
-                self.bt_choose(rows, k)
-                self.dirty = True
+                if self.bt_sel(rows) != k:
+                    self.bt_choose(rows, k)
+                    self.dirty = True
+                return ["a"]
             return []
         return []
 
     def tap_pick(self, owner, key, k):
-        """A row tapped (a tile, an app...): picked, as ▲▼ would; tapped again once it's picked: A. owner: where
-        what's picked is kept: 'sels' (key: a tab's list), 'attr' (key: one of these, a number), 'dict' (key: one
-        of these, a menu with its 'sel')."""
+        """A row tapped (a tile, an app...): picked, as ▲▼ would, and A, so it opens (or does what A does to it)
+        in one tap. One that asks first (Load state, Shut down...) asks, and the next tap's A says yes, as on the
+        Pi. owner: where what's picked is kept: 'sels' (key: a tab's list), 'attr' (key: one of these, a number),
+        'dict' (key: one of these, a menu with its 'sel')."""
         n = self.sel_rows(owner, key)
         if n is None or not 0 <= k < n:
             return []
         if owner == "sels":
             if key != self.tab or self.view != "list":
                 return []
-            if self.sels.get(key, 0) == k:
-                return ["a"]
-            self.sels[key] = k
-            self.confirm = (None, 0.0)
+            if self.sels.get(key, 0) != k:
+                self.sels[key] = k
+                self.confirm = (None, 0.0)
         elif owner == "attr":
-            if (getattr(self, key, 0) or 0) % n == k:
-                return ["a"]
-            setattr(self, key, k)
+            if (getattr(self, key, 0) or 0) % n != k:
+                setattr(self, key, k)
         else:
             m = getattr(self, key)
-            if m.get("sel", 0) % n == k:
-                return ["a"]
-            m["sel"] = k
-            if "confirm" in m:
-                m["confirm"] = (None, 0.0)
+            if m.get("sel", 0) % n != k:
+                m["sel"] = k
+                if "confirm" in m:
+                    m["confirm"] = (None, 0.0)
         self.dirty = True
-        return []
+        return ["a"]
 
     def sel_rows(self, owner, key):
         """How many rows the list a row was tapped in has now (None: it isn't up)."""

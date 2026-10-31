@@ -3,13 +3,13 @@
 webui.py - the Pi's screen and files, from any browser on your WiFi.
 
 Screen: what's on the Pi's screen right now, tapped as the Pi's buttons would be (pitato.py says what's
-where), a remote for it, and cartoons, films, news, sports, radio and the apps to put on it (through
-pitato.py, which listens on this Pi only). Its Draw tab draws a picture for the screen: PUT /api/draw
-puts it there and keeps it in ~/Pictures/Drawings. Play here plays what's picked in the browser instead
-(a game in EmulatorJS, fetched from npm the first time and handed out from here: /play); Sound here
-plays the Pi's sound there, and Mic here gives the bot the browser's microphone (both through the
-Loopback card setup.sh adds). A browser allows a microphone only on a secure page, so the page is on
-https://<your Pi's name>.local:5443 too, with a certificate of the Pi's own.
+where), and a remote for it. Library: cartoons, films, news, sports, radio and cameras to put on it
+(through pitato.py, which listens on this Pi only). Its Draw tab draws a picture for the screen: PUT
+/api/draw puts it there and keeps it in ~/Pictures/Drawings. Play here plays what's picked in the
+browser instead (a game in EmulatorJS, fetched from npm the first time and handed out from here:
+/play); Sound here plays the Pi's sound there, and Mic here gives the bot the browser's microphone
+(both through the Loopback card setup.sh adds). A browser allows a microphone only on a secure page,
+so the page is on https://<your Pi's name>.local:5443 too, with a certificate of the Pi's own.
 
 Files: drag files or whole folders onto the page and they land in ~/Music, ~/Videos, ~/Pictures,
 ~/Documents or ~/Games (picked by file type), ready for media mode, and media mode's settings files
@@ -309,7 +309,7 @@ def check_password():
     except Unreadable as ex:                           # no telling whether there's a password
         return Response(str(ex), 503)
     if not host_ok():
-        return Response("Open this page by the Pi's name or address", 403)
+        return Response(pc_said("Open this page by the Pi's name or address"), 403)
     # Another website open in the same browser can't make this page do things: browsers say
     # where a request came from, and the page's own requests carry a header no site can add
     # without asking first.
@@ -340,9 +340,58 @@ def no_sniff(resp):
 
 
 # ---- the page ----------------------------------------------------------------------
+PI_MODEL = "/proc/device-tree/model"            # a Pi's model; a PC hasn't one...
+DMI = "/sys/class/dmi/id"                      # ...but its firmware's description of itself (pitato/system.py's is_pc)
+PC_WORDS = re.compile(r"\b([Tt]he|[Tt]his|[Yy]our|[Aa]) Pi\b(?![-\w]| \d| Zero| OS| Case)")
+
+
+def is_pc():
+    """A computer of your own (Intel or AMD, with Ubuntu) rather than a Pi."""
+    try:
+        with open(PI_MODEL, errors="replace") as f:
+            if "Raspberry Pi" in f.read():
+                return False
+    except OSError:
+        pass
+    return os.path.isdir(DMI)
+
+
+def pc_said(text):
+    """What the server says, as it goes on a PC: "the PC", not "the Pi"."""
+    return PC_WORDS.sub(lambda m: m.group(1) + " PC", text) if isinstance(text, str) and is_pc() else text
+
+
+@app.after_request
+def pc_errors(resp):
+    """On a PC, an error's words say "the PC", not "the Pi" (the server's own, or media mode's passed on)."""
+    if resp.mimetype != "application/json" or resp.direct_passthrough or resp.is_streamed or resp.status_code < 400 \
+            and b'"error"' not in resp.get_data():
+        return resp
+    try:
+        data = json.loads(resp.get_data(as_text=True))
+    except ValueError:
+        return resp
+    if isinstance(data, dict) and isinstance(data.get("error"), str):
+        said = pc_said(data["error"])
+        if said != data["error"]:
+            data["error"] = said
+            resp.set_data(json.dumps(data))
+    return resp
+
+
+def page_file(path, mimetype=None):
+    """One of the page's own files, handed out: on a PC, what it says about the Pi says "the PC" instead (never a
+    Pi-hole, a Pi 4 or a Pi Zero)."""
+    if not is_pc():
+        return send_file(path, mimetype=mimetype)
+    with open(path, encoding="utf-8") as f:
+        text = PC_WORDS.sub(lambda m: m.group(1) + " PC", f.read())
+    return Response(text, mimetype=mimetype or "text/html")
+
+
 @app.get("/")
 def index():
-    resp = send_file(PAGE)
+    resp = page_file(PAGE)
     resp.headers["Cache-Control"] = "no-cache"
     return resp
 
@@ -751,7 +800,7 @@ def ejs_file(rel):
 @app.get("/play")
 def play_page():
     """A game's page (the Screen view puts it where the Pi's screen is): it says what to play in its address."""
-    resp = send_file(os.path.join(TOP, "templates", "play.html"))
+    resp = page_file(os.path.join(TOP, "templates", "play.html"))
     resp.headers["Cache-Control"] = "no-cache"
     resp.headers["Content-Security-Policy"] = PLAY_CSP
     return resp
@@ -759,7 +808,7 @@ def play_page():
 
 @app.get("/play.js")
 def play_script():
-    resp = send_file(os.path.join(TOP, "templates", "play.js"), mimetype="text/javascript")
+    resp = page_file(os.path.join(TOP, "templates", "play.js"), mimetype="text/javascript")
     resp.headers["Cache-Control"] = "no-cache"
     return resp
 

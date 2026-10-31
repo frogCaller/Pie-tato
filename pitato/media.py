@@ -13,7 +13,7 @@ from .theme import MUTED, set_accent, TEXT
 from .config import (home_dir, HOME_STYLE_WAS, SCREEN_MODES, SETTINGS_DEFAULT, SETTINGS_GONE, STATE_FILE, TURN_DEGREES,
                      web_private)
 from .util import classify, clock, FILE_KINDS, find_files, IMAGE_EXTS, item, looks_like_text, title_of
-from .system import SysHistory, system_info, system_numbers, system_stopping
+from .system import SysHistory, has_desktop, is_pc, on_pc, system_info, system_numbers, system_stopping
 from .bluetooth import Bluetooth
 from . import screen as screen_out
 from .screen import Framebuffer, slow_pi
@@ -79,7 +79,7 @@ from .screens.www import WwwScreen
 from .screens.chromium import ChromiumScreen
 
 _SAVING = threading.Lock()     # (state.json written one at a time: the shrinker's and radio's threads save too)
-UPDATE_STEP = 0.35             # seconds between the update screen's dots lighting up, one after another
+UPDATE_STEP = 0.233            # seconds between the update screen's dots lighting up, one after another
 
 
 class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, JellyfinScreen,
@@ -316,7 +316,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.remote_hit = ("", 0.0)  # the button just pressed there, and when
         self.cam_said = ("", 0.0)    # the camera's last message and when it changed
         self.fin_next = 0.0
-        self.shrinker = Shrinker()   # (a video too big for this Pi, made smaller: always, when it needs it)
+        self.shrinker = Shrinker(enabled=lambda: not is_pc())   # (a video too big for this Pi, made smaller: always,
+                                                                 # when it needs it; a PC plays them as they are)
         self.shrinker.on_done = self.video_shrunk   # (it starts when the service does: app.main)
         self.videos_changed = False  # a video was swapped for its smaller copy: the Videos tab, again
         self.shrink_drawn = 0.0      # when the Videos tab last showed how far that's got
@@ -455,7 +456,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         return 0
 
     def toast(self, text, secs=4):
-        self.msg, self.msg_until = text, time.monotonic() + secs
+        self.msg, self.msg_until = on_pc(text), time.monotonic() + secs   # (on a PC: "the PC", not "the Pi")
         self.dirty = True
 
     def video_shrunk(self, old, new):
@@ -1156,9 +1157,14 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             if act == "update":
                 self.toast("Press A again to update. The Pi restarts when it's done" if self.updater.available()
                            else "Press A again to get the newest version. If there is one, the Pi restarts", 4)
+            elif act == "desktop":
+                self.toast("Press A again for the desktop. Restarting the computer comes back to Pietato", 4)
             self.dirty = True
             return
         self.confirm = (None, 0.0)
+        if act == "desktop":
+            self.desktop_start()
+            return
         if act == "update":
             err = self.updater.begin()
             if err:
@@ -1187,6 +1193,25 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         cmd = {"reboot": ["systemctl", "reboot"], "poweroff": ["systemctl", "poweroff"],
                "restart": ["systemctl", "restart", "pitato"]}[act]
         subprocess.Popen(cmd)
+
+    def desktop_start(self):
+        """System > Desktop (a PC with Ubuntu's desktop): Pietato stops and the desktop starts, till the computer
+        restarts (it starts in Pietato, setup.sh's way). Never both at once: they'd fight over the controller, the sound
+        and the screen. A job of its own does it (systemd-run), as stopping Pietato stops this."""
+        if not has_desktop():
+            self.toast("There's no desktop on this computer", 3)
+            return
+        self.halting = time.monotonic() + HALT_WAIT       # nothing draws over it
+        self.halt_note = "The desktop didn't start"
+        self.render_wait("Starting the desktop", "Restart the computer to come back to Pietato")
+        self.save_state()
+        self.stop()                                    # (nothing goes on playing under it)
+        try:
+            subprocess.Popen(["systemd-run", "--no-block", "--collect", "--unit=pietato-desktop", "sh", "-c",
+                              "systemctl stop pitato; systemctl start display-manager"])
+        except OSError as ex:
+            self.halting = 0.0
+            self.toast(f"The desktop didn't start ({ex.strerror or ex})", 5)
 
     def close_viewer(self):
         tmp = self.v.get("tmp")

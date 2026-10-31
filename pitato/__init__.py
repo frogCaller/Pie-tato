@@ -57,3 +57,33 @@ Beside them, each run on its own:
   coder_hooks.py    Claude Code's hooks, telling the Bot what it's doing (the web page hands it out)
   convert_videos.sh videos made smaller on your computer (the Pi does it by itself too)
 """
+
+
+def _whole_pixel_boxes():
+    """Pillow 10.2 (Ubuntu 24.04's) stops on a rounded box whose corners nearly meet when the box isn't whole pixels
+    ("y1 must be greater than or equal to y0"): such boxes go to it in whole pixels instead, as later Pillows do
+    themselves. Any other Pillow (a Pi's): as it is."""
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError:
+        return
+    try:
+        ImageDraw.Draw(Image.new("L", (48, 24))).rounded_rectangle((0, 0, 40, 17.6), radius=8, fill=1)
+        return
+    except ValueError:
+        pass
+    except Exception:                                  # (an older Pillow's own way: left as it is)
+        return
+    real = ImageDraw.ImageDraw.rounded_rectangle
+
+    def rounded_rectangle(self, xy, *args, **kwargs):
+        if isinstance(xy[0], (list, tuple)):
+            (x0, y0), (x1, y1) = xy
+        else:
+            x0, y0, x1, y1 = xy
+        return real(self, (round(x0), round(y0), round(x1), round(y1)), *args, **kwargs)
+
+    ImageDraw.ImageDraw.rounded_rectangle = rounded_rectangle
+
+
+_whole_pixel_boxes()

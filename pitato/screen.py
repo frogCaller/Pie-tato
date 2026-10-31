@@ -14,7 +14,7 @@ import struct
 import subprocess
 import time
 
-from .system import read_file
+from .system import is_pc, on_pc, read_file, run_out
 
 
 # Plex: the server converts video to a size the Pi Zero plays smoothly
@@ -136,8 +136,10 @@ def screen_size():
 
 def video_target():
     """(Plex's size, its bitrate in kbps, live TV's lines): sharper on a big screen when the
-    Pi can keep up (a Pi 4 or 5 on a TV), the GPi Case's 480 lines otherwise."""
+    Pi can keep up (a Pi 4 or 5 on a TV), the GPi Case's 480 lines otherwise. A PC: 1080p on a 1080p screen."""
     w, h = screen_size()
+    if w >= 1920 and h >= 1080 and is_pc():
+        return "1920x1080", 10000, 1080
     if w >= 1280 and h >= 720 and not slow_pi():
         return "1280x720", 4000, 720
     return PLEX_RESOLUTION, PLEX_BITRATE, PLEX_LIVE_HEIGHT
@@ -167,30 +169,41 @@ def can_play(num):
     return not pcms or any(p.endswith("p") for p in pcms)
 
 
-def sound_list():
-    """The sound outputs, in the kernel's order: [{"id", "name", "desc", "usb"}]. Only cards that can play (a USB
-    microphone can't); "name" is Settings > Sound's ("HDMI 1", "Headphones", "USB speaker"...), "desc" the card's own,
-    "usb" a USB speaker (or headphones, or a DAC: not a game controller's)."""
+def sound_cards_seen():
+    """The kernel's sound cards that can play (not a USB microphone), but not the Loopback card (the web page's way in
+    and out): [(id, driver, its own name)]."""
     out = []
     for line in read_file(os.path.join(ASOUND, "cards")).splitlines():
         m = re.match(r"\s*(\d+)\s+\[(\S+)\s*\]:\s*(\S+)\s+-\s+(.+)", line)
         if not m or not can_play(m.group(1)):
             continue
         cid, driver, full = m.group(2), m.group(3), m.group(4).strip()
-        if cid == LOOPBACK or driver == "Loopback":
-            continue                               # (the web page's way in and out: not a speaker)
-        desc = full[:24]
-        usb = driver == "USB-Audio" and not NOT_SPEAKERS.search(full)
-        hd = re.fullmatch(r"vc4hdmi(\d?)", cid)
-        if hd:
-            name = "HDMI" + (f" {int(hd.group(1)) + 1}" if hd.group(1) else "")
-        elif cid == "Headphones" or "headphone" in desc.lower():
-            name = "Headphones"
-        elif usb:
-            name = "USB speaker"
-        else:
-            name = desc
-        out.append({"id": cid, "name": name, "desc": desc, "usb": usb})
+        if cid != LOOPBACK and driver != "Loopback":
+            out.append((cid, driver, full))
+    return out
+
+
+def sound_list():
+    """The sound outputs, in the kernel's order: [{"id", "name", "desc", "usb"}]. Only cards that can play (a USB
+    microphone can't); "name" is Settings > Sound's ("HDMI 1", "Headphones", "USB speaker"...), "desc" the card's own,
+    "usb" a USB speaker (or headphones, or a DAC: not a game controller's). A PC's: pc_outputs."""
+    if is_pc():
+        out = pc_outputs()
+    else:
+        out = []
+        for cid, driver, full in sound_cards_seen():
+            desc = full[:24]
+            usb = driver == "USB-Audio" and not NOT_SPEAKERS.search(full)
+            hd = re.fullmatch(r"vc4hdmi(\d?)", cid)
+            if hd:
+                name = "HDMI" + (f" {int(hd.group(1)) + 1}" if hd.group(1) else "")
+            elif cid == "Headphones" or "headphone" in desc.lower():
+                name = "Headphones"
+            elif usb:
+                name = "USB speaker"
+            else:
+                name = desc
+            out.append({"id": cid, "name": name, "desc": desc, "usb": usb})
     names = [c["name"] for c in out]
     for c in out:                                  # two of a name: each its own after it ("USB speaker: Jabra")
         if names.count(c["name"]) > 1 and c["desc"] != c["name"]:
@@ -209,8 +222,99 @@ def sound_list():
 
 
 def sound_cards():
-    """[(card id, name)] for the sound outputs: ("vc4hdmi0", "HDMI 1"), ("Headphones", ...)..."""
+    """[(card id, name)] for the sound outputs: ("vc4hdmi0", "HDMI 1"), ("Headphones", ...)... (a PC's HDMI: its
+    card's id and /hdmi, "PCH/hdmi")"""
     return [(c["id"], c["name"]) for c in sound_list()]
+
+
+# ---- a PC's sound: its sound card's speakers (or headphones), and its HDMI (or DisplayPort) on the same card or a card
+# of its own (the graphics card's). Played straight to the card, never through ALSA's default: on a PC with a desktop
+# that's PipeWire's, which Pietato (root, with no desktop running) can't reach.
+HDMI_PCM = re.compile(r"HDMI|DisplayPort|\bDP\b")   # a PC's HDMI (or DisplayPort) sound, by its device's name
+HDMI_ROUTE = "/hdmi"                               # ...as a route: its card's id and this ("PCH/hdmi")
+JACK_LOOK = 2.0                                    # seconds what a card's jacks said is good for
+_jacks = {}                                        # card id -> (when, [HDMI devices with a screen plugged in])
+
+
+def card_pcms(cid):
+    """A PC's sound card's playback devices: ([its HDMI ones], [the rest]), by number: ([3, 7, 8, 9], [0, 1])."""
+    hdmi, rest = [], []
+    for path in glob.glob(os.path.join(ASOUND, cid, "pcm*p")):
+        m = re.search(r"pcm(\d+)p$", path)
+        if m:
+            name = " ".join(re.findall(r"^(?:id|name): (.*)$", read_file(os.path.join(path, "info")), re.M))
+            (hdmi if HDMI_PCM.search(name) else rest).append(int(m.group(1)))
+    return sorted(hdmi), sorted(rest)
+
+
+def hdmi_plugged(cid):
+    """A PC's card's HDMI (or DisplayPort) devices with a screen plugged in, as its jacks say: [3]."""
+    now = time.monotonic()
+    got = _jacks.get(cid)
+    if got and now - got[0] < JACK_LOOK:
+        return got[1]
+    on = []
+    for block in re.split(r"\n(?=numid=)", run_out(["amixer", "-c", cid, "contents"])):
+        m = re.search(r"name='HDMI/DP,pcm=(\d+) Jack'", block)
+        if m and re.search(r":\s*values=on\b", block):
+            on.append(int(m.group(1)))
+    _jacks[cid] = (now, on)
+    return on
+
+
+def hdmi_says_sound(cid):
+    """Whether a screen plugged into a PC's card's HDMI says it plays sound (its ELD lists the kinds it plays): True,
+    False (a monitor without speakers), or None (nothing plugged in, or no telling)."""
+    said = None
+    for path in glob.glob(os.path.join(ASOUND, cid, "eld#*")):
+        text = read_file(path)
+        if re.search(r"monitor_present\s+1", text) and re.search(r"eld_valid\s+1", text):
+            m = re.search(r"sad_count\s+(\d+)", text)
+            if m and int(m.group(1)) > 0:
+                return True
+            said = False
+    return said
+
+
+def pc_outputs():
+    """A PC's sound outputs: each card's speakers (what isn't HDMI: a desktop's line out, a laptop's speakers and
+    headphones), its HDMI as one more ("PCH/hdmi": whichever port has a screen), and USB speakers as on a Pi."""
+    out = []
+    for cid, driver, full in sound_cards_seen():
+        desc = full[:24]
+        if driver == "USB-Audio":
+            if not NOT_SPEAKERS.search(full):
+                out.append({"id": cid, "name": "USB speaker", "desc": desc, "usb": True})
+            continue
+        hdmi, rest = card_pcms(cid)
+        if rest:
+            out.append({"id": cid, "name": "Speakers", "desc": desc, "usb": False})
+        if hdmi:
+            out.append({"id": cid + HDMI_ROUTE, "name": "HDMI", "desc": desc, "usb": False})
+    return out
+
+
+def pc_auto(outs):
+    """Auto, on a PC: a USB speaker while one's plugged in (the last), else HDMI with a screen plugged in (not one
+    that says it has no speakers), else the speakers, else HDMI anyway. None: no sound output at all."""
+    ids = [o["id"] for o in outs]
+    usb = [o["id"] for o in outs if o["usb"]]
+    if usb:
+        return usb[-1]
+    hdmi = [r for r in ids if r.endswith(HDMI_ROUTE)]
+    for r in hdmi:
+        cid = r[:-len(HDMI_ROUTE)]
+        if hdmi_plugged(cid) and hdmi_says_sound(cid) is not False:
+            return r
+    speakers = [r for r in ids if r not in hdmi and r not in usb]
+    return (speakers or hdmi or [None])[0]
+
+
+def pc_hdmi_pcm(cid):
+    """The HDMI device to play through on a PC's card: the first with a screen plugged in, else its first."""
+    hdmi = card_pcms(cid)[0]
+    plugged = [p for p in hdmi if p in hdmi_plugged(cid)]
+    return (plugged or hdmi or [None])[0]
 
 
 def sound_moves(route):
@@ -239,6 +343,10 @@ def hdmi_ports():
 DRM_DIR = "/sys/class/drm"                     # the kernel's screens (KMS): none on the GPi Case
 CMDLINE_TXT = ("/boot/firmware/cmdline.txt", "/boot/cmdline.txt")   # Bookworm's, then an older system's
 HDMI_SIZE = re.compile(r"video=HDMI-A-\d+:(\d+)x(\d+)")
+GRUB = "/etc/default/grub"                     # a PC's say on the kernel's command line (update-grub puts it in)
+GRUB_LINE = re.compile(r"^GRUB_CMDLINE_LINUX_DEFAULT=([\"']?)(.*?)\1[ \t]*$", re.M)
+VIDEO_SIZE = re.compile(r"video=(?:[A-Za-z]+-)+\d+:(\d+)x(\d+)")   # any screen's (a PC's: DP-1, eDP-1, HDMI-A-2...)
+PC_PORTS = re.compile(r"card\d+-((?:HDMI-[AB]|DP|eDP|DVI-[ADI]|VGA)-\d+)")   # a PC's screens, by the kernel's names
 RES_SMALLEST, RES_BIGGEST = (640, 480), (1920, 1200)   # the sizes to pick from: the menus' own, up to 1080p
                                                        # (bigger is slower to draw, and no sharper)
 
@@ -246,10 +354,11 @@ RES_SMALLEST, RES_BIGGEST = (640, 480), (1920, 1200)   # the sizes to pick from:
 def hdmi_screens():
     """The HDMI ports with a screen plugged in, by the kernel's names for them, and the sizes each
     screen takes, its own first: [("HDMI-A-1", ["1920x1080", "1280x1024", ...])]. [] with none
-    plugged in, or without KMS (the GPi Case)."""
+    plugged in, or without KMS (the GPi Case). A PC's DisplayPort, laptop and VGA screens too."""
     out = []
-    for path in sorted(glob.glob(os.path.join(DRM_DIR, "card*-HDMI-A-*"))):
-        port = re.search(r"(HDMI-A-\d+)$", path)
+    pc = is_pc()
+    for path in sorted(glob.glob(os.path.join(DRM_DIR, "card*-*" if pc else "card*-HDMI-A-*"))):
+        port = PC_PORTS.fullmatch(os.path.basename(path)) if pc else re.search(r"(HDMI-A-\d+)$", path)
         if not port or read_file(os.path.join(path, "status")) != "connected":
             continue
         sizes = []
@@ -271,7 +380,7 @@ def resolution_choices():
     """Settings > Resolution: (the HDMI screen's own size, [the sizes it takes, biggest first]), or None
     without one (the GPi Case's screen)."""
     screens = hdmi_screens()
-    if not screens:
+    if not screens or (is_pc() and not grub_ready()):
         return None
     sizes = screens[0][1]
     fits = [s for s in sizes if RES_SMALLEST[0] <= size_of(s)[0] <= RES_BIGGEST[0]
@@ -285,20 +394,73 @@ def cmdline_txt():
     return next((path for path in CMDLINE_TXT if os.path.isfile(path)), None)
 
 
+def grub_ready():
+    """A PC whose screen's size can be set at start-up: GRUB's settings, and update-grub to put them in."""
+    return os.path.isfile(GRUB) and shutil.which("update-grub") is not None
+
+
+def grub_words():
+    """The words GRUB puts on a PC's kernel command line, besides its own: ["quiet", "splash"]."""
+    m = GRUB_LINE.search(read_file(GRUB))
+    return m.group(2).split() if m else []
+
+
 def boot_resolution():
-    """The size cmdline.txt sets the HDMI screen to ("1280x720"), or None: the screen's own (Auto)."""
-    path = cmdline_txt()
-    for word in (read_file(path) if path else "").split("\n", 1)[0].split():
-        m = HDMI_SIZE.match(word)
+    """The size cmdline.txt sets the HDMI screen to ("1280x720"), or None: the screen's own (Auto). A PC's: GRUB's."""
+    if is_pc():
+        words, size = grub_words(), VIDEO_SIZE
+    else:
+        path = cmdline_txt()
+        words, size = (read_file(path) if path else "").split("\n", 1)[0].split(), HDMI_SIZE
+    for word in words:
+        m = size.match(word)
         if m:
             return f"{m.group(1)}x{m.group(2)}"
     return None
+
+
+def set_grub_video(ports, args):
+    """set_boot_video on a PC: GRUB's settings (/etc/default/grub), put in by update-grub, which is run. What it had
+    for those ports, or raises OSError (then it's as it was)."""
+    with open(GRUB) as f:
+        text = f.read()
+    m = GRUB_LINE.search(text)
+    words = m.group(2).split() if m else []
+    was = [w for w in words if any(w.startswith(f"video={p}:") for p in ports)]
+    words = [w for w in words if w not in was] + list(args)
+    line = 'GRUB_CMDLINE_LINUX_DEFAULT="' + " ".join(words) + '"'
+    new = text[:m.start()] + line + text[m.end():] if m else text.rstrip("\n") + "\n" + line + "\n"
+    if new == text:
+        return was
+    tmp = GRUB + ".pitato"
+    with open(tmp, "w") as f:
+        f.write(new)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, GRUB)
+    try:
+        r = subprocess.run(["update-grub"], capture_output=True, text=True, timeout=180)
+        ok, why = r.returncode == 0, (r.stderr.strip().splitlines() or ["update-grub didn't work"])[-1]
+    except (OSError, subprocess.TimeoutExpired) as ex:
+        ok, why = False, str(ex)
+    if not ok:                                     # (as it was: never a half-made start-up)
+        with open(tmp, "w") as f:
+            f.write(text)
+        os.replace(tmp, GRUB)
+        try:
+            subprocess.run(["update-grub"], capture_output=True, timeout=180)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        raise OSError(why)
+    return was
 
 
 def set_boot_video(ports, args):
     """cmdline.txt's say on these HDMI ports' picture, from the next start-up: what it had for them
     goes, and args come in (["video=HDMI-A-1:1280x720@60"], or [] for each screen's own size). The rest
     stays as it is. Returns what it had for them (to put back), or raises OSError."""
+    if is_pc():
+        return set_grub_video(ports, args)
     path = cmdline_txt()
     if not path:
         raise OSError("this Pi has no cmdline.txt")
@@ -370,6 +532,8 @@ def sound_card(choice):
     while one's plugged in (the last, with two), else the TV on HDMI, else the Pi's usual output (None: the
     system's default); with the screen on HDMI saying it can't play sound (a monitor without speakers), the
     Pi's headphone jack. TV_FIRST (a GPi Case 2 in its dock): the TV, then a USB speaker (the case's own)."""
+    if is_pc() and choice in (None, "", "Auto"):
+        return pc_auto(sound_list())
     cards = sound_cards()
     ids = [c for c, _ in cards]
     if choice and choice != "Auto":
@@ -419,8 +583,8 @@ def sound_name(route):
     if route == "web":
         return "the web page"
     if not route:
-        return "the Pi"
-    return next((n for c, n in sound_cards() if c == route), None) or _usb_seen.get(route) or "the Pi"
+        return on_pc("the Pi")
+    return next((n for c, n in sound_cards() if c == route), None) or _usb_seen.get(route) or on_pc("the Pi")
 
 
 HDMI_CARD = re.compile(r"vc4hdmi\d?")          # the Pi's own HDMI sound (a card for each HDMI port)
@@ -461,6 +625,12 @@ def sound_device(choice, route=None):
         return f"alsa:device={BT_SOUND},alsa"
     if route == "web":
         return f"alsa:device={WEB_PCM},alsa"
+    if is_pc() and route:                          # (a PC: straight to the card, PipeWire or not; mplayer reads . as ,
+        if route.endswith(HDMI_ROUTE):             # and = as :)
+            cid = route[:-len(HDMI_ROUTE)]
+            pcm = pc_hdmi_pcm(cid)
+            return f"alsa:device=plughw={cid}.{pcm},alsa" if pcm is not None else "alsa"
+        return f"alsa:device=sysdefault={route},alsa"
     card = route or alsa_first_card() or ""
     if HDMI_CARD.fullmatch(card):
         return f"alsa:device=hdmi={card}.0.{HDMI_AES},alsa"   # hdmi:CARD,DEV,AES0..3 (mplayer reads . as , and = as :)
@@ -474,6 +644,12 @@ def aplay_device(choice, route=None):
         return BT_SOUND
     if route == "web":
         return WEB_PCM
+    if is_pc() and route:
+        if route.endswith(HDMI_ROUTE):
+            cid = route[:-len(HDMI_ROUTE)]
+            pcm = pc_hdmi_pcm(cid)
+            return f"plughw:CARD={cid},DEV={pcm}" if pcm is not None else ""
+        return f"sysdefault:CARD={route}"
     return f"default:CARD={route}" if route else ""
 
 

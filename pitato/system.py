@@ -1,5 +1,6 @@
-"""This Pi: its temperature, throttling and the rest of System's numbers, and WiFi (NetworkManager)."""
+"""This Pi (or PC): its temperature, throttling and the rest of System's numbers, and WiFi (NetworkManager)."""
 import collections
+import glob
 import os
 import re
 import shutil
@@ -113,6 +114,50 @@ def read_file(path, default=""):
         return default
 
 
+PI_MODEL = "/proc/device-tree/model"            # a Pi's model ("Raspberry Pi 4 Model B Rev 1.4")
+DMI = "/sys/class/dmi/id"                      # a PC's description of itself, from its firmware (none on a Pi)
+DESKTOP = "/etc/systemd/system/display-manager.service"   # a desktop it can start (Ubuntu Desktop's), if there's one
+PC_WORDS = re.compile(r"\b([Tt]he|[Tt]his|[Yy]our|[Aa]) Pi\b(?![-\w]| \d| Zero| OS| Case)")
+NO_NAME = re.compile(r"to be filled|default string|system product name|system manufacturer|not specified|"
+                     r"not applicable|o\.e\.m|^none$|^unknown$", re.I)   # (what some firmware leaves in its names)
+
+
+def is_pc():
+    """A computer of your own (Intel or AMD, with Ubuntu) rather than a Pi: no Pi model, and its firmware's own
+    description of itself."""
+    return "Raspberry Pi" not in read_file(PI_MODEL) and os.path.isdir(DMI)
+
+
+def on_pc(text):
+    """Words on the screen about the Pi, as they go on a PC: "the Pi restarts" says "the PC restarts" there (never
+    a Pi-hole, a Pi 4 or a Pi Zero)."""
+    return PC_WORDS.sub(lambda m: m.group(1) + " PC", text) if isinstance(text, str) and is_pc() else text
+
+
+def pc_name():
+    """A PC's maker and model, as its firmware says ("Dell Inc. OptiPlex 7050"), or its board's; "" if it says
+    nothing much."""
+    for vendor, product in (("sys_vendor", "product_name"), ("board_vendor", "board_name")):
+        words = [w for w in (read_file(os.path.join(DMI, vendor)), read_file(os.path.join(DMI, product)))
+                 if w and not NO_NAME.search(w)]
+        if len(words) == 2 and words[1].lower().startswith(words[0].split()[0].lower()):
+            words = words[1:]                          # (a model that says its maker already)
+        if len(words) == 2 or (words and words[0] == read_file(os.path.join(DMI, product))):
+            return " ".join(words)
+    return ""
+
+
+def has_desktop():
+    """A PC with a desktop it can start (Ubuntu Desktop's): System > Desktop."""
+    return is_pc() and os.path.exists(DESKTOP)
+
+
+def wifi_dev():
+    """The WiFi's network interface: wlan0 on a Pi; wlp2s0 or the like on a PC."""
+    found = sorted(os.path.basename(os.path.dirname(p)) for p in glob.glob("/sys/class/net/*/wireless"))
+    return found[0] if found else "wlan0"
+
+
 def run_out(cmd, timeout=3):
     try:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).stdout.strip()
@@ -121,7 +166,19 @@ def run_out(cmd, timeout=3):
 
 
 def cpu_temp():
+    """The CPU's temperature (°C), or None. A PC's: its processor package's, where it says (thermal_zone0 is often
+    the board's, or a number that never changes)."""
     t = read_file("/sys/class/thermal/thermal_zone0/temp")
+    if is_pc():
+        for zone in sorted(glob.glob("/sys/class/thermal/thermal_zone*")):
+            if read_file(os.path.join(zone, "type")) == "x86_pkg_temp":
+                t = read_file(os.path.join(zone, "temp"))
+                break
+        else:
+            for mon in sorted(glob.glob("/sys/class/hwmon/hwmon*")):
+                if read_file(os.path.join(mon, "name")) in ("coretemp", "k10temp", "zenpower"):
+                    t = read_file(os.path.join(mon, "temp1_input")) or t
+                    break
     return int(t) / 1000 if t.isdigit() else None
 
 
@@ -231,7 +288,7 @@ def system_numbers(background=()):
     n = {"background": list(background), "temp": cpu_temp(), "busy": cpu_busy()}
     freq = read_file("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq")
     n["mhz"] = int(freq) // 1000 if freq.isdigit() else None
-    n["power"] = now_and_then("power", throttle_text)
+    n["power"] = None if is_pc() else now_and_then("power", throttle_text)   # (a Pi's own: a PC hasn't it)
     mem = {}
     for line in read_file("/proc/meminfo").splitlines():
         k, _, v = line.partition(":")
@@ -239,7 +296,7 @@ def system_numbers(background=()):
     n["mem"] = (mem["MemTotal"] - mem.get("MemAvailable", 0), mem["MemTotal"]) if mem.get("MemTotal") else None
     du = shutil.disk_usage("/")
     n["disk"] = (du.used, du.free, du.total)
-    link = now_and_then("wifi", lambda: run_out(["iw", "dev", "wlan0", "link"]))
+    link = now_and_then("wifi", lambda: run_out(["iw", "dev", wifi_dev(), "link"]))
     ssid = re.search(r"SSID: (.+)", link)
     sig = re.search(r"signal: (-?\d+)", link)
     n["ssid"] = ssid.group(1) if ssid else None
@@ -250,7 +307,7 @@ def system_numbers(background=()):
     n["host"] = socket.gethostname()
     up = read_file("/proc/uptime").split()
     n["up"] = int(float(up[0])) if up else None
-    n["board"] = read_file("/proc/device-tree/model").replace("\x00", "")
+    n["board"] = read_file(PI_MODEL).replace("\x00", "") or (pc_name() if is_pc() else "")
     osname = re.search(r'PRETTY_NAME="([^"]+)"', read_file("/etc/os-release"))
     n["os"] = osname.group(1) if osname else "Linux"
     n["kernel"] = os.uname().release
@@ -280,8 +337,9 @@ def system_info(background=(), nums=None):
         + (f" · {n['mhz']} MHz" if n["mhz"] is not None else ""))
     for what, far in n["background"]:
         add(what, far)
-    text, bad = n["power"]
-    add("Power", text, bad)
+    if n["power"]:
+        text, bad = n["power"]
+        add("Power", text, bad)
     if n["mem"]:
         used, total = n["mem"]
         add("Memory", f"{human_size(used)} of {human_size(total)}")
@@ -303,6 +361,8 @@ def system_info(background=(), nums=None):
     add("Kernel", n["kernel"])
 
     rows.append(item("act:restart", "Restart media mode", "action", "restart"))
+    if has_desktop():
+        rows.append(item("act:desktop", "Desktop", "action", "desktop"))
     rows.append(item("act:reboot", "Reboot", "action", "reboot"))
     rows.append(item("act:poweroff", "Shut down", "action", "poweroff"))
     return rows

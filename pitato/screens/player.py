@@ -18,7 +18,7 @@ from ..radio import rb_get
 from ..tv import HLS_LENIENT, hls_lenient, hls_pick, hls_turned_down, is_hls, lavf_knows_now
 from ..library import (
     AUDIO_PLAYER, LIBRARY, LISTEN_KINDS, LOCAL_CACHE, NET_CACHE, PLAYER_NICE, RADIO_CACHE, resolve,
-    SCREEN_KINDS, VIDEO_PLAYER, video_scale)
+    SCREEN_KINDS, video_player, video_scale)
 from ..plex import PLEX_CACHE
 
 
@@ -365,7 +365,7 @@ class PlayerScreen:
 
     def video_args(self):
         w, h = self.screen_dims()
-        args = VIDEO_PLAYER + video_scale(self.setting("screen"), self.vsize, w, h, turn=screen_turn())
+        args = video_player() + video_scale(self.setting("screen"), self.vsize, w, h, turn=screen_turn())
         if (w, h) != (640, 480) and slow_pi():
             args += ["-sws", "0"]              # the quicker way up to a big screen
         return args

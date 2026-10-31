@@ -6,7 +6,7 @@ import time
 
 from ..theme import ACCENT, BODY, DONE, LINE, MUTED, ROW, TEXT, WARN
 from ..config import SETTINGS, TURN_DEGREES
-from ..system import nm, nm_why, run_out, wifi_saved, wifi_scan
+from ..system import is_pc, nm, nm_why, run_out, wifi_dev, wifi_saved, wifi_scan
 from ..screen import (boot_resolution, bt_output_name, hdmi_screens, resolution_choices, set_boot_video,
                       set_terminal_turn, set_turn, sound_cards, sound_name, sound_place)
 from ..home import wallpaper
@@ -28,7 +28,7 @@ class SettingsScreen:
         w = self.wifi
         if time.monotonic() - w["ssid_t"] > 5:
             w["ssid_t"] = time.monotonic()
-            link = run_out(["iw", "dev", "wlan0", "link"])
+            link = run_out(["iw", "dev", wifi_dev(), "link"])
             m = re.search(r"SSID: (.+)", link)
             w["ssid"] = m.group(1).strip() if m else ""
         return w["ssid"]
@@ -250,6 +250,8 @@ class SettingsScreen:
             return
         args = [f"video={p}:{size}@60" for p in ports] if size else []
         own = screens[0][1][0]
+        if is_pc():                                    # (a PC's GRUB takes a few seconds to put it in)
+            self.render_wait("Changing the resolution", "One moment")
         try:
             was = set_boot_video(ports, args)
         except OSError as ex:
