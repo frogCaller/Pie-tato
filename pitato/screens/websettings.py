@@ -13,7 +13,7 @@ from ..pihole import dns_guess
 from ..screen import boot_resolution
 from ..util import IMAGE_EXTS
 from ..voice import BOT_VOICES, VOICE_MB, voices_here
-from ..listen import WAKE_MOST, mics
+from ..listen import LISTENS, WAKE_MOST, mics
 from ..bot import FRIEND_CHATTER
 from ..crypto import CRYPTO_LINE, CRYPTO_MOST
 from ..stocks import STOCKS_LINE, STOCKS_MOST, SYMBOL
@@ -226,22 +226,23 @@ class WebSettingsScreen:
                       "value": "on" if self.bot_speaks() else "off", "choices": ["on", "off"],
                       "names": {"on": "Yes", "off": "No"}}]
         found = mics()
-        usable = [c for c in found if not c["plays"]] if getattr(self, "case", None) else found
-        if usable or self.bot_listens():
+        listen = self.listen_rows(found)
+        if "f_listen" in listen:
             note, lit = self.listen_note()
             e = self.ears
             tone = "busy" if e.job or (note or "").endswith("…") else "ok" if lit else \
                 "bad" if e.got_error or (self.bot_listens() and (e.unknown or e.state == "error")) else ""
-            rows += [{"key": "f_listen", "label": "Listens for you", "kind": "choice",
-                      "value": "on" if self.bot_listens() else "off", "choices": ["off", "on"],
-                      "names": {"off": "Off", "on": "On"}, "status": note or "", "tone": tone},
-                     {"key": "f_wake", "label": "Wake phrase", "kind": "text", "value": self.bot_wake(),
-                      "placeholder": "hey potato", "max": WAKE_MOST}]
-            if len(found) > 1 or self.bot_mic_set():
-                rows.append({"key": "f_mic", "label": "Microphone", "kind": "choice", "value": self.bot_mic_set(),
-                             "list": True,
-                             "choices": [""] + [c["id"] for c in found],
-                             "names": dict([("", "Auto")] + [(c["id"], c["name"]) for c in found])})
+            rows.append({"key": "f_listen", "label": "Listens for you", "kind": "choice",
+                         "value": self.bot_listen_mode(), "choices": list(LISTENS),
+                         "names": {"auto": "Auto", "on": "On", "off": "Off"}, "status": note or "", "tone": tone})
+        if "f_wake" in listen:
+            rows.append({"key": "f_wake", "label": "Wake phrase", "kind": "text", "value": self.bot_wake(),
+                         "placeholder": "hey potato", "max": WAKE_MOST})
+        if "f_mic" in listen:
+            rows.append({"key": "f_mic", "label": "Microphone", "kind": "choice", "value": self.bot_mic_set(),
+                         "list": True,
+                         "choices": [""] + [c["id"] for c in found],
+                         "names": dict([("", "Auto")] + [(c["id"], c["name"]) for c in found])})
         rows += [{"key": "bot_mode", "label": "Its page", "kind": "choice", "value": self.bot_mode(),
                   "choices": ["chat", "work"], "names": {"chat": "Chat", "work": "At work (your coding agent)"}},
                  choice("coder_sound", "Sounds at work", ["On", "Off"],
@@ -551,11 +552,12 @@ class WebSettingsScreen:
         return {"ok": True}
 
     def web_set_f_listen(self, value, cmd):
-        if value not in ("on", "off"):
+        if value not in LISTENS:
             return {"error": "That isn't one of its choices"}
-        if (value == "on") != self.bot_listens():
-            self.listen_toggle()
-        return {"ok": True}
+        why = self.listen_refused(value)
+        if why:
+            return {"error": why}
+        return {"ok": True} if self.listen_set(value) else {"error": "Couldn't save static/bot.txt"}
 
     def web_set_f_wake(self, value, cmd):
         self.listen_wake_typed(str(value or ""))

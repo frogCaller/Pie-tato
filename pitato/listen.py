@@ -1,11 +1,12 @@
 """The bot listening: a USB microphone, and Vosk, which makes out what's said on the Pi itself.
 
-Settings > Bot > Listens turns it on. It waits for the wake phrase ("hey potato", or yours), and what you say after
-it goes to the bot, which answers out loud when it has a voice; "Talk to it" on the Bot page skips the phrase. It's
-deaf while the bot speaks, something plays or a game runs (it would hear that instead). What it hears goes nowhere
-but to your bot. hear.py does the listening, as you rather than as root (as Piper does: its model comes from the
-internet). Vosk (its library, from its release on PyPI, checked against its known SHA-256) and its small English
-model come from their own releases the first time it's turned on."""
+It listens by itself while a microphone's plugged in, once the bot's set up (Settings > Bot > Listens: Auto, as it
+comes; On listens with any there is, a webcam's or a PC's own too; Off). It waits for the wake phrase ("hey potato",
+or yours), and what you say after it goes to the bot, which answers out loud when it has a voice; "Talk to it" on the
+Bot page skips the phrase. It's deaf while the bot speaks, something plays or a game runs (it would hear that
+instead). What it hears goes nowhere but to your bot. hear.py does the listening, as you rather than as root (as
+Piper does: its model comes from the internet). Vosk (its library, from its release on PyPI, checked against its known
+SHA-256) and its small English model come from their own releases the first time it listens."""
 import glob
 import hashlib
 import json
@@ -45,9 +46,15 @@ MODEL_UNPACKED_MAX = 250_000_000  # ...and about 70 MB unpacked
 LISTEN_MB = 45                    # what it fetches, all told
 WAKE = "hey potato"
 WAKE_MOST = 40                    # characters of a wake phrase
+LISTENS = ("auto", "on", "off")   # Settings > Bot > Listens: while a microphone's plugged in (as it comes), always, never
 PATIENCE = 8.0                    # seconds after the wake phrase it waits for what you say
 QUIET_AFTER = 0.7                 # seconds it stays deaf after the bot stops speaking (its voice, still in the room)
 RETRY = 5.0                       # seconds between tries when there's no microphone, or it stopped
+QUICK_STOP = 30.0                 # ...stopped this soon after it started (another program has the microphone, say):
+RETRY_MOST = 300.0                # twice as long each time, up to this (its model takes a Pi Zero a while to load)
+MIC_LOOK = 2.0                    # seconds between looks for a microphone plugged in or taken out (Listens: Auto)
+LISTEN_AGAIN = 120.0              # seconds before Vosk's fetched again when it couldn't be (no internet yet, at start-up)
+LISTEN_TRIES = 3                  # ...that many times, by itself
 FILLER = {"the", "a", "an", "uh", "um", "huh", "hmm", "mm", "oh", "ah", "i", "and", "but", "so", "yeah", "hey", "it"}
 GREETINGS = {"hey", "hi", "hay", "hello", "ok", "okay", "yo"}   # (heard for one another)
 LOOSE = 4                         # letters: at the start of what's said, a word this short goes for a greeting
@@ -92,8 +99,9 @@ def camera_usb_ids():
 
 
 def mics():
-    """The microphones: [{"id", "name", "device", "camera", "plays"}], sound cards that record. One that's only a
-    microphone comes first, then one that plays too (a headset; a GPi Case 2's own sound), then a webcam's."""
+    """The microphones: [{"id", "name", "device", "camera", "plays", "usb"}], sound cards that record. One that's only
+    a microphone comes first, then one that plays too (a headset; a GPi Case 2's own sound; a PC's own sound card, after
+    a USB one), then a webcam's."""
     cams = None
     out = []
     for line in read_file(os.path.join(ASOUND, "cards")).splitlines():
@@ -111,19 +119,20 @@ def mics():
             cams = camera_usb_ids()
         usb = read_file(os.path.join(ASOUND, f"card{num}", "usbid")).lower()
         out.append({"id": cid, "name": " ".join(full.split())[:32], "camera": bool(usb) and usb in cams,
-                    "plays": bool(glob.glob(os.path.join(ASOUND, f"card{num}", "pcm*p"))),
+                    "plays": bool(glob.glob(os.path.join(ASOUND, f"card{num}", "pcm*p"))), "usb": bool(usb),
                     "device": f"plughw:CARD={cid},DEV={dev.group(1) if dev else 0}"})
-    return sorted(out, key=lambda c: (c["camera"], c["plays"]))
+    return sorted(out, key=lambda c: (c["camera"], c["plays"], not c["usb"]))
 
 
-def mic_device(choice=""):
-    """arecord's -D for the microphone you picked (its card's id), or the first there is. "" for none. WEB_MIC: a web
-    page's, with Mic here on."""
+def mic_device(choice="", fallback=True):
+    """arecord's -D for the microphone you picked (its card's id), or the first there is (while the one you picked
+    isn't plugged in, too, with fallback). "" for none. WEB_MIC: a web page's, with Mic here on."""
     if choice == WEB_MIC:
         return WEB_MIC_DEVICE
     found = mics()
     hit = next((c for c in found if c["id"] == choice), None) if choice else None
-    hit = hit or (found[0] if found else None)
+    if fallback or not choice:
+        hit = hit or (found[0] if found else None)
     return hit["device"] if hit else ""
 
 
@@ -211,6 +220,7 @@ class Ears:
         self.lock = threading.Lock()
         self.gen = 0                 # goes up when it's started afresh or stopped: its thread ends
         self.want = None             # (the wake phrase, a microphone's card or "") while it should listen
+        self.fallback = True         # ...another microphone while that one isn't plugged in
         self.proc = None             # hear.py
         self.thread = None           # ...and the thread that reads it
         self.state = "off"           # off, starting, waiting (for the wake phrase), listening (after it), error
@@ -244,18 +254,18 @@ class Ears:
             self.changed()
 
     # on and off
-    def start(self, wake, mic=""):
-        """Listening for the wake phrase, from the microphone picked (a card's id; "": the first there is). Started
-        afresh when either changes."""
+    def start(self, wake, mic="", fallback=True):
+        """Listening for the wake phrase, from the microphone picked (a card's id; "": the first there is; with
+        fallback, the first there is while that one isn't plugged in). Started afresh when any of them changes."""
         want = (wake, mic)
         with self.lock:
-            if self.want == want and self.thread is not None and self.thread.is_alive():
+            if self.want == want and self.fallback == fallback and self.thread is not None and self.thread.is_alive():
                 return
             self.gen += 1
-            gen, self.want = self.gen, want
+            gen, self.want, self.fallback = self.gen, want, fallback
             old, self.proc = self.proc, None
             self.state, self.error, self.heard, self.poked = "starting", "", "", False
-            self.thread = threading.Thread(target=self.run, args=(gen, wake, mic), daemon=True, name="ears")
+            self.thread = threading.Thread(target=self.run, args=(gen, wake, mic, fallback), daemon=True, name="ears")
         stop_proc(old)
         self.changed()
         self.thread.start()
@@ -293,15 +303,17 @@ class Ears:
         return busy or now < self.busy_until
 
     # the listening, on its own thread
-    def run(self, gen, wake, mic):
+    def run(self, gen, wake, mic, fallback=True):
         words = wake_words(wake)
+        quick = 0                                     # times in a row it stopped soon after it started
         while gen == self.gen:
             if not have_vosk():
                 self.set(gen, "error", "Vosk isn't on the Pi: turn Listens off and on again")
                 return
-            device = mic_device(mic)
+            device = mic_device(mic, fallback)
             if not device:
                 self.set(gen, "error", "No microphone: plug one in")
+                quick = 0                             # (taken out, not busy: once it's back, counted afresh)
                 self.nap(gen, RETRY)
                 continue
             err = tempfile.TemporaryFile()
@@ -319,6 +331,7 @@ class Ears:
                     stop_proc(proc)
                     return
                 self.proc = proc
+            started = time.monotonic()
             why = self.listen(gen, proc, words)
             stop_proc(proc)
             if not why:
@@ -333,7 +346,8 @@ class Ears:
                 if self.proc is proc:
                     self.proc = None
             self.set(gen, "error", why)
-            self.nap(gen, RETRY)
+            quick = quick + 1 if time.monotonic() - started < QUICK_STOP else 0
+            self.nap(gen, min(RETRY * 2 ** quick, RETRY_MOST))
 
     def nap(self, gen, secs):
         end = time.monotonic() + secs

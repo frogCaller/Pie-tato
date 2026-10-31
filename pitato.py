@@ -142,14 +142,14 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
                 that model can't see pictures, it says so and answers without them); ask it
                 to take a picture and your camera takes one, into Photos and the conversation.
                 With a voice (Piper, on the Pi) it says its replies out loud; SELECT says the
-                last one again. With a USB microphone, Settings > Bot > Listens: say the wake
-                phrase ("hey potato") and what you want (Vosk makes it out, on the Pi; X > Talk to
-                it skips the phrase). Left and right switch it between chat and work: at work it sits
-                at a desk and acts out what your coding agent is doing: typing, reading,
-                thinking, ringing its bell when it's done, waving when it needs you. Claude Code
-                tells it through hooks that coder_hooks.py sets up on the computer it runs on;
-                anything else can POST to the web page's /coder?pose=typing, and a WAV to
-                /coder/say is said out loud. At work, A types a prompt for Claude Code (which
+                last one again. With a USB microphone plugged in, say the wake phrase ("hey potato")
+                and what you want (Vosk makes it out, on the Pi; X > Talk to it skips the phrase;
+                Settings > Bot > Listens turns it off). Left and right switch it between chat and
+                work: at work it sits at a desk and acts out what your coding agent is doing:
+                typing, reading, thinking, ringing its bell when it's done, waving when it needs
+                you. Claude Code tells it through hooks that coder_hooks.py sets up on the computer
+                it runs on; anything else can POST to the web page's /coder?pose=typing, and a WAV
+                to /coder/say is said out loud. At work, A types a prompt for Claude Code (which
                 takes it through coder_hooks.py's channel), Y rings the bell, X turns its sounds
                 off, up and down set the volume, START shows how to connect an agent
   Simulator   - little worlds to watch, each in a box beside its numbers or full screen (SELECT):

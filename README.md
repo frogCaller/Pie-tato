@@ -152,7 +152,7 @@ Under the screen there are three more buttons:
 - **Sound here**: the Pi's sound plays on your phone or computer instead of the Pi. It's a moment
   behind the picture.
 - **Mic here**: the bot hears you through your phone's or computer's microphone instead of one
-  plugged into the Pi (with Settings > Bot > Listens on). Browsers only let a page use your
+  plugged into the Pi (unless Settings > Bot > Listens is off). Browsers only let a page use your
   microphone over a secure connection, so the Pi has a secure page too:
   `https://<your Pi's IP address>:5443`. The first time, your browser warns you about it, because
   the Pi made its own certificate. Go on to the page from there.
@@ -275,11 +275,12 @@ If you pick a voice in Settings > Bot > Voice, it says its replies out loud with
 downloads Piper (about 25 MB) and the voice (about 60 MB). The quick voices suit a Pi Zero
 best. Press SELECT to hear the last reply again, or Say it out loud on the web page.
 
-If you plug in a USB microphone (on a Pi with a free USB port, so not in a GPi Case), you can talk to it:
-turn on Settings > Bot > Listens, then say "hey potato" and what you want. You can change the wake phrase
-there, or press X on the Bot page and Talk to it instead. It makes out what you say on the Pi itself with
-[Vosk](https://alphacephei.com/vosk/), which it downloads the first time (about 45 MB), and it doesn't
-listen while it's talking or something's playing.
+If you plug a USB microphone into the Pi (one with a free USB port, so not in a GPi Case) or a PC, you
+can talk to it: say "hey potato" and what you want. It makes out what you say on the Pi itself with
+[Vosk](https://alphacephei.com/vosk/), which it downloads the first time you plug one in (about 45 MB), and
+it doesn't listen while it's talking or something's playing. You can change the wake phrase in Settings >
+Bot, or press X on the Bot page and Talk to it instead. Set Settings > Bot > Listens to Off to stop it, or
+to On to have it use a webcam's microphone or a PC's built-in one too.
 
 ## Bot at work
 

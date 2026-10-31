@@ -16,6 +16,8 @@ from ..library import LIBRARY, LISTEN_KINDS, read_streams, SCREEN_KINDS, VOLUME_
 from ..home import draw_icon, HOME_ICONS
 from ..cameras import CAM_FOUND_FOR, edit_cameras, read_cameras
 from ..voice import BOT_VOICES, VOICE_MB, voices_here
+from ..listen import LISTEN_MB, have_vosk, supported as listen_supported
+from ..system import on_pc
 from ..bot import FRIEND_FACES
 from ..www import clean_title
 from ..games import BIOS_FOLDER, games_dir, save_name, SAVES_FOLDER
@@ -703,10 +705,25 @@ class WebScreen:
         return {"ok": True}
 
     def web_mic_set(self, on):
-        """Mic here, on for a while more (or off): the bot hears the web page's microphone instead of the Pi's."""
+        """Mic here, on for a while more (or off): the bot hears the web page's microphone instead of the Pi's. Whether
+        it's listening, and if it isn't, why not (for the page to say)."""
         self.web_mic_until = time.monotonic() + WEB_HOLD if on else 0.0
         self.web_mic_tick()
-        return {"ok": True, "listens": self.bot_listens()}
+        why = on_pc(self.web_mic_why()) if on else ""
+        return {"ok": True, "listens": not why, **({"why": why} if why else {})}
+
+    def web_mic_why(self):
+        """Why the bot doesn't hear the web page's microphone (Mic here on), or "" when it does."""
+        if self.bot_listen_mode() == "off":
+            return "The bot isn't listening: turn on Settings › Bot › Listens"
+        if self.bot_ear() is None:
+            return "Set up your bot first: Settings › Bot"
+        e = self.ears
+        if e.job:
+            return f"The Pi is getting what it listens with ({LISTEN_MB} MB): a minute or two"
+        if not have_vosk():
+            return e.got_error or ("" if listen_supported() else "Vosk doesn't run on this Pi")
+        return ""
 
     def web_mic_tick(self):
         """Mic here, come or gone (or not said for a while: webui.py stopped): the bot listens with that microphone."""
@@ -714,8 +731,8 @@ class WebScreen:
         if on == getattr(self, "web_mic_was", False):
             return
         self.web_mic_was = on
-        self.listen_now()                              # (bot_mic says which)
-        if self.active and self.bot_listens() and not self.proc_owns_screen():
+        self.listen_now()                              # (bot_ear says which)
+        if self.active and self.ears.on and not self.proc_owns_screen():
             self.toast("The bot hears you through the web page" if on else "The bot hears the Pi's microphone again", 3)
 
     # -- the web page's Bluetooth: looked at while it asks (its own threads; not the screen's) -------

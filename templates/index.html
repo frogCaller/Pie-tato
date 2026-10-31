@@ -1883,7 +1883,7 @@ async function micSend() {                                // (one request at a t
       const r = await fetch("/api/mic", { method: "POST", body: chunk, headers: { "Content-Type": "application/octet-stream" } });
       const out = await r.json().catch(() => ({}));
       if (!r.ok) { toast(out.error || "The Pi didn't take the microphone"); micOff(); break; }
-      if (out.listens === false && !MIC.told) { MIC.told = true; toast("The bot isn't listening: turn on Settings › Bot › Listens"); }
+      if (out.listens === false && !MIC.told) { MIC.told = true; toast(out.why || "The bot isn't listening: turn on Settings › Bot › Listens"); }
     } catch (e) { await sleep(500); }
   }
   MIC.sending = false;

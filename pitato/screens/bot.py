@@ -14,8 +14,9 @@ from ..library import LIBRARY
 from ..weather import place_text, wx_words
 from ..stocks import money
 from ..voice import BOT_VOICES, voice_name, VOICE_SAMPLE, voices_here
-from ..listen import (LISTEN_MB, PATIENCE, WAKE, WAKE_MOST, WEB_MIC, have_vosk, mics, supported as listen_supported,
-                      tidy_phrase)
+from ..listen import (LISTEN_AGAIN, LISTEN_MB, LISTEN_TRIES, LISTENS, MIC_LOOK, PATIENCE, WAKE, WAKE_MOST, WEB_MIC,
+                      have_vosk, mics, supported as listen_supported, tidy_phrase)
+from ..system import is_pc
 from ..bot import (
     Friend, FRIEND_BUBBLE, FRIEND_CHATTER, FRIEND_FACES, FRIEND_HEAD, FRIEND_HELLO_AFTER, FRIEND_KEEP,
     FRIEND_PAGES, FRIEND_PIC_ROOM, FRIEND_SIGHT, FRIEND_TOPICS)
@@ -139,9 +140,55 @@ class BotScreen:
         return True, f"Getting {voice_name(vid)}…"
 
     # its ears: a USB microphone (Settings > Bot > Listens)
+    def bot_listen_mode(self):
+        """Settings > Bot > Listens: "auto" (as it comes: while a microphone's plugged in, once the bot's set up), "on"
+        (always, with whatever microphone there is: a webcam's, a PC's own) or "off". Anything else typed into bot.txt
+        is off (a word after the value, or a # note, doesn't count)."""
+        words = (self.friend.conf.get("listen") or "").replace("#", " ").split()
+        v = words[0].lower() if words else "auto"
+        return v if v in ("auto", "on") else "on" if v in ("yes", "1", "true") else "off"
+
+    def auto_mics(self, found=None):
+        """The microphones it listens with by itself (Listens: Auto): one you plugged in, not a webcam's (that's there
+        for its pictures), nor in a GPi Case the case's own sound, nor on a PC its own sound card (that records whether
+        there's a microphone or not)."""
+        case, pc = getattr(self, "case", None), is_pc()
+        return [c for c in (mics() if found is None else found)
+                if not c["camera"] and not (case and c["plays"]) and (c["usb"] or not pc)]
+
+    def bot_ear(self):
+        """What it listens with, as Settings > Bot has it: a microphone's card ("": the first there is), WEB_MIC (a web
+        page's, with Mic here on), or None: it doesn't (Listens off; Auto with no microphone plugged in, or no bot to
+        talk to yet)."""
+        mode = self.bot_listen_mode()
+        if mode != "auto":
+            return self.bot_mic() if mode == "on" else None
+        if not self.friend.ready():
+            return None
+        mic = self.bot_mic()
+        if mic == WEB_MIC:
+            return mic
+        found = mics()
+        if mic and any(c["id"] == mic for c in found):
+            return mic                                 # (the one picked in Settings > Bot > Microphone)
+        auto = self.auto_mics(found)
+        return auto[0]["id"] if auto else None
+
     def bot_listens(self):
-        """Settings > Bot > Listens is on."""
-        return (self.friend.conf.get("listen") or "off").strip().lower() in ("on", "yes", "1", "true")
+        """It listens (or will, once Vosk is here): Listens on, or Auto with a microphone and the bot set up."""
+        return self.bot_ear() is not None
+
+    def listen_rows(self, found):
+        """Settings > Bot's rows on listening, of f_listen, f_wake and f_mic. Listens is there wherever Vosk runs (so it
+        can be turned off before a microphone's ever plugged in); the wake phrase with a microphone plugged in (in a GPi
+        Case, not the case's own sound), while it's On, or while it hears a web page's; the microphone, too, when
+        there's more than one to pick from (or one's picked)."""
+        usable = [c for c in found if not c["plays"]] if getattr(self, "case", None) else found
+        hearing = bool(usable) or self.bot_listen_mode() == "on" or self.bot_mic() == WEB_MIC
+        rows = ["f_listen"] if hearing or listen_supported() or have_vosk() else []
+        if hearing:
+            rows += ["f_wake"] + (["f_mic"] if len(found) > 1 or self.bot_mic_set() else [])
+        return rows
 
     def bot_wake(self):
         """The wake phrase: yours in bot.txt, or "hey potato"."""
@@ -157,13 +204,72 @@ class BotScreen:
         """The microphone picked in Settings > Bot (its sound card's id), or "" for the first there is."""
         return clean_name(self.friend.conf.get("mic"), 40)
 
-    def listen_now(self):
+    def listen_now(self, quiet=False):
         """Listening as Settings > Bot has it, while Pietato's on screen: started (afresh, for a new phrase or
-        microphone), or stopped."""
-        if self.active and self.bot_listens() and have_vosk():
-            self.ears.start(self.bot_wake(), self.bot_mic())
-        else:
+        microphone), or stopped. Vosk is fetched the first time it's needed (quiet: without saying so)."""
+        ear = self.bot_ear() if self.active else None
+        if ear is not None and not have_vosk():
+            if not self.ears.got_error:
+                self.listen_get(quiet)
+            ear = None
+        if ear is None:
             self.ears.stop()
+        else:                                          # (Auto: only the one it picked, never another in its place)
+            self.ears.start(self.bot_wake(), ear, fallback=self.bot_listen_mode() == "on")
+
+    def listen_get(self, quiet=False):
+        """Vosk and its model on their way (once at a time), and said so (unless quiet)."""
+        if self.ears.job is None and listen_supported() and self.ears.get():
+            self.listen_tried = time.monotonic()
+            if not quiet:
+                self.toast(f"Getting what it listens with ({LISTEN_MB} MB)", 4)
+
+    def listen_tick(self, now):
+        """The main loop, every few seconds (and at once when it stopped listening just now: a microphone taken out, it
+        may be): what it listens with, as Settings > Bot has it. In Auto, a microphone plugged in starts it listening
+        by itself, once it's still there at the next look (a webcam's sound can come a moment before its picture shows
+        it's a webcam's), and it says how to talk to it; taken out, it stops. Off stops it (bot.txt changed by hand).
+        Vosk is tried again after a while when it couldn't be fetched (at start-up, the internet may not be there yet)."""
+        e = self.ears
+        if not self.active:
+            self.mics_seen = self.mics_maybe = None
+            return
+        if now < self.mics_next and not (e.state == "error" and self.ears_seen[0] != "error"):
+            return
+        self.mics_next = now + MIC_LOOK
+        mode = self.bot_listen_mode()
+        ear = self.bot_ear()
+        if e.got_error and not e.job and self.listen_tries and now - self.listen_tried > LISTEN_AGAIN and ear is not None:
+            self.listen_tries -= 1
+            e.got_error = ""
+            self.listen_now(quiet=True)
+        if mode != "auto":
+            self.mics_seen = self.mics_maybe = None
+            if mode == "off" and e.on:
+                self.listen_now()
+            return
+        here = (ear,)
+        if here == self.mics_seen:
+            self.mics_maybe = None
+            return
+        if ear is not None and self.mics_seen is not None and here != self.mics_maybe:
+            self.mics_maybe = here                    # (a new one: looked at once more before it's listened with)
+            return
+        self.mics_maybe = None
+        was, self.mics_seen = self.mics_seen, here
+        plugged = ear is not None and was == (None,)
+        if plugged and not e.job:
+            e.got_error = ""                          # (a fresh try, if Vosk couldn't be fetched before)
+            self.listen_tries = LISTEN_TRIES
+        self.listen_now()
+        if plugged and e.on and ear != WEB_MIC and not self.proc_owns_screen():
+            self.toast(f"Say \"{self.bot_wake()}\" to talk to your bot", 4)
+
+    def listen_arrived(self):
+        """Vosk arrived (the main loop): listening, and it says how to talk to it."""
+        self.listen_now()
+        if self.ears.on and self.active and not self.proc_owns_screen():
+            self.toast(f"Say \"{self.bot_wake()}\" to talk to your bot", 4)
 
     def ears_busy(self):
         """Not now: the bot (or your coding agent) is speaking, something's playing, or a game or a program has the
@@ -228,26 +334,39 @@ class BotScreen:
             self.web_tab("Bot")
         self.dirty = True
 
-    def listen_toggle(self):
-        """Settings > Bot > Listens, on or off: on the first time, Vosk is fetched first."""
-        if self.bot_listens():
-            if self.friend_set(listen="off"):
-                self.toast("It isn't listening now", 2)
-            return
-        if not have_vosk():
-            if not listen_supported():
-                self.toast("Vosk doesn't run on this Pi", 3)
-                return
-            job = self.ears.job
-            if job:
+    def listen_refused(self, mode):
+        """Why Settings > Bot > Listens can't be that here, or "": On needs Vosk, which doesn't run on every Pi."""
+        return "Vosk doesn't run on this Pi" if mode == "on" and not have_vosk() and not listen_supported() else ""
+
+    def listen_set(self, mode):
+        """Settings > Bot > Listens: Auto, On or Off, kept, and what that means now said (Vosk is fetched the first
+        time it listens: listen_now). False when it couldn't be."""
+        why = self.listen_refused(mode)
+        if why:
+            self.toast(why, 3)
+            return False
+        e = self.ears
+        busy = e.job is not None
+        if not busy:
+            e.got_error = ""                          # (picked: a fresh try, if Vosk couldn't be fetched before)
+            self.listen_tries = LISTEN_TRIES
+        if not self.friend_set(listen=mode):
+            return False
+        job = e.job
+        if mode == "off":
+            self.toast("It isn't listening now", 2)
+        elif job:
+            if busy:                                  # (just now, listen_get said so)
                 self.toast(f"Still getting {job['what']}", 2)
-                return
-            if self.friend_set(listen="on"):
-                self.ears.get()
-                self.toast(f"Getting what it listens with ({LISTEN_MB} MB)", 4)
-            return
-        if self.friend_set(listen="on"):
+        elif e.on:
             self.toast(f"Say \"{self.bot_wake()}\", then what you want", 4)
+        else:
+            self.toast(self.listen_note()[0], 4)      # (why not now: no microphone, no bot yet)
+        return True
+
+    def listen_step(self, d):
+        """Settings > Bot > Listens: the next of Auto, On and Off."""
+        self.listen_set(LISTENS[(LISTENS.index(self.bot_listen_mode()) + d) % len(LISTENS)])
 
     def listen_wake_typed(self, text):
         phrase = tidy_phrase(text) if text.strip() else WAKE
@@ -255,7 +374,7 @@ class BotScreen:
             self.toast("A word or two, like hey potato", 3)
             return
         if self.friend_set(wake=phrase):
-            self.toast(f"Say \"{phrase}\", then what you want" if self.bot_listens() else f"Wake phrase: {phrase}", 3)
+            self.toast(f"Say \"{phrase}\", then what you want" if self.ears.on else f"Wake phrase: {phrase}", 3)
 
     def listen_mic_step(self, d):
         """Settings > Bot > Microphone: the next one (Auto: the first there is)."""
@@ -271,8 +390,18 @@ class BotScreen:
             return e.status(), True
         if e.got_error:
             return e.got_error, False
-        if not self.bot_listens():
+        if self.bot_listen_mode() == "off":
             return "It makes out what you say on the Pi", False
+        if self.bot_ear() is None:                     # (Auto, and not now)
+            if not self.friend.ready():
+                return "It listens once your bot's set up", False
+            found = mics()
+            if any(c["camera"] for c in found):
+                return "Pick On to listen through your webcam", False
+            return ("Pick On for this PC's own microphone" if found and is_pc()
+                    else "It listens when a microphone's plugged in"), False
+        if not have_vosk():
+            return ("Vosk doesn't run on this Pi" if not listen_supported() else "Starting to listen…"), False
         if e.unknown:
             return f"It doesn't know \"{e.unknown[0]}\": try another phrase", False
         if e.state == "error":
@@ -602,7 +731,7 @@ class BotScreen:
             return "On" if self.bot_speaks() else "Off"
         if key == "f_listen":
             job = self.ears.job
-            return f"Getting it… {job['pct']}%" if job else "On" if self.bot_listens() else "Off"
+            return f"Getting it… {job['pct']}%" if job else self.bot_listen_mode().capitalize()   # (Auto, On, Off)
         if key == "f_wake":
             return self.bot_wake()
         if key == "f_mic":
@@ -659,7 +788,7 @@ class BotScreen:
                     want = self.voice_want or self.bot_voice()
                     self.set_sel = next((i for i, r in enumerate(rows) if r[2] == want), 0)
             elif key == "f_listen" and name in ("left", "right", "a"):
-                self.listen_toggle()
+                self.listen_step(-1 if name == "left" else 1)
             elif name == "a" and key == "f_wake":
                 self.open_keyboard("Wake phrase: what you say first", self.bot_wake(), self.listen_wake_typed,
                                    limit=WAKE_MOST, empty=True)

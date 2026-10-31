@@ -25,7 +25,7 @@ from .documents import doc_text
 from .cameras import CAM_SHOT_SHOW, Camera
 from .nearby import PieInk
 from .voice import Voice
-from .listen import Ears
+from .listen import Ears, LISTEN_TRIES
 from .bot import Friend, FRIEND_PAGES
 from .coder import AgentPrompts, Coder, CODER_FPS
 from .crypto import Crypto
@@ -178,7 +178,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.voice_want = None       # a voice you picked that's on its way
         self.voice_arrived = None    # ...and here (for the main loop to use)
         self.voice_told = ""         # the last of the voice's troubles shown
-        self.ears = Ears()           # its ears: a USB microphone (Settings > Bot > Listens)
+        self.ears = Ears()           # its ears: a microphone (Settings > Bot > Listens)
         self.ears.is_busy = self.ears_busy
         self.ears.on_heard = self.ears_heard
         self.ears.on_change = self.ears_changed
@@ -186,6 +186,11 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.ears_said = []          # ...what it heard you say, for the main loop to pass on
         self.ears_arrived = False    # ...Vosk arrived (for the main loop to start listening)
         self.ears_seen = ("off", "", ())   # ...how it was, the last time the main loop looked
+        self.mics_seen = None        # ...what it listened with by itself when it last looked (Listens: Auto): (bot_ear,)
+        self.mics_maybe = None       # ...one it saw once, to look at again before it's listened with
+        self.mics_next = 0.0         # ...when it looks again
+        self.listen_tried = 0.0      # ...when Vosk was last fetched
+        self.listen_tries = LISTEN_TRIES   # ...and how many more times it's tried by itself, if that doesn't work
         self.coder = Coder()         # the Bot at work: your coding agent, acted out
         self.coder.on_change = self.coder_changed
         self.coder.on_news = self.coder_news
@@ -1321,9 +1326,10 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.voice_use(self.voice_arrived)
         if self.ears_arrived:
             self.ears_arrived = False
-            self.listen_now()
+            self.listen_arrived()
         if self.ears_said:
             self.bot_heard(self.ears_said.pop(0))
+        self.listen_tick(now)                          # (a microphone plugged in or taken out: Listens, Auto)
         self.ears_tick()
         if self.voice.error and self.voice.error != self.voice_told:
             self.voice_told = self.voice.error

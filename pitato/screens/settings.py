@@ -48,12 +48,10 @@ class SettingsScreen:
                     ("f_name", "What it calls you", None),
                     ("f_chatter", "Says something by itself", [t for t, _ in FRIEND_CHATTER]),
                     ("f_voice", "Voice", None), ("f_speak", "Says its replies out loud", ["On", "Off"])]
-            found = mics()                             # (a microphone plugged in: in a GPi Case, one that isn't
-            usable = [c for c in found if not c["plays"]] if getattr(self, "case", None) else found   # its own sound)
-            if usable or self.bot_listens():
-                rows += [("f_listen", "Listens for you", ["Off", "On"]), ("f_wake", "Wake phrase", None)]
-                if len(found) > 1 or self.bot_mic_set():
-                    rows.append(("f_mic", "Microphone", ["Auto"] + [c["name"] for c in found]))
+            found = mics()
+            listen = self.listen_rows(found)
+            rows += [r for r in (("f_listen", "Listens for you", ["Auto", "On", "Off"]), ("f_wake", "Wake phrase", None),
+                                 ("f_mic", "Microphone", ["Auto"] + [c["name"] for c in found])) if r[0] in listen]
             return rows
         if self.set_page == "f_voices":
             ours = [i for i, _, _ in BOT_VOICES]

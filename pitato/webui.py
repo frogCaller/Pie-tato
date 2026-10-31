@@ -1285,6 +1285,7 @@ class MicIn:
         self.proc = None
         self.last = 0.0
         self.listens = True                            # (whether the bot's listening at all, as media mode last said)
+        self.why = ""                                  # ...and if it isn't, why not
 
     def put(self, data):
         with self.lock:
@@ -1295,6 +1296,7 @@ class MicIn:
                 except OSError:
                     self.proc = None
                     return False
+                self.listens, self.why = True, ""      # (a new one: what media mode says about it, not about the last)
                 threading.Thread(target=self.watch, args=(self.proc,), daemon=True, name="mic").start()
             self.last = time.monotonic()
             proc = self.proc
@@ -1317,7 +1319,8 @@ class MicIn:
                 break
             if now - said >= SAY_EVERY:
                 said = now
-                self.listens = tell_pi("webmic", True).get("listens", True)
+                answer = tell_pi("webmic", True)
+                self.listens, self.why = answer.get("listens", True), str(answer.get("why") or "")[:200]
             time.sleep(0.25)
         try:
             proc.stdin.close()
@@ -1374,7 +1377,7 @@ def mic_in():
         data = data[:-1]
     if not MIC.put(data):
         return jsonify(error="The Pi couldn't take the microphone"), 503
-    return jsonify(ok=True, listens=MIC.listens)
+    return jsonify(ok=True, listens=MIC.listens, **({"why": MIC.why} if MIC.why and not MIC.listens else {}))
 
 
 # ---- the secure page: the same page, over HTTPS, for what a browser only allows there (a microphone) ---------------
