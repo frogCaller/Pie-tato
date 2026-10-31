@@ -118,7 +118,8 @@ class Canvas:
             self.on[y0:y1, x0:x1][m] = True
 
     def mask(self, draw):
-        from PIL import Image, ImageDraw
+        from .fine import ImageDraw
+        from PIL import Image
         m = Image.new("L", (self.w, self.h), 0)
         draw(ImageDraw.Draw(m))
         return self.np.asarray(m) > 0

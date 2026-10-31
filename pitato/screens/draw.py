@@ -121,7 +121,7 @@ class DrawScreen:
         return max(self.GRID_COLS, (w - 32) // 152)
 
     def canvas(self, bg=BG):
-        from PIL import Image, ImageDraw
+        from ..fine import Image, ImageDraw
         img = Image.new("RGB", (self.fb.w, self.fb.h), bg)
         return img, ImageDraw.Draw(img)
 
@@ -300,7 +300,7 @@ class DrawScreen:
 
     def header(self, img, d):
         """Status bar plus the tab strip, scrolled so the current tab shows (Full screen apps: just the app's name)."""
-        from PIL import Image, ImageDraw
+        from ..fine import Image, ImageDraw
         if self.full_app():
             self.app_title(d, LIBRARY[self.strip_tab()]["name"])
             return

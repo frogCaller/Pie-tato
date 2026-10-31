@@ -7,7 +7,8 @@ from .theme import co_mix, FONT_BOLD
 def wallpaper(name, size, picture=""):
     """The home screen's background: a picture (darkened so the icons read), or a soft
     gradient with a glow, worked out small and scaled up so it costs little."""
-    from PIL import Image, ImageDraw, ImageFilter, ImageOps
+    from .fine import ImageDraw
+    from PIL import Image, ImageFilter, ImageOps
     w, h = size
     if name == "Picture" and picture:
         try:
@@ -123,11 +124,13 @@ def tile_tint(name):
     return HOME_ICONS.get(name, ((120, 128, 142), ""))[0]
 
 
-def draw_icon(name, size=84, card=True, lit=False):
+def draw_icon(name, size=84, card=True, lit=False, fine=1):
     """An app's tile: dark glass tinted with its colour, a thin edge, and its glyph in light grey (a few parts in
     colour: a lit window, the sun, the bot's eyes), drawn three times bigger and scaled down so the edges come out
-    smooth. lit: picked (brighter, a bright edge). (card: always, now; the web page's are the same.)"""
-    from PIL import Image, ImageDraw, ImageFilter, ImageFont
+    smooth. lit: picked (brighter, a bright edge). (card: always, now; the web page's are the same.) fine: size is
+    that many times the tile's, for a screen drawn finely (fine.py): its edge as much thicker."""
+    from .fine import ImageDraw
+    from PIL import Image, ImageFilter, ImageFont
     import math
     S = size * 3
     tint = tile_tint(name)
@@ -276,7 +279,7 @@ def draw_icon(name, size=84, card=True, lit=False):
     out.alpha_composite(Image.composite(sheen, Image.new("RGBA", (S, S), (0, 0, 0, 0)), shape))
     edge = mix(tint, (255, 246, 200), 0.5) if lit else mix((66, 72, 84), tint, 0.5)
     ImageDraw.Draw(out).rounded_rectangle((1, 1, S - 2, S - 2), radius=int(S * 0.23), outline=edge + (255,),
-                                          width=6 if lit else 3)
+                                          width=(6 if lit else 3) * fine)
 
     # the glyph: a soft shadow under it, the colour behind, the grey (lit from above), the colour on it
     solid = Image.composite(Image.new("L", (S, S), 255), mask, under.getchannel("A"))
@@ -308,7 +311,8 @@ CARD_LINE = (44, 50, 61)     # ...their edge
 def draw_glyph(name, size=52):
     """Cards's icon for an app: a glyph in its own colours (its dark parts the colour of the card it sits on),
     drawn three times bigger and scaled down so the edges come out smooth."""
-    from PIL import Image, ImageDraw, ImageFont
+    from .fine import ImageDraw
+    from PIL import Image, ImageFont
     import math
     S = size * 3
     k = S / 252                                     # the glyphs are laid out on a 252 square
@@ -465,7 +469,8 @@ BRIGHT_TILES = {    # an app's tile's colour
 def draw_bright_icon(name, size=72):
     """The Bright style's icon for an app: a bright rounded tile with a simple white glyph, drawn three times
     bigger and scaled down so the edges come out smooth."""
-    from PIL import Image, ImageDraw, ImageFont
+    from .fine import ImageDraw
+    from PIL import Image, ImageFont
     import math
     S = size * 3
     k = S / 252                                     # the glyphs are laid out on a 252 square

@@ -15,6 +15,7 @@ from ..games import (ANALOG_SYSTEMS, art_path, ArtFinder, bios_missing, built_fo
                      game_kind, GAME_PACKAGES, GAME_PLAYERS, GameRun, games_dir, has_resume, neogeo_unknown,
                      plain_title, playable, save_name, SAVES_FOLDER, system)
 from ..emulator import screen_picture
+from ..fine import made_fine, scale
 from ..gameai import GameAI
 
 GAME_BUTTONS = ("a", "b", "x", "y", "l", "r", "l2", "r2", "start", "select", "up", "down", "left", "right")
@@ -281,7 +282,8 @@ class GameScreen:
         """A row's picture, ready to draw: "thumb" (on its row), "panel" (beside the list) or "back" (soft,
         behind the list). Snake's is a little board from the game, the snake about to eat an apple. None:
         there isn't one."""
-        from PIL import Image, ImageFilter, ImageOps
+        from ..fine import Image
+        from PIL import ImageFilter, ImageOps
         if it.get("kind") == "child":
             src, stamp = "icon", 0
         elif it.get("kind") == "game":
@@ -294,7 +296,8 @@ class GameScreen:
                 return None
         else:
             return None
-        key = (it["src"], src, stamp, kind) + ((self.HEADER, self.FOOTER) if kind == "back" else ())   # (its size)
+        s = scale()                                    # (as finely as the screen's drawn: a 4K TV's, twice)
+        key = (it["src"], src, stamp, kind, s) + ((self.HEADER, self.FOOTER) if kind == "back" else ())   # (its size)
         hit = self.game_pics.get(key)
         if hit is not None:
             return hit
@@ -302,7 +305,7 @@ class GameScreen:
         if src == "icon":
             if kind == "back":
                 return None
-            pic = snake_card(GAME_THUMB if kind == "thumb" else 132)
+            pic = made_fine(snake_card((GAME_THUMB if kind == "thumb" else 132) * s, fine=s), s)
         else:
             try:
                 art = Image.open(src)
@@ -311,9 +314,9 @@ class GameScreen:
             except (OSError, ValueError):
                 return None
             if kind == "thumb":
-                pic = ImageOps.contain(art, (GAME_THUMB, GAME_THUMB), Image.BILINEAR)
+                pic = made_fine(ImageOps.contain(art, (GAME_THUMB * s, GAME_THUMB * s), Image.BILINEAR), s)
             elif kind == "panel":
-                pic = ImageOps.contain(art, (GAME_PANEL_W, GAME_PANEL_W), Image.BILINEAR)
+                pic = made_fine(ImageOps.contain(art, (GAME_PANEL_W * s, GAME_PANEL_W * s), Image.BILINEAR), s)
             else:                                      # a soft, dark wash of it, behind the list
                 area = (W, H - self.HEADER - self.FOOTER - 1)
                 small = ImageOps.fit(art.convert("RGB"), (40, max(1, 40 * area[1] // area[0])), Image.BILINEAR)
@@ -553,8 +556,9 @@ class GameScreen:
         bg = screen_picture()                          # the game, dimmed, behind the menu
         if bg is not None:
             from PIL import ImageEnhance, ImageOps
-            bg = ImageEnhance.Brightness(ImageOps.pad(bg.convert("RGB"), (self.fb.w, self.fb.h),
-                                                      color=(0, 0, 0))).enhance(0.3)
+            s = scale()
+            bg = made_fine(ImageEnhance.Brightness(ImageOps.pad(bg.convert("RGB"), (self.fb.w * s, self.fb.h * s),
+                                                                color=(0, 0, 0))).enhance(0.3), s)
         self.game_menu = {"sel": 0, "confirm": (None, 0.0), "bg": bg}
         self.view = "gamemenu"
         if hasattr(self.fb, "invalidate"):

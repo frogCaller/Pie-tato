@@ -10,6 +10,7 @@
   bluetooth.py      Bluetooth: finding, pairing and connecting devices (BlueZ)
   screen.py         the screen, the framebuffer, sound outputs (Bluetooth headphones too), a TV or
                     monitor's resolution, and a screen on its side (the picture turned)
+  fine.py           the menus drawn in finer detail on a big screen (a 4K TV): Image and ImageDraw for it
   radio.py          internet radio
   lofi.py           Now playing's lofi art: three pixel-art scenes, drawn here
   tv.py             the TV tab's shelves: old cartoons and films, live channels' words

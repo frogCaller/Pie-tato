@@ -5,6 +5,7 @@ import time
 
 from ..theme import ACCENT, BODY, LINE, MUTED, ROW, TEXT, WARN
 from ..weather import compass, draw_wx, place_text, wx_icon_name, WX_TINT, wx_words
+from ..fine import made_fine, scale
 
 WX_UNITS = ["°F", "°C"]
 
@@ -154,9 +155,9 @@ class WeatherScreen:
         self.fb.show(img)
 
     def wx_icon(self, name, size):
-        key = (name, size)
+        key = (name, size, scale())
         if key not in self.wx_icons:
-            self.wx_icons[key] = draw_wx(name, size)
+            self.wx_icons[key] = made_fine(draw_wx(name, size * scale()))   # (as finely as the screen's drawn)
         return self.wx_icons[key]
 
     def deg(self, v):

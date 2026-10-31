@@ -15,6 +15,7 @@ import subprocess
 import time
 
 from .system import is_pc, on_pc, read_file, run_out
+from .fine import detail
 
 
 # Plex: the server converts video to a size the Pi Zero plays smoothly
@@ -118,6 +119,31 @@ def slow_pi():
     m = pi_model()
     return ("Zero" in m or bool(re.search(r"Raspberry Pi [123]\b", m)) or "Raspberry Pi Model" in m
             or bool(re.search(r"Compute Module( 3)?( Plus)? Rev", m)))
+
+
+FINE_PIXELS = {"pi4": 2_100_000, "fast": 4_000_000}   # most pixels a frame of the menus drawn finely may have (fine.py):
+                                                     # a Pi 4 draws a 1080p one quickly enough, a Pi 5 or a PC 1440p
+
+
+def fine_scale(k, w, h):
+    """How finely to draw w x h menus shown k times their size (a whole number, on a big screen): as many of the
+    screen's pixels to each of theirs as this machine draws quickly. A 4K TV: 2 (a 1080p picture, each pixel shown
+    2 x 2), a 1080p one: 2 (each its own), a 1440p one: 3 on a Pi 5; 1 on a Pi Zero, 1, 2 or 3 (as ever).
+    PITATO_FINE says otherwise, if it's set."""
+    try:
+        want = int(os.environ.get("PITATO_FINE", "") or 0)
+    except ValueError:
+        want = 0
+    if want:
+        return max(1, want) if k % max(1, want) == 0 else 1
+    if slow_pi():
+        return 1
+    m = pi_model()
+    most = FINE_PIXELS["pi4"] if re.search(r"Pi 4\b|Pi 400|Compute Module 4", m) else FINE_PIXELS["fast"]
+    for s in range(k, 1, -1):
+        if k % s == 0 and w * s * h * s <= most:
+            return s
+    return 1
 
 
 def first_pi():
@@ -866,6 +892,10 @@ class Framebuffer:
             self.tw, self.th = max(1, round(self.W * k)), max(1, round(self.H * k))
         self.ox, self.oy = (w - self.tw) // 2, (h - self.th) // 2
         self.same = (w, h) == (self.w, self.h)
+        # drawn finely (fine.py): s x s of the screen's pixels to each of the menus', each of those repeated rep times
+        self.s = fine_scale(int(k), self.w, self.h) if k and k == int(k) and (self.tw, self.th) == (
+            self.w * int(k), self.h * int(k)) else 1
+        self.rep = int(k) // self.s if self.s > 1 else 1
         # 2x, 3x: plain pixel doubling stays crisp (and exactly: each pixel repeated)
         self.sharp = k == int(k) and (self.tw, self.th) == (self.w * int(k), self.h * int(k))
         # ...or nearly: still crisp, a column repeated once more. And a Pi Zero on a 1080p TV: its pixels
@@ -957,6 +987,8 @@ class Framebuffer:
         self.last = img
         type(self).count += 1
         self.frames = type(self).count
+        if detail(img) > 1:                           # drawn finely: its own pixels
+            return self.show_fine(img.pic, detail(img))
         if self.same and img.size == (self.real_w, self.real_h):   # (one of another size: scaled to it, below)
             self.put(self.pack(img), 0, 0, self.real_w, self.real_h)
             return
@@ -971,11 +1003,40 @@ class Framebuffer:
         data = self.pack(img.resize((self.tw, self.th), Image.NEAREST if blocky else Image.BILINEAR))
         self.put(data, self.ox, self.oy, self.tw, self.th)
 
-    def put_repeated(self, packed, x, y, w, h):
-        """Packed pixels (w x h of them, from x, y in the menus), each repeated k times both ways (2x, 3x,
-        4x) onto the screen: straight into its memory if it's mapped, the bigger copy never made."""
+    def show_fine(self, pic, s, box=None):
+        """A picture of the menus drawn s times as finely (fine.py), or just box of it (x0, y0, x1, y1 in the menus'
+        pixels): its pixels as they are on a screen that many times theirs (a 1080p TV, s 2), each repeated on one
+        with more (a 4K TV: twice each way), or scaled to it."""
+        from PIL import Image
+        if self.clear_next:
+            self.clear_next = False
+            self.put_dev(bytes(self.dev_w * self.dev_h * self.bpp // 8), 0, 0, self.dev_w, self.dev_h)
+        rep = self.tw // pic.width if self.tw % pic.width == 0 and self.th == pic.height * (self.tw // pic.width) \
+            else 0
+        if box is None:
+            x0, y0, x1, y1 = 0, 0, pic.width, pic.height
+        else:
+            x0, y0, x1, y1 = (int(v) * s for v in box)
+            x0, y0, x1, y1 = max(0, x0), max(0, y0), min(pic.width, x1), min(pic.height, y1)
+            if x1 <= x0 or y1 <= y0:
+                return
+            if (x0, y0, x1, y1) != (0, 0, pic.width, pic.height):
+                pic = pic.crop((x0, y0, x1, y1))
+        if rep == 1:
+            self.put(self.pack(pic), self.ox + x0, self.oy + y0, x1 - x0, y1 - y0)
+        elif rep > 1:
+            self.put_repeated(self.pack(pic), x0, y0, x1 - x0, y1 - y0, rep)
+        else:                                          # (not a whole number of times: scaled, the whole of it)
+            whole = self.last.pic if box is not None and detail(self.last) == s else pic
+            self.put(self.pack(whole.resize((self.tw, self.th), Image.BILINEAR)), self.ox, self.oy, self.tw,
+                     self.th)
+
+    def put_repeated(self, packed, x, y, w, h, k=None):
+        """Packed pixels (w x h of them, from x, y in the menus, or in a picture of them drawn finely), each repeated k
+        times both ways (2x, 3x, 4x) onto the screen: straight into its memory if it's mapped, the bigger copy never
+        made."""
         import numpy as np
-        k = self.tw // self.w
+        k = k or self.tw // self.w
         a = np.frombuffer(packed, dtype="<u2" if self.bpp == 16 else "<u4").reshape(h, w)
         x0, y0 = self.ox + x * k, self.oy + y * k
         x0, y0, bw, bh = turn_block(self.turn, self.dev_w, self.dev_h, x0, y0, w * k, h * k)
@@ -995,11 +1056,15 @@ class Framebuffer:
         (the Bot at work moves ten times a second on a Pi Zero), scaled as the whole picture is (the
         same pixels: a big screen's frames cost about what its box does). The whole picture is kept,
         for the web page."""
-        if self.clear_next or self.last is None or img.size != (self.w, self.h):
+        if self.clear_next or self.last is None or img.size != (self.w, self.h) or detail(img) != detail(self.last):
             return self.show(img)
         self.last = img
         type(self).count += 1
         self.frames = type(self).count
+        if detail(img) > 1:                           # drawn finely: just the box of its own pixels
+            x0, y0, x1, y1 = box
+            return self.show_fine(img.pic, detail(img), (math.floor(x0), math.floor(y0), math.ceil(x1),
+                                                         math.ceil(y1)))
         x0, y0, x1, y1 = (int(v) for v in box)
         if self.same:
             self.put(self.pack(img.crop((x0, y0, x1, y1))), x0, y0, x1 - x0, y1 - y0)

@@ -17,6 +17,7 @@ from .system import SysHistory, has_desktop, is_pc, on_pc, system_info, system_n
 from .bluetooth import Bluetooth
 from . import screen as screen_out
 from .screen import Framebuffer, slow_pi
+from .fine import scale as drawing_scale, set_scale as set_drawing_scale
 from .library import (
     BOOT_SONG_WAIT, fit_box, LIBRARY, LISTEN_KINDS, MEDIA_VT, PLAYING, read_streams, SCREEN_KINDS, SCREEN_SAY,
     SLIDESHOW_SECS, VOLUME_STEP)
@@ -777,6 +778,17 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         return ((bool(self.proc) and self.kind in SCREEN_KINDS) or (self.game is not None and self.view == "game")
                 or self.prog is not None or self.chromium_shown())
 
+    def fine_scale(self):
+        """The menus drawn as finely as the screen has pixels for (fine.py: 2 on a 4K TV, 1 on the GPi Case)."""
+        s = getattr(self.fb, "s", 1) if self.fb is not None else 1
+        if s != drawing_scale():                       # pictures kept at the other scale: made again
+            set_drawing_scale(s)
+            self.forget_drawn()
+            self.friend_pics, self.lofi_card, self.cam_base, self.sketch_fit = {}, (None, None), None, None
+            for kept in (self.sim_tiles, self.game_pics, self.icons, self.wx_icons, self.thumbs, self.www_pics,
+                         self.web_icons):
+                kept.clear()
+
     def enter(self):
         try:
             from PIL import Image, ImageDraw, ImageFont  # noqa: F401
@@ -785,6 +797,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.fb = Framebuffer()
             if getattr(self.fb, "power", None):        # (on, whatever it was left as: a rest that didn't end)
                 self.fb.power(True)
+            self.fine_scale()
         except Exception as ex:      # missing package or no framebuffer
             print(f"media mode unavailable: {ex}", flush=True)
             self.fb = None

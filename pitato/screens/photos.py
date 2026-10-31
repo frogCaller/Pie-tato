@@ -8,6 +8,7 @@ from ..config import CACHE_DIR
 from ..util import cache_name, in_home, pictures_dir, write_new
 from ..library import SLIDESHOW_SECS
 from ..filters import apply_filter, FILTER_CSS, FILTERS
+from ..fine import detail, made_fine, scale
 
 
 class PhotoScreen:
@@ -17,25 +18,33 @@ class PhotoScreen:
     THUMB = (144, 108)
 
     def thumb(self, path):
-        """Thumbnail from memory or disk cache, or None if not made yet."""
-        im = self.thumbs.get(path)
+        """Thumbnail from memory or disk cache, or None if not made yet (as finely as the screen's drawn: fine.py)."""
+        s = scale()
+        key = (path, s)
+        im = self.thumbs.get(key)
         if im is not None:
             return im
-        fn = os.path.join(CACHE_DIR, "thumbs", cache_name(path, ".jpg"))
+        fn = self.thumb_file(path, s)
         if os.path.exists(fn):
-            from PIL import Image
+            from ..fine import Image
             try:
                 im = Image.open(fn)
                 im.load()
-                self.keep_thumb(path, im)
+                im = made_fine(im, s)
+                self.keep_thumb(key, im)
                 return im
             except OSError:
                 pass
         return None
 
+    @staticmethod
+    def thumb_file(path, s):
+        """Its thumbnail on disk: the menus' size, or s times it for a screen drawn more finely (a 4K TV's: 2)."""
+        return os.path.join(CACHE_DIR, "thumbs", cache_name(path, ".jpg" if s == 1 else f"@{s}x.jpg"))
+
     def has_thumb(self, path):
-        return path in self.thumbs or os.path.exists(
-            os.path.join(CACHE_DIR, "thumbs", cache_name(path, ".jpg")))
+        s = scale()
+        return (path, s) in self.thumbs or os.path.exists(self.thumb_file(path, s))
 
     def keep_thumb(self, path, im):
         self.thumbs[path] = im
@@ -45,7 +54,8 @@ class PhotoScreen:
     def thumb_loop(self):
         """Thumbnails for Photos, made one after another while a list shows (the pictures on screen first), and kept
         on disk. Once every picture has one it's done: loading Photos starts it again."""
-        from PIL import Image, ImageOps
+        from ..fine import Image
+        from PIL import ImageOps
         os.makedirs(os.path.join(CACHE_DIR, "thumbs"), exist_ok=True)
         have, need, failed = set(), set(), set()      # (each picture looked for on disk once)
         pi = self.tab_index("photos")
@@ -72,12 +82,13 @@ class PhotoScreen:
                 break
             need.discard(todo)
             try:
+                s = scale()
                 im = Image.open(todo)
-                im.draft("RGB", (self.THUMB[0] * 2, self.THUMB[1] * 2))
+                im.draft("RGB", (self.THUMB[0] * 2 * s, self.THUMB[1] * 2 * s))
                 im = ImageOps.exif_transpose(im).convert("RGB")
-                im = ImageOps.fit(im, self.THUMB, Image.BILINEAR)
-                im.save(os.path.join(CACHE_DIR, "thumbs", cache_name(todo, ".jpg")), quality=85)
-                self.keep_thumb(todo, im)
+                im = ImageOps.fit(im, (self.THUMB[0] * s, self.THUMB[1] * s), Image.BILINEAR)
+                im.save(self.thumb_file(todo, s), quality=85)
+                self.keep_thumb((todo, s), made_fine(im, s))
                 have.add(todo)
                 if self.tab == pi:
                     self.dirty = True
@@ -97,16 +108,18 @@ class PhotoScreen:
         self.dirty = True
 
     def photo_image(self):
-        from PIL import Image, ImageOps
+        from ..fine import Image
+        from PIL import ImageOps
         v = self.v
         key = (v["items"][v["i"]], v["rot"])
         if v["img_for"] != key:
             v["img_for"] = key
             try:
+                s = scale()                            # (a 4K TV's screen drawn finely: a sharper copy for it)
                 im = Image.open(key[0])
-                im.draft("RGB", (1280, 960))
+                im.draft("RGB", (1280 * s, 960 * s))
                 im = ImageOps.exif_transpose(im).convert("RGB")
-                im.thumbnail((1600, 1200))
+                im.thumbnail((1600 * s, 1200 * s))
                 if v["rot"]:
                     im = im.rotate(-90 * v["rot"], expand=True)
             except Exception:
@@ -128,7 +141,7 @@ class PhotoScreen:
         """The picture as it's shown, with the chosen filter on (kept per filter).
         Worked out on a thread — the drawn filters take a moment on a Pi Zero —
         showing the last one meanwhile."""
-        from PIL import Image
+        from ..fine import Image
         v = self.v
         im = self.photo_image()
         if im is None:
@@ -178,7 +191,8 @@ class PhotoScreen:
         v["busy"] = "Saving…"
 
         def job():
-            from PIL import Image, ImageOps
+            from ..fine import Image
+            from PIL import ImageOps
             import io
             try:
                 im = ImageOps.exif_transpose(Image.open(src)).convert("RGB")
@@ -303,7 +317,7 @@ class PhotoScreen:
         self.close_viewer()
 
     def render_photo(self):
-        from PIL import Image
+        from ..fine import Image
         F = self.fonts
         v = self.v
         img, d = self.canvas(PHOTO_BG)
@@ -327,7 +341,8 @@ class PhotoScreen:
             box = (int(v["cx"] - hw), int(v["cy"] - hh), int(v["cx"] + hw), int(v["cy"] + hh))
             part = im.crop(box)
             size = (max(int(part.width * s), 1), max(int(part.height * s), 1))
-            part = part.resize(size, Image.BILINEAR)
+            k = detail(img)                            # (as finely as the screen's drawn: a 4K TV's, twice)
+            part = made_fine(part.resize((size[0] * k, size[1] * k), Image.BILINEAR), k)
             img.paste(part, ((AW - size[0]) // 2, (AH - size[1]) // 2))
         if not full:
             pos = f"{v['i'] + 1} of {len(v['items'])}"

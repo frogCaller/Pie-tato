@@ -12,6 +12,7 @@ from ..theme import ACCENT, BG, BODY, LINE, MUTED, ROW, TEXT
 from ..util import item
 from ..screen import slow_pi
 from ..www import address, clean_title, host, picture, search_url, SITES, submit, unwrap
+from ..fine import detail
 
 WWW_RECENT = 30          # pages kept in the list of where you've been
 WWW_MARKS = 60           # bookmarks, at most
@@ -447,10 +448,11 @@ class WwwScreen:
                 src, data, room, most_h = self.www_pic_queue.popleft()
             pic = picture(src, data)
             if pic is not None:
-                k = min(1.0, room / pic.width, most_h / pic.height)
-                if k < 1.0:
-                    from PIL import Image
-                    pic = pic.resize((max(1, int(pic.width * k)), max(1, int(pic.height * k))), Image.BILINEAR)
+                from ..fine import Image, made_fine, scale
+                k, s = min(1.0, room / pic.width, most_h / pic.height), scale()
+                if k < 1.0 or s > 1:                   # (as finely as the screen's drawn: a 4K TV's, twice)
+                    w, h = max(1, int(pic.width * k)), max(1, int(pic.height * k))
+                    pic = made_fine(pic.resize((w * s, h * s), Image.BILINEAR), s)
             self.soon(lambda src=src, pic=pic: self.www_pic_came(src, pic))
 
     def www_pic_came(self, src, pic):
@@ -465,11 +467,11 @@ class WwwScreen:
                 if v["page"].images[i]["src"] == src and (abs(pic.width - w) > 1 or abs(pic.height - h) > 1):
                     v["laid"] = None
         most = WWW_PIXELS[0] if slow_pi() else WWW_PIXELS[1]
-        total = sum(p.width * p.height for p in self.www_pics.values() if p)
+        total = sum(p.width * p.height * detail(p) ** 2 for p in self.www_pics.values() if p)
         while total > most and len(self.www_pics) > 1:       # (the oldest go: fetched again if they're wanted)
             old_src, old = self.www_pics.popitem(last=False)
             if old:
-                total -= old.width * old.height
+                total -= old.width * old.height * detail(old) ** 2
         if self.www_on_page() and self.view == "list" and self.tab_type() == "www":
             self.dirty = True
 
@@ -651,7 +653,7 @@ class WwwScreen:
 
     def render_www(self):
         """A page: what's on the screen of it, the link, box or button picked lit up; where you are along the top."""
-        from PIL import Image, ImageDraw
+        from ..fine import Image, ImageDraw
         F = self.fonts
         img, d = self.canvas()
         W = self.fb.w

@@ -63,7 +63,7 @@ class SketchScreen:
     def sketch_picture(self):
         """The drawing at the screen's size, made once for each drawing. (The page draws it that size: one
         drawn for another screen is scaled to fit.)"""
-        from PIL import Image
+        from ..fine import Image
         W, H = self.fb.w, self.fb.h
         im, fit = self.sketch, self.sketch_fit
         if fit is None or fit[0] is not im or fit[1] != (W, H):
@@ -79,7 +79,7 @@ class SketchScreen:
         return fit[2]
 
     def render_sketch(self):
-        from PIL import ImageDraw
+        from ..fine import ImageDraw
         if self.sketch is None:                        # (gone already: where it was, then)
             self.sketch_close()
             return self.flush()

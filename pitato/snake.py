@@ -37,11 +37,12 @@ SNAKE_AI_SAYS = ("Which way should the snake go next? Never pick a deadly move, 
 SNAKE_CARD = (5, ((0, 3), (1, 3), (2, 3), (2, 2), (2, 1), (3, 1)), (1, 0), (4, 1))
 
 
-def snake_card(size):
+def snake_card(size, fine=1):
     """Snake's picture in the Games list, rather than a game controller: the game itself on a little board of
     its own, the snake about to eat an apple, on a card like the apps' (rounded, a thin edge in the Games
     app's green). Drawn three times bigger and scaled down, so its edges come out smooth."""
-    from PIL import Image, ImageDraw
+    from .fine import ImageDraw
+    from PIL import Image
     from .home import mix, tile_tint
     S = size * 3
     cells, body, way, apple = SNAKE_CARD
@@ -54,7 +55,8 @@ def snake_card(size):
     out = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     out.paste(game.picture(), (0, 0), shape)
     edge = mix((66, 72, 84), tile_tint("Games"), 0.5)        # (as the apps' cards have it)
-    ImageDraw.Draw(out).rounded_rectangle((1, 1, S - 2, S - 2), radius=int(S * 0.23), outline=edge + (255,), width=3)
+    ImageDraw.Draw(out).rounded_rectangle((1, 1, S - 2, S - 2), radius=int(S * 0.23), outline=edge + (255,),
+                                          width=3 * fine)   # (fine: size is that many times the card's: fine.py)
     return out.resize((size, size), Image.LANCZOS)
 
 
@@ -419,7 +421,8 @@ class Snake(Sim):
 
     def board(self):
         """The empty board, kept: faint squares, and an edge when the walls are solid."""
-        from PIL import Image, ImageDraw
+        from .fine import ImageDraw
+        from PIL import Image
         c, ox, oy = self.layout()
         key = (self.w, self.h, self.cols, self.rows, c, self.values["walls"])
         if self.floor[0] != key:
@@ -437,7 +440,7 @@ class Snake(Sim):
     def picture(self):
         """The board with the apple and the snake on it: a band from its tail to its head, round at
         both ends, its eyes looking where it's going."""
-        from PIL import ImageDraw
+        from .fine import ImageDraw
         img = self.board()
         d = ImageDraw.Draw(img)
         c, ox, oy = self.layout()

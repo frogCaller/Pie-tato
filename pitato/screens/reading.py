@@ -35,21 +35,22 @@ class ReadingScreen:
         self.dirty = True
 
     def pdf_image(self, page=None):
-        from PIL import Image
+        from ..fine import Image, made_fine, scale
         v = self.v
         page = page or v["page"]
-        key = (page, v["fit"], v["zoom"], self.FOOTER)   # (Full screen apps: the page a little bigger)
+        s = scale()                                    # (as finely as the screen's drawn: a 4K TV's, twice)
+        key = (page, v["fit"], v["zoom"], self.FOOTER, s)   # (Full screen apps: the page a little bigger)
         if key not in v["cache"]:
             W, H = self.fb.w, self.fb.h - self.FOOTER
-            size = (["-scale-to-x", str(int(W * v["zoom"])), "-scale-to-y", "-1"]
-                    if v["fit"] == "width" else ["-scale-to-x", "-1", "-scale-to-y", str(H)])
+            size = (["-scale-to-x", str(int(W * v["zoom"]) * s), "-scale-to-y", "-1"]
+                    if v["fit"] == "width" else ["-scale-to-x", "-1", "-scale-to-y", str(H * s)])
             out = os.path.join(v["tmp"], f"p{page}{v['fit'][0]}{int(v['zoom'] * 100)}")
             try:
                 subprocess.run(["pdftoppm", "-f", str(page), "-l", str(page), "-singlefile",
                                 "-png", "-aa", "yes", "-aaVector", "yes"] + size
                                + [v["path"], out], timeout=60, check=True,
                                capture_output=True)
-                im = Image.open(out + ".png").convert("RGB")
+                im = made_fine(Image.open(out + ".png").convert("RGB"), s)
                 os.remove(out + ".png")
             except Exception:
                 im = None

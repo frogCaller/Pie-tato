@@ -151,7 +151,7 @@ class CoderScreen:
 
     def coder_card(self, img):
         """START on the Bot at work: how to connect an agent to it, and to send it prompts from here."""
-        from PIL import ImageDraw
+        from ..fine import ImageDraw
         F, W = self.fonts, self.fb.w
         d = ImageDraw.Draw(img)
         if self.coder_where is None:

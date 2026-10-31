@@ -502,7 +502,7 @@ class BotScreen:
     def friend_snap(self, text=""):
         """A picture taken with your camera because you asked the bot: kept in ~/Pictures, as one taken
         on the Camera tab is. (Where it is, its bytes, the camera); ValueError: why not."""
-        from PIL import Image
+        from ..fine import Image
         addr = self.friend_camera(text)
         if not addr:
             raise ValueError("there's no camera. Add one on the Camera tab")
@@ -555,13 +555,17 @@ class BotScreen:
             if data:
                 try:
                     from PIL import Image, ImageDraw
+                    from ..fine import made_fine, scale
+                    s = scale()                        # (as finely as the screen's drawn: a 4K TV's, twice)
                     im = Image.open(io.BytesIO(data))
-                    im.draft("RGB", FRIEND_BUBBLE)
+                    im.draft("RGB", (FRIEND_BUBBLE[0] * s, FRIEND_BUBBLE[1] * s))
                     im = im.convert("RGB")
-                    im.thumbnail(FRIEND_BUBBLE)
-                    mask = Image.new("L", im.size, 0)
-                    ImageDraw.Draw(mask).rounded_rectangle((0, 0, im.width - 1, im.height - 1), radius=9, fill=255)
-                    have = (im, mask)
+                    im.thumbnail((FRIEND_BUBBLE[0] * s, FRIEND_BUBBLE[1] * s))
+                    im = made_fine(im, s)
+                    mask = Image.new("L", (im.width * s, im.height * s), 0)
+                    ImageDraw.Draw(mask).rounded_rectangle((0, 0, mask.width - 1, mask.height - 1), radius=9 * s,
+                                                           fill=255)
+                    have = (im, made_fine(mask, s))
                 except Exception:
                     have = False
             if len(self.friend_pics) > FRIEND_KEEP + 10:     # only those still in the conversation
@@ -827,7 +831,7 @@ class BotScreen:
                 self.toast(f"Press X again to take {voice_name(extra)} off the Pi", 4)
 
     def render_friend(self):
-        from PIL import Image, ImageDraw
+        from ..fine import Image, ImageDraw
         F = self.fonts
         fr = self.friend
         img, d = self.canvas()

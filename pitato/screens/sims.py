@@ -245,7 +245,7 @@ class SimScreen:
         key = (text, font, fill, bg)
         tile = tiles.get(key)
         if tile is None:
-            from PIL import Image, ImageDraw
+            from ..fine import Image, ImageDraw
             f = self.fonts[font]
             probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
             w, h = int(math.ceil(probe.textlength(text, font=f))) + 2, int(getattr(f, "size", 12) * 1.6)
@@ -291,7 +291,7 @@ class SimScreen:
         """Beside Rock Paper Scissors' box: each team's pieces, the time and captures, a chart of the
         round, your pick. What changes only now and then (the names, your pick) is kept, drawn again
         when sig changes."""
-        from PIL import Image, ImageDraw
+        from ..fine import Image, ImageDraw
         _, panel, _ = self.sim_layout()
         W, H = panel[2] - panel[0], panel[3] - panel[1]
         chart = (0, 186, W - 1, 252)
@@ -339,7 +339,7 @@ class SimScreen:
     def sim_numbers(self, s, sig):
         """Beside a sim's box: its name, what it is, its numbers and (for some) a chart. The words that
         don't change are kept, drawn again when sig changes."""
-        from PIL import Image, ImageDraw
+        from ..fine import Image, ImageDraw
         world, panel, _ = self.sim_layout()
         W, H = panel[2] - panel[0], panel[3] - panel[1]
         stats = s.stats()
@@ -409,7 +409,7 @@ class SimScreen:
     def sim_note(self, s, key):
         """A card of a few lines: in the middle of the box (the moment to pick, Paused), or at its foot
         (who won, a sim's note). Its words are kept pictures: they come back again and again."""
-        from PIL import Image, ImageDraw
+        from ..fine import Image, ImageDraw
         bx0, by0, bx1, by1 = self.sim_layout()[0]
         rows = []                                      # ([(text, font, colour)...], height)
         middle = key[0] in ("ready", "paused")
@@ -455,7 +455,7 @@ class SimScreen:
 
     def sim_opts_card(self, s):
         """START: the sim's options, and full screen."""
-        from PIL import Image, ImageDraw
+        from ..fine import Image, ImageDraw
         F = self.fonts
         rows = self.sim_rows(type(s))
         W = 404
@@ -498,7 +498,7 @@ class SimScreen:
     def sim_corners(self, base):
         """The box's round corners and its edge, as they are on the picture without the sim: put back on
         each frame over a sim that fills the box right up to its corners."""
-        from PIL import Image, ImageDraw
+        from ..fine import Image, ImageDraw
         x0, y0, x1, y1 = self.sim_layout()[0]
         mask = Image.new("L", (x1 - x0 + 1, y1 - y0 + 1), 255)
         ImageDraw.Draw(mask).rounded_rectangle((1, 1, x1 - x0 - 1, y1 - y0 - 1), radius=9, fill=0)
@@ -512,7 +512,7 @@ class SimScreen:
         """The box with the sim in it, and its numbers beside it. What doesn't move is drawn when it
         changes; each frame draws the sim on it and sends just the box (and the numbers, when they've
         changed) to the screen. Full screen: just the sim, the whole screen each frame."""
-        from PIL import Image
+        from ..fine import Image
         fb = self.fb
         now = time.monotonic()
         s = self.sim_game()
@@ -609,7 +609,7 @@ class SimScreen:
         the foot of the screen (full screen has no buttons along the bottom)."""
         if not self.msg:
             return
-        from PIL import ImageDraw
+        from ..fine import ImageDraw
         W, H = self.fb.w, self.fb.h
         tile = self.sim_tile(self.msg, "small", TEXT, ROW)
         if tile.width > W - 70:                        # (a long one: shortened, as usual)

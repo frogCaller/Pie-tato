@@ -21,6 +21,7 @@ from ..library import (
     SCREEN_KINDS, video_player, video_scale)
 from ..plex import PLEX_CACHE
 from ..lofi import LofiArt, lofi_scene, SCENES
+from ..fine import enlarged
 
 
 HUSH_RETRY = 60.0     # seconds before trying again if the speaker's silence wouldn't play
@@ -578,7 +579,7 @@ class PlayerScreen:
 
     def lofi_caption(self, title, sub, room, bar):
         """What's playing, in a dark see-through card for the corner: an RGBA picture."""
-        from PIL import Image, ImageDraw
+        from ..fine import Image, ImageDraw
         F = self.fonts
         probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
         title, sub = self.fit(probe, title, F["head"], room - 32), self.fit(probe, sub, F["small"], room - 32)
@@ -594,12 +595,12 @@ class PlayerScreen:
     def render_lofi(self):
         """Now playing with its lofi art: a quiet scene on the whole screen (each song or station its own), what's
         playing in the corner (and how far through it is), nothing else."""
-        from PIL import ImageDraw
+        from ..fine import ImageDraw
         W, H = self.fb.w, self.fb.h
         it = self.cur or {"title": "", "src": ""}
         if self.lofi is None:
             self.lofi = LofiArt()
-        img = self.lofi.frame(lofi_scene(it.get("src") or it.get("title")), W, H, time.monotonic())
+        img = enlarged(self.lofi.frame(lofi_scene(it.get("src") or it.get("title")), W, H, time.monotonic()))
         radio = self.kind == "radio"
         length = 0 if radio else (self.meta.get("length") or self.length(it) or 0)
         title, sub = self.lofi_words()

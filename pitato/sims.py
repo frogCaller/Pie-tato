@@ -4,6 +4,7 @@ import random
 from collections import deque
 
 from .theme import co_mix
+from .fine import detail, made_fine
 
 
 # ---- the Simulator tab: little worlds to watch ---------------------------------------------------------
@@ -163,12 +164,13 @@ def rps_span(r):
     return 2 * int(math.ceil(r * 1.1)) + 4
 
 
-def rps_sprite(team, r, turn, look=0):
+def rps_sprite(team, r, turn, look=0, span=None):
     """A piece of a team (0 rock, 1 scissors, 2 paper), turned to one of RPS_TURNS angles: drawn four
-    times bigger and shrunk, for smooth edges. RGBA, the piece's middle in its middle."""
-    from PIL import Image, ImageDraw
+    times bigger and shrunk, for smooth edges. RGBA, the piece's middle in its middle (span wide: rps_span's)."""
+    from .fine import ImageDraw
+    from PIL import Image
     K = 4
-    S = rps_span(r)
+    S = span or rps_span(r)
     big = Image.new("RGBA", (S * K, S * K), (0, 0, 0, 0))
     d = ImageDraw.Draw(big)
     c = S * K / 2
@@ -494,13 +496,15 @@ class RockPaperScissors(Sim):
         half = rps_span(self.r) // 2
         ox, oy = x0 - half, y0 - half
         k = RPS_TURNS / (2 * math.pi)
-        for x, y, t, a, look in zip(self.x, self.y, self.t, self.ang, self.look):
+        fs = detail(img)                               # (a screen drawn finely: the pieces drawn as finely, and put
+        for x, y, t, a, look in zip(self.x, self.y, self.t, self.ang, self.look):   # in place between its pixels)
             turn = int(a * k + 0.5) % RPS_TURNS
-            key = (t, look if t == 0 else 0, turn)
+            key = (t, look if t == 0 else 0, turn, fs)
             s = sprites.get(key)
             if s is None:
-                s = sprites[key] = rps_sprite(t, self.r, turn, look)
-            img.paste(s, (ox + int(x + 0.5), oy + int(y + 0.5)), s)
+                s = sprites[key] = (rps_sprite(t, self.r, turn, look) if fs == 1 else
+                                    made_fine(rps_sprite(t, self.r * fs, turn, look, rps_span(self.r) * fs), fs))
+            img.paste(s, (ox + int(x + 0.5), oy + int(y + 0.5)) if fs == 1 else (ox + x, oy + y), s)
 
 
 # ---- Game of Life ----------------------------------------------------------------------------------------

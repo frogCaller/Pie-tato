@@ -380,13 +380,15 @@ class CameraScreen:
         """The camera's picture, as big as it fits, with what's going on over it. picture_only: a new picture
         and nothing else: it goes on the page as last drawn (its top and its buttons, kept a moment), and just
         that part of the screen is written."""
-        from PIL import Image, ImageDraw
+        from ..fine import Image, ImageDraw, made_fine, scale
         F = self.fonts
         cam = self.camera
         W, H = self.fb.w, self.fb.h
         top, bottom = self.HEADER + 1, H if self.full_app() else H - self.FOOTER   # (no buttons: down to the bottom)
         AW, AH = W, bottom - top
-        cam.fit_to = (AW, AH)                       # (the picture's made this size as it comes)
+        s = scale()
+        cam.fit_to = (AW * s, AH * s)               # (the picture's made this size as it comes: as finely as the
+                                                    # screen's drawn, twice the menus' size on a 4K TV)
         base = self.cam_base
         if picture_only and cam.addr and base is not None and base[0].size == (W, H) \
                 and time.monotonic() - base[1] < CAM_PAGE_FOR:
@@ -410,12 +412,14 @@ class CameraScreen:
 
         frame = cam.frame
         if frame is not None:                       # the live picture, as big as it fits
-            size = fit_size(frame.width, frame.height, (AW, AH))
+            fsize = fit_size(frame.width, frame.height, (AW * s, AH * s))
             fitted = cam.fitted
-            if fitted and fitted[0] is frame and fitted[1] is not None and fitted[1].size == size:
+            if fitted and fitted[0] is frame and fitted[1] is not None and fitted[1].size == fsize:
                 pic = fitted[1]                     # (made that size on the camera's thread)
             else:
-                pic = frame if size == frame.size else frame.resize(size, Image.BILINEAR)
+                pic = frame if fsize == frame.size else frame.resize(fsize, Image.BILINEAR)
+            pic = made_fine(pic, s)
+            size = pic.size
             img.paste(pic, ((AW - size[0]) // 2, top + (AH - size[1]) // 2))
             if cam.stale:                           # nothing new for a while: the last picture stays, and says why
                 label = "Reconnecting…"

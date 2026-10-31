@@ -4,6 +4,7 @@ import math
 import time
 
 from .sims import Sim
+from .fine import detail
 from .theme import BG, BODY, FONT_THIN, FONT_UI, FONT_UI_BOLD, MUTED, TEXT
 
 
@@ -72,6 +73,7 @@ class Clock(Sim):
     def __init__(self, w, h, rng=None, values=None):
         super().__init__(w, h, rng, values)
         self.hours24 = False            # Settings > Clock is 24-hour (media mode says: pitato/screens/sims.py)
+        self.fine = 1                   # the picture's pixels to each of the menus' while it's drawn (fine.py)
         self.dials = {}                 # (radius, date, backdrop) -> the dial with its date (a float32 picture)
         self.masks = {}                 # fonts, and words and figures as pictures: (what, how big...) -> it
 
@@ -97,6 +99,14 @@ class Clock(Sim):
         return self.values.get("seconds") != "Off"
 
     def draw(self, img, x0, y0, now=None):
+        s = detail(img)
+        if s > 1:                                      # (a screen drawn finely, a 4K TV's: the clock as finely, all of
+            w, h = self.w, self.h                      # it s times the size on the picture's own pixels)
+            self.w, self.h, self.fine = w * s, h * s, s
+            try:
+                return self.draw(img.pic, x0 * s, y0 * s, now)
+            finally:
+                self.w, self.h, self.fine = w, h, 1
         t = time.localtime(time.time() if now is None else now)
         if self.values.get("look") == "Digital":
             self.draw_digital(img, x0, y0, t)
@@ -125,7 +135,8 @@ class Clock(Sim):
     def words(self, text, path, size):
         """Words, white on black: (an L picture just their size, how far down its baseline is) (kept)."""
         def make():
-            from PIL import Image, ImageDraw
+            from .fine import ImageDraw
+            from PIL import Image
             f = self.font(path, size)
             x0, y0, x1, y1 = ImageDraw.Draw(Image.new("L", (1, 1))).textbbox((0, 0), text, font=f, anchor="ls")
             pic = Image.new("L", (max(1, x1 - x0 + 2), max(1, y1 - y0 + 2)), 0)
@@ -135,7 +146,7 @@ class Clock(Sim):
 
     # -- the dial -------------------------------------------------------------------------------------------
     def radius(self):
-        return max(24.0, min(self.w, self.h) / 2 - CLOCK_MARGIN)
+        return max(24.0 * self.fine, min(self.w, self.h) / 2 - CLOCK_MARGIN * self.fine)
 
     @staticmethod
     def date_short(t):
@@ -145,7 +156,8 @@ class Clock(Sim):
     def dial(self, R):
         """The dial, R its radius: its face, a dot each minute, a line each hour, 12 3 6 9 (an RGB picture, its middle in
         its middle)."""
-        from PIL import Image, ImageDraw
+        from .fine import ImageDraw
+        from PIL import Image
         S = 2 * int(math.ceil(R)) + 4
         c, k = S / 2, SUPER
         big = Image.new("RGB", (S * k, S * k), self.backdrop)
@@ -179,7 +191,7 @@ class Clock(Sim):
     def dial_with_date(self, R, t):
         """The dial with the date on it: a float32 picture (kept: drawn again for a new day)."""
         import numpy as np
-        from PIL import ImageDraw
+        from .fine import ImageDraw
         text = self.date_short(t)
         key = (R, text, self.backdrop)
         got = self.dials.get(key)
@@ -222,7 +234,7 @@ class Clock(Sim):
         f = self.font(FONT_THIN, 100)
         wide = f.getlength("23:59") + 100 * SIDE[0] + 2 * self.font(FONT_THIN, round(100 * SIDE[1])).getlength("0")
         tall = 100 * (0.73 + UNDER[0] + UNDER[1] * 1.2)
-        fit = min((self.w - 2 * CLOCK_MARGIN) / wide, (self.h - 2 * CLOCK_MARGIN) / tall)
+        fit = min((self.w - 2 * CLOCK_MARGIN * self.fine) / wide, (self.h - 2 * CLOCK_MARGIN * self.fine) / tall)
         return max(16, int(100 * fit * DIGITAL_ROOM))
 
     def paste_words(self, img, text, path, size, colour, x, base):

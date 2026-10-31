@@ -111,6 +111,8 @@ It starts on a home screen of apps:
   the same, and L and R still switch apps
 - If your screen is mounted on its side or upside down, Settings > Rotate screen turns the picture to
   match: the apps, games, videos and the console
+- On a 1080p or 4K TV, a Pi 4 or 5 (or a PC) draws the menus in the TV's finer detail, so text, icons and
+  pictures stay sharp
 - On a battery (in a GPi Case, or on a laptop), the screen goes dark after three minutes with nothing
   happening, to save power. Music keeps playing, and any button wakes it. Settings > Battery saver turns
   this on or off on any Pi. Turning down the case's brightness saves the most

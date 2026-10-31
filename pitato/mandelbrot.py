@@ -599,7 +599,7 @@ class Mandelbrot(Sim):
         if pic is not None:
             img.paste(pic, (x0, y0))
         if self.phase == "explore":                    # (where A zooms in to)
-            from PIL import ImageDraw
+            from .fine import ImageDraw
             d = ImageDraw.Draw(img)
             x, y = x0 + self.w // 2, y0 + self.h // 2
             arms = [((x - 7, y), (x - 3, y)), ((x + 3, y), (x + 7, y)), ((x, y - 7), (x, y - 3)), ((x, y + 3), (x, y + 7))]
@@ -617,7 +617,7 @@ class Mandelbrot(Sim):
     def inset(self, w, h):
         """For beside the box: the whole set, small, with where the view is now marked on it, and the
         place's name (or, exploring, where it is)."""
-        from PIL import ImageDraw
+        from .fine import ImageDraw
         cx0, cy0, w0 = MANDEL_START
         h0 = w0 * h / w
         key = (w, h, self.colours())

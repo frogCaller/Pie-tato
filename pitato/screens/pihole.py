@@ -340,7 +340,7 @@ class PiholeScreen:
     def pihole_ring(parts, total, size, at):
         """The ring, drawn four times bigger and made small (smooth edges), a sliver of the background between
         its parts: (image, where, mask) to paste."""
-        from PIL import Image, ImageDraw
+        from ..fine import Image, ImageDraw
         k = 4
         big = int(size * k)
         ring = Image.new("RGBA", (big, big), (0, 0, 0, 0))

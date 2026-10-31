@@ -175,6 +175,7 @@ class SettingsScreen:
             except (OSError, ValueError) as ex:
                 print(f"rotate screen: {ex}", flush=True)
             self.forget_drawn()                        # (the menus may be another size now)
+            self.fine_scale()                          # (...and drawn more or less finely)
         self.dirty = True
 
     def forget_drawn(self):
@@ -672,9 +673,10 @@ class SettingsScreen:
             d.text((x, mid), tag, font=F["small"], fill=DONE if net["active"] else MUTED, anchor="rm")
 
     def wall_thumb(self):
-        from PIL import Image
-        key = ("thumb", self.setting("wallpaper"), self.setting("picture"))
+        from ..fine import Image, made_fine, scale
+        s = scale()
+        key = ("thumb", self.setting("wallpaper"), self.setting("picture"), s)
         if getattr(self, "_wall_thumb", (None,))[0] != key:
             im = wallpaper(self.setting("wallpaper"), (224, 128), self.setting("picture"))
-            self._wall_thumb = (key, im.resize((54, 30), Image.LANCZOS))
+            self._wall_thumb = (key, made_fine(im.resize((54 * s, 30 * s), Image.LANCZOS)))
         return self._wall_thumb[1]

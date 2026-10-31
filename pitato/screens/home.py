@@ -6,6 +6,7 @@ from ..library import LIBRARY, LISTEN_KINDS, NOW_POP_SECS
 from ..home import (CARD, CARD_LINE, draw_bright_icon, draw_glyph, draw_icon, home_cols, HOME_ICONS, HOME_LABELS,
                     home_layout, mix, tile_tint, TILE_BOTTOM, TILE_TOP, wallpaper)
 from ..weather import wx_icon_name, wx_words
+from ..fine import made_fine, scale
 
 LABEL = (214, 219, 226)      # Glass: an app's name under its tile
 DATE = (222, 226, 232)       # ...the date, and the weather in words
@@ -128,24 +129,26 @@ class HomeScreen:
         return tile, top + extra // 3, row + extra // 4, dy
 
     def home_icon(self, name, lit=False):
-        style = self.home_style()
-        key = (style, name, lit)
-        if key not in self.icons:
+        style, s = self.home_style(), scale()
+        key = (style, name, lit, s)
+        if key not in self.icons:                      # (as finely as the screen's drawn: fine.py)
             size = self.home_geometry()[0]
-            self.icons[key] = (draw_glyph(name, self.GLYPH) if style == "Cards" else
-                               draw_bright_icon(name, size) if style == "Bright" else draw_icon(name, size, lit=lit))
+            self.icons[key] = made_fine(draw_glyph(name, self.GLYPH * s) if style == "Cards" else
+                                        draw_bright_icon(name, size * s) if style == "Bright" else
+                                        draw_icon(name, size * s, lit=lit, fine=s))
         return self.icons[key]
 
     def home_wall(self):
         """The home screen's background, made again only when it changes."""
-        key = (self.setting("wallpaper"), self.setting("picture"), self.fb.w, self.fb.h)
+        s = scale()
+        key = (self.setting("wallpaper"), self.setting("picture"), self.fb.w, self.fb.h, s)
         if self.wall[0] != key:
-            self.wall = (key, wallpaper(key[0], (self.fb.w, self.fb.h), key[1]))
+            self.wall = (key, made_fine(wallpaper(key[0], (self.fb.w * s, self.fb.h * s), key[1])))
         return self.wall[1]
 
     def home_canvas(self):
         """A fresh copy of the home screen's background."""
-        from PIL import ImageDraw
+        from ..fine import ImageDraw
         img = self.home_wall().copy()
         return img, ImageDraw.Draw(img)
 
@@ -181,8 +184,9 @@ class HomeScreen:
 
     def home_glow(self, name, kind):
         """Glass: a soft light round a tile (the picked one: in its colour) or a shadow under it, made once."""
-        from PIL import Image, ImageDraw, ImageFilter
-        key = ("glow", name if kind == "glow" else None, kind, self.TILE)
+        from ..fine import Image, ImageDraw
+        from PIL import ImageFilter
+        key = ("glow", name if kind == "glow" else None, kind, self.TILE, scale())
         if key not in self.icons:
             pad = 14
             im = Image.new("RGBA", (self.TILE + 2 * pad, self.TILE + 2 * pad), (0, 0, 0, 0))
@@ -232,7 +236,7 @@ class HomeScreen:
 
     def home_grid(self, apps, cols, first, rows_fit):
         """The background with every tile on it, unpicked: kept until something about it changes."""
-        from PIL import ImageDraw
+        from ..fine import ImageDraw
         style = self.home_style()
         key = (style, self.wall[0], tuple(a for a, _ in apps), cols, first, rows_fit, self.fb.w, self.fb.h)
         if self.home_base[0] != key:
@@ -244,7 +248,7 @@ class HomeScreen:
             shown = [(name, self.card_box(k, slots, cols, first)) for k, (name, _) in enumerate(apps)
                      if first <= slots[k][0] < first + rows_fit]
             if style == "Cards":                     # the cards, a little see-through
-                from PIL import Image
+                from ..fine import Image
                 layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
                 ld = ImageDraw.Draw(layer)
                 for _, box in shown:
@@ -345,7 +349,7 @@ class HomeScreen:
 
     def home_playing(self, img, d):
         """What's playing, top right, for a few seconds."""
-        from PIL import Image, ImageDraw
+        from ..fine import Image, ImageDraw
         F, W, style = self.fonts, self.fb.w, self.home_style()
         it = self.cur
         radio = self.kind == "radio"

@@ -103,7 +103,7 @@ class RestScreen:
         self.resting, self.rest_wake = True, False
         self.msg = None                                # (nothing's left waiting to be said)
         try:
-            from PIL import Image
+            from ..fine import Image
             self.fb.show(Image.new("RGB", (self.fb.w, self.fb.h)))   # black first (a screen that can't go dark)
         except Exception as ex:
             print(f"rest: {ex!r}", flush=True)

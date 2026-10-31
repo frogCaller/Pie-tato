@@ -11,6 +11,7 @@ from ..theme import ACCENT, LINE, MUTED, ROW, TEXT
 from ..config import CACHE_DIR
 from ..util import clock, item, UA
 from ..plex import PLEX_CACHE
+from ..fine import made_fine, scale
 
 
 class PlexScreen:
@@ -251,18 +252,25 @@ class PlexScreen:
     def plex_size(it):
         return {"episode": (56, 32), "channel": (48, 32)}.get(it.get("ptype"), (30, 44))
 
+    @staticmethod
+    def poster_key(kind, it, size, s):
+        """A poster's name in memory and on disk, s times as finely as the menus (fine.py: a 4K TV's, twice)."""
+        return f"{kind}:{it.get('thumb')}:{size}" + (f"@{s}x" if s > 1 else "")
+
     def plex_thumb(self, it, size):
-        key = f"plex:{it.get('thumb')}:{size}"
+        s = scale()
+        key = self.poster_key("plex", it, size, s)
         im = self.thumbs.get(key)
         if im is not None:
             return im
         fn = os.path.join(CACHE_DIR, "plex", hashlib.md5(
             f"{self.plex.cfg.get('server')}{key}".encode()).hexdigest() + ".jpg")
         if os.path.exists(fn):
-            from PIL import Image
+            from ..fine import Image
             try:
                 im = Image.open(fn)
                 im.load()
+                im = made_fine(im, s)
                 self.keep_thumb(key, im)
                 return im
             except OSError:
@@ -275,9 +283,10 @@ class PlexScreen:
             self.plexthumber.start()
 
     def plex_thumb_loop(self):
-        """Fetch poster thumbnails for the rows on screen (and the next page)."""
+        """Fetch poster thumbnails for the rows on screen (and the next page), as finely as the screen's drawn."""
         import io
-        from PIL import Image, ImageOps
+        from ..fine import Image
+        from PIL import Image as PlainImage, ImageOps
         os.makedirs(os.path.join(CACHE_DIR, "plex"), exist_ok=True)
         failed = set()
         pi = self.tab_index("plex")
@@ -298,23 +307,24 @@ class PlexScreen:
                 time.sleep(0.5)
                 continue
             it, (w, h) = todo
-            key = f"plex:{it['thumb']}:{(w, h)}"
+            s = scale()
+            key = self.poster_key("plex", it, (w, h), s)
             try:
                 if it["thumb"].startswith("http"):     # a channel logo: fetched as is, fitted whole
                     req = urllib.request.Request(it["thumb"], headers=UA)
                     with urllib.request.urlopen(req, timeout=10) as r:
                         logo = Image.open(io.BytesIO(r.read())).convert("RGBA")
-                    logo = ImageOps.contain(logo, (w - 4, h - 4), Image.BILINEAR)
-                    im = Image.new("RGB", (w, h), LINE)
-                    im.paste(logo, ((w - logo.width) // 2, (h - logo.height) // 2), logo)
+                    logo = ImageOps.contain(logo, ((w - 4) * s, (h - 4) * s), Image.BILINEAR)
+                    im = PlainImage.new("RGB", (w * s, h * s), LINE)
+                    im.paste(logo, ((w * s - logo.width) // 2, (h * s - logo.height) // 2), logo)
                 else:
-                    data = self.plex.call(self.plex.thumb_url(it["thumb"], w * 2, h * 2),
+                    data = self.plex.call(self.plex.thumb_url(it["thumb"], w * 2 * s, h * 2 * s),
                                           token=self.plex.cfg["server_token"], raw=True)
-                    im = ImageOps.fit(Image.open(io.BytesIO(data)).convert("RGB"), (w, h),
+                    im = ImageOps.fit(Image.open(io.BytesIO(data)).convert("RGB"), (w * s, h * s),
                                       Image.BILINEAR)
                 im.save(os.path.join(CACHE_DIR, "plex", hashlib.md5(
                     f"{self.plex.cfg.get('server')}{key}".encode()).hexdigest() + ".jpg"))
-                self.keep_thumb(key, im)
+                self.keep_thumb(key, made_fine(im, s))
                 self.dirty = True
             except Exception:
                 failed.add((it["thumb"], (w, h)))

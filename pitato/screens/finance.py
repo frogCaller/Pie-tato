@@ -20,7 +20,7 @@ FOUND_COINS = 8          # coins a search shows beside the stocks
 
 def fade_under(img, pts, colour, x0, top, x1, bottom):
     """The area under a chart's line, in its colour: strongest at the top, faded away by the bottom."""
-    from PIL import Image, ImageChops, ImageDraw
+    from ..fine import Image, ImageChops, ImageDraw
     box = (int(x0), int(top), int(x1) + 1, int(bottom) + 1)
     w, h = box[2] - box[0], box[3] - box[1]
     if w < 2 or h < 2:

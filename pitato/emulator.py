@@ -968,11 +968,17 @@ class Core:
         return False
 
     def serialize(self):
+        """The game's state (None: its core won't give it). Flycast says how big it is, then plays on a moment (on
+        its own thread) before it's asked for it, and by then it can be a few bytes bigger: asked again with room to
+        spare (it reads back only what it needs)."""
         size = self.lib.retro_serialize_size()
         if not size:
             return None
-        buf = C.create_string_buffer(size)
-        return buf.raw if self.lib.retro_serialize(buf, size) else None
+        for room in (size, size + max(4096, size // 256), size + max(65536, size // 32)):
+            buf = C.create_string_buffer(room)
+            if self.lib.retro_serialize(buf, room):
+                return buf.raw
+        return None
 
     def unserialize(self, data):
         buf = C.create_string_buffer(data, len(data))

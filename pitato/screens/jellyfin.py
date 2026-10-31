@@ -11,6 +11,7 @@ from ..theme import ACCENT, MUTED, ROW, TEXT
 from ..config import CACHE_DIR
 from ..util import item
 from ..jellyfin import TICKS
+from ..fine import made_fine, scale
 
 
 JF_LIBRARY = {"movies": ("Movies", "movie"), "tvshows": ("TV shows", "show"), "boxsets": ("Collections", "SETS")}
@@ -252,16 +253,18 @@ class JellyfinScreen:
             f"{self.jellyfin.cfg.get('server_id')}{key}".encode()).hexdigest() + ".jpg")
 
     def jf_thumb(self, it, size):
-        key = f"jf:{it.get('thumb')}:{size}"
+        s = scale()
+        key = self.poster_key("jf", it, size, s)
         im = self.thumbs.get(key)
         if im is not None:
             return im
         fn = self.jf_thumb_file(key)
         if os.path.exists(fn):
-            from PIL import Image
+            from ..fine import Image
             try:
                 im = Image.open(fn)
                 im.load()
+                im = made_fine(im, s)
                 self.keep_thumb(key, im)
                 return im
             except OSError:
@@ -275,7 +278,8 @@ class JellyfinScreen:
 
     def jf_thumb_loop(self):
         """Posters (and episodes' pictures) for the rows on screen, and the next page."""
-        from PIL import Image, ImageOps
+        from ..fine import Image
+        from PIL import ImageOps
         os.makedirs(os.path.join(CACHE_DIR, "jellyfin"), exist_ok=True)
         failed = set()
         ji = self.tab_index("jellyfin")
@@ -295,13 +299,14 @@ class JellyfinScreen:
                 time.sleep(0.5)
                 continue
             it, (w, h) = todo
-            key = f"jf:{it['thumb']}:{(w, h)}"
+            s = scale()
+            key = self.poster_key("jf", it, (w, h), s)
             try:
                 iid, tag = it["thumb"].split("/", 1)
-                data = self.jellyfin.image(iid, tag, w * 2, h * 2)
-                im = ImageOps.fit(Image.open(io.BytesIO(data)).convert("RGB"), (w, h), Image.BILINEAR)
+                data = self.jellyfin.image(iid, tag, w * 2 * s, h * 2 * s)
+                im = ImageOps.fit(Image.open(io.BytesIO(data)).convert("RGB"), (w * s, h * s), Image.BILINEAR)
                 im.save(self.jf_thumb_file(key))
-                self.keep_thumb(key, im)
+                self.keep_thumb(key, made_fine(im, s))
                 self.dirty = True
             except Exception:
                 failed.add((it["thumb"], (w, h)))

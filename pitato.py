@@ -3,7 +3,9 @@
 pitato.py - game controller buttons as keyboard keys, plus a media mode.
 
 Made for the RetroFlag GPi Case 2W and GPi Case 2, and works on any Raspberry Pi with a screen: a TV or
-monitor on HDMI, or the GPi Case's own. The menus are drawn at 640x480 and scaled up to fit. In the GPi
+monitor on HDMI, or the GPi Case's own. The menus are drawn at 640x480 (a little more on a bigger screen) and
+scaled up to fit; on a 1080p or 4K screen, a Pi 4 or 5 or a PC draws them in its finer detail (pitato/fine.py:
+sharp text, icons and pictures, laid out the same). In the GPi
 Case 2's dock (the TV on), the picture's on the TV: docked or taken out, the Pi restarts with it there.
 It works on a PC (Intel or AMD) with Ubuntu too: the PC starts in it, like a console, and System > Desktop
 starts Ubuntu's desktop instead, till the PC restarts (pitato/system.py's is_pc).

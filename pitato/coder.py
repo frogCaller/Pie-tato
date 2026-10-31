@@ -291,7 +291,7 @@ def co_light(light, accent):
 def coder_desk(img, ox=0, oy=0, bottom=None):
     """The desk and the mug on it (what doesn't move). ox, oy: where its 640x480 start, on a bigger screen. bottom:
     how far down its front goes (down to the buttons, unless it's said)."""
-    from PIL import ImageDraw
+    from .fine import ImageDraw
     d = ImageDraw.Draw(img)
     top = CO_TOP + oy
     d.rectangle((0, top, img.width, top + 8), fill=CO_DESK)
@@ -312,7 +312,7 @@ def coder_under(img):
 def coder_draw(img, p, accent, T, under=None):
     """The coder, its laptop and its bell, onto img (desk drawn already): twice as big, then halved,
     for smooth edges. under: coder_under(img), made once."""
-    from PIL import ImageDraw
+    from .fine import ImageDraw
     x0, y0, x1, y1 = CO_BOX
     K = 2
     layer = (under or coder_under(img)).copy()
@@ -426,7 +426,7 @@ def coder_draw(img, p, accent, T, under=None):
 def coder_extras(img, p, T, accent, fonts):
     """What's drawn at the screen's own size: steam off the mug, code flying out of the laptop,
     bubbles, the bell's ring, z's."""
-    from PIL import ImageDraw
+    from .fine import ImageDraw
     d = ImageDraw.Draw(img)
     for k in range(2):                             # steam
         prev = None

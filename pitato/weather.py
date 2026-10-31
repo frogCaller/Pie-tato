@@ -106,7 +106,8 @@ def compass(degrees):
 
 def draw_wx(name, size):
     """A weather picture, drawn three times bigger and scaled down for smooth edges."""
-    from PIL import Image, ImageDraw
+    from .fine import ImageDraw
+    from PIL import Image
     S = size * 3
     k = S / 120
     im = Image.new("RGBA", (S, S), (0, 0, 0, 0))
