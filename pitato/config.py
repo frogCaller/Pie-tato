@@ -74,13 +74,14 @@ SETTINGS = [   # key, label, choices (None: opens a page of its own). (Where you
     ("homeassistant", "Home", None),             # Home Assistant's address and token, for the TV Remote and Lights
     ("start", "At start-up", ["Home screen", "Terminal"]),
     ("start_song", "Random song at start-up", ["Off", "On"]),   # one of yours from ~/Music, as it starts
+    ("share", "Share with other Pietatos", ["On", "Off"]),   # prices and the weather fetched once for them all
 ]
 SETTINGS_DEFAULT = {"wallpaper": "Midnight", "picture": "", "accent": "Blue", "clock": "12-hour",
                     "units": "°F", "start": "Home screen", "location": None,
                     "screen": "Fit", "sound": "Auto", "coder_sound": "On", "sim_full": "Off", "bot_mode": "chat",
                     "game_picture": "Fit", "start_song": "Off", "home_style": "Glass",
                     "ds_screens": "Left/Right", "ds_touch": "Right stick, R2", "app_full": "Off", "turn": "Off",
-                    "sys_view": "Dashboard", "battery": "Auto"}
+                    "sys_view": "Dashboard", "battery": "Auto", "share": "On"}
 TURN_DEGREES = {"Off": 0, "90°": 90, "180°": 180, "270°": 270}   # Settings > Rotate screen's choices
 HOME_STYLE_WAS = {"Original": "Bright", "Style 2": "Glass", "Style 3": "Glass", "Style 4": "Cards",   # (earlier names,
                   "Minimal": "Glass"}                                                               # and one gone)

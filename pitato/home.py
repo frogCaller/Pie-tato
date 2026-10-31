@@ -78,7 +78,7 @@ HOME_ICONS = {    # tab name -> (its colour: its tile's tint, a line about it)
     "Games": ((92, 184, 112), "Snake, and your Game Boy to PlayStation games"),
     "Files": ((102, 128, 174), "Your files, and your other computers'"),
     "Camera": ((128, 135, 148), "Your cameras: watch, steer, take pictures"),
-    "Bot": ((210, 138, 76), "Chat, or watch your coding agent work"),
+    "Bot": ((210, 138, 76), "Does what you ask, and chats with you"),
     "Simulator": ((118, 125, 140), "Rock paper scissors, fractals and more"),
     "Finance": ((184, 142, 66), "Stocks and coins: prices and charts"),
     "System": ((128, 135, 148), "Temperature, WiFi, storage"),

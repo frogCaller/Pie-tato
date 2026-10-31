@@ -14,7 +14,7 @@ from ..screen import boot_resolution
 from ..util import IMAGE_EXTS
 from ..voice import BOT_VOICES, VOICE_MB, voices_here
 from ..listen import LISTENS, WAKE_MOST, mics
-from ..bot import FRIEND_CHATTER
+from ..bot import FRIEND_CHATTER, FRIEND_STYLES
 from ..crypto import CRYPTO_LINE, CRYPTO_MOST
 from ..stocks import STOCKS_LINE, STOCKS_MOST, SYMBOL
 from ..net import cam_address
@@ -109,6 +109,7 @@ class WebSettingsScreen:
                 sound["note"] = self.sound_value()     # (Auto: HDMI, say)
         sec("sound", "Sound and video", [sound, choice("screen", "Video size", SCREEN_MODES)])
         sec("start", "Starting up", [choice("start"), choice("start_song")])
+        sec("share", "Your other Pietatos", [choice("share")])
 
         # WiFi
         w, went = self.wifi, self.wifi.get("said")
@@ -218,6 +219,8 @@ class WebSettingsScreen:
                  if asking.endswith("…") else "No models found"},
                 {"key": "f_name", "label": "What it calls you", "kind": "text", "value": fr.name,
                  "placeholder": "Your name (optional)", "max": 40},
+                {"key": "f_style", "label": "How it talks", "kind": "choice", "value": fr.style()["key"],
+                 "choices": [k for k, *_ in FRIEND_STYLES], "names": {k: n for k, n, *_ in FRIEND_STYLES}},
                 {"key": "f_chatter", "label": "Says something by itself", "kind": "choice",
                  "value": str(fr.chatter()), "choices": [v for _, v in chatter], "names": {v: t for t, v in chatter}}]
         if self.voice.supported():
@@ -294,7 +297,7 @@ class WebSettingsScreen:
         key = str(cmd.get("key") or "")
         value = cmd.get("value")
         if key in ("home_style", "clock", "app_full", "turn", "start", "start_song", "wallpaper", "accent", "sound",
-                   "screen", "units", "sim_full", "coder_sound", "ds_screens", "ds_touch", "battery") \
+                   "screen", "units", "sim_full", "coder_sound", "ds_screens", "ds_touch", "battery", "share") \
                 or key.startswith("game_picture_"):
             return self.web_pick(key, value)
         handler = getattr(self, "web_set_" + key, None)
@@ -534,6 +537,11 @@ class WebSettingsScreen:
 
     def web_set_f_name(self, value, cmd):
         return {"ok": True} if self.friend_set(name=clean_name(value, 40)) else {"error": "Couldn't save static/bot.txt"}
+
+    def web_set_f_style(self, value, cmd):
+        if value not in [k for k, *_ in FRIEND_STYLES]:
+            return {"error": "That isn't one of its choices"}
+        return {"ok": True} if self.friend_set(style=value) else {"error": "Couldn't save static/bot.txt"}
 
     def web_set_f_chatter(self, value, cmd):
         if str(value) not in [str(v) for _, v in FRIEND_CHATTER]:

@@ -1,6 +1,7 @@
 """The weather (Open-Meteo, free with no key, and the US Weather Service), and finding where you are."""
 import json
 import os
+import random
 import threading
 import time
 import urllib.parse
@@ -202,7 +203,8 @@ class Weather:
         self.get_loc, self.get_units = get_loc, get_units
         self.pie = pie
         self.data, self.nws, self.t = None, [], 0.0
-        self.src = ""                # "PiE-ink" when what's here came from it
+        self.src = ""                # "PiE-ink" when what's here came from it ("Pietato": another Pietato)
+        self.late = random.uniform(10, 120)   # (with other Pietatos about: seconds past due before this one fetches)
         self.checked = 0.0           # when it was last looked for (PiE-ink asked, or the internet)
         self.error = None
         self.busy = False
@@ -254,28 +256,32 @@ class Weather:
             return
         upgrade = full and self.partial()
         if not force:
-            if not upgrade and time.time() - self.t < WEATHER_TTL:
+            late = self.late if self.pie is not None and self.pie.peers() else 0
+            if not upgrade and time.time() - self.t < WEATHER_TTL + late:
                 return
             if time.time() - self.checked < 60 and (self.error or not upgrade):
                 return                                 # looked a moment ago
         self.busy = True
         threading.Thread(target=self.job, args=(full,), daemon=True, name="weather").start()
 
-    def from_pie(self, key, loc, units, gen=None):
+    def from_pie(self, key, loc, units, gen=None, full=False):
         """PiE-ink's forecast when it has one for here that isn't too old: taken when it's newer than
         what's here; otherwise its next one is waited for (it's asked again in a minute), as PiE-ink
-        is keeping it fresh. True either way: False means the internet is asked."""
+        is keeping it fresh. True either way: False means the internet is asked. Another Pietato's (with
+        its hours: the Weather tab's too, full) is taken when it's newer; else this one fetches it."""
         try:
-            got = self.pie.weather(loc, units) if self.pie is not None else None
+            got = self.pie.weather(loc, units, fresh=5 if self.pie.peers() else None) \
+                if self.pie is not None else None
         except Exception:
             got = None
-        if not got or got["age"] >= WEATHER_TTL * 1.5:
+        if not got or got["age"] >= WEATHER_TTL * 1.5 or (full and not got["data"].get("hours")):
             return False
         if time.time() - got["age"] <= self.t + 1:
-            return True
+            return not got.get("peer")                 # (another Pietato's: this one fetches it, for both)
         if key != self.key() or (gen is not None and gen != self.gen):
             raise _Stale()
-        self.data, self.t, self.error, self.src = got["data"], time.time() - got["age"], None, "PiE-ink"
+        self.data, self.t, self.error = got["data"], time.time() - got["age"], None
+        self.src = "Pietato" if got.get("peer") else "PiE-ink"
         if got["nws"]:
             self.nws = got["nws"]
         self.save_cache(key)
@@ -285,7 +291,7 @@ class Weather:
         key, loc, units, gen = self.key(), self.get_loc(), self.get_units(), self.gen
         self.checked = time.time()
         try:
-            if not full and self.from_pie(key, loc, units, gen):
+            if self.from_pie(key, loc, units, gen, full):
                 return
             params = {"latitude": loc["lat"], "longitude": loc["lon"], "timezone": "auto",
                       "current": "temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,"

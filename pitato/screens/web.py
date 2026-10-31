@@ -18,7 +18,7 @@ from ..cameras import CAM_FOUND_FOR, edit_cameras, read_cameras
 from ..voice import BOT_VOICES, VOICE_MB, voices_here
 from ..listen import LISTEN_MB, have_vosk, supported as listen_supported
 from ..system import on_pc
-from ..bot import FRIEND_FACES
+from ..bot import FRIEND_FACES, FRIEND_STYLES
 from ..www import clean_title
 from ..games import BIOS_FOLDER, games_dir, save_name, SAVES_FOLDER
 from .bluetooth import BT_PICKABLE
@@ -858,7 +858,21 @@ class WebScreen:
                         for x in list(fr.log)],
                 "models": list(fr.models) if fr.server and fr.models_at == fr.server else [],
                 "modelsStatus": fr.models_status, "showing": self.on_friend_page(), "voice": self.web_voice(),
-                "work": self.web_work()}
+                "work": self.web_work(), "style": fr.style()["key"],
+                "styles": [[k, n] for k, n, *_ in FRIEND_STYLES], "today": self.web_today()}
+
+    def web_today(self):
+        """The Bot's Today page, for the web page: your list, timers, reminders and notes. (The control server's
+        thread: copies of them.)"""
+        A, now = self.assist, time.time()
+        h24 = self.setting("clock") == "24-hour"
+        return {"tasks": [{"text": x["text"], "done": bool(x.get("done")), "t": x.get("t", 0)}
+                          for x in self.today_rows()],
+                "timers": [{"name": self.timer_name(x)[:1].upper() + self.timer_name(x)[1:],
+                            "kind": x.get("kind", "timer"), "left": round(max(0.0, x["until"] - now), 1),
+                            "secs": x["secs"]} for x in list(A.timers)],
+                "reminders": [{"text": r["text"], "when": self.when_text(r["at"], h24)} for r in list(A.reminders)[:8]],
+                "notes": [x["text"] for x in list(A.notes)[-6:]][::-1], "showing": self.on_today_page()}
 
     def web_work(self):
         """Your coding agent, as the Bot at work sees it."""
@@ -881,6 +895,13 @@ class WebScreen:
         fr = self.friend
         fr.load(self.friend_files())
         do = str(cmd.get("do") or "")
+        if do == "say" and cmd.get("picture") is None:   # (something it does: done at once, set up or not)
+            text = " ".join(str(cmd.get("text") or "").split())[:400]
+            since = time.time()
+            if text and self.assist_heard(text):
+                return {"ok": True, "since": since, "done": True}
+        if do in ("task", "tick", "untick", "drop"):
+            return self.web_task(do, cmd)
         if do in ("say", "remark", "aloud", "photo") and not fr.ready():
             return {"error": "Set up your bot first"}
         if do == "say":
@@ -917,10 +938,10 @@ class WebScreen:
         if do == "models":
             fr.fetch_models()
             return {"ok": True}
-        if do in ("open", "work"):
+        if do in ("open", "work", "today"):
             if not self.web_ready():
                 return {"error": "There's no screen to show it on"}
-            self.bot_open("work" if do == "work" else "chat")
+            self.bot_open({"work": "work", "today": "today"}.get(do, "chat"))
             return {"ok": True}
         if do == "set":
             if "voice" in cmd:
@@ -928,6 +949,10 @@ class WebScreen:
                 return {"ok": True, "said": what} if ok else {"error": what}
             updates = {k: " ".join(str(cmd.get(k) or "").split())[:120]
                        for k in ("server", "model", "name") if k in cmd}
+            if "style" in cmd:
+                if cmd.get("style") not in [k for k, *_ in FRIEND_STYLES]:
+                    return {"error": "That isn't one of its choices"}
+                updates["style"] = cmd["style"]
             if "speak" in cmd:
                 updates["speak"] = "on" if cmd.get("speak") in (True, "on", "yes", 1, "1") else "off"
             if "chatter" in cmd:
@@ -947,6 +972,29 @@ class WebScreen:
                 fr.fetch_models()
             return {"ok": True}
         return {"error": "Unknown request"}
+
+    def web_task(self, do, cmd):
+        """Your list, from the web page: a thing added (task), ticked off or back on it (tick, untick), or taken off
+        (drop). One that's there already is found by what it says and when it was added."""
+        A = self.assist
+        text = " ".join(str(cmd.get("text") or "").split())[:120]
+        if do == "task":
+            if not text:
+                return {"error": "Type something to add"}
+            return {"ok": True} if A.add_task(text) else {"error": "That's on your list already"}
+        try:
+            t = float(cmd.get("t") or 0)
+        except (TypeError, ValueError):
+            return {"error": "Bad request"}
+        it = next((x for x in A.tasks if x["text"] == text and abs(float(x.get("t") or 0) - t) < 0.01), None)
+        if it is None:
+            return {"error": "That isn't on your list now"}
+        if do == "drop":
+            A.drop_task(it)
+        else:
+            A.tick_task(it, do == "tick")
+        self.dirty = True
+        return {"ok": True}
 
     def web_show(self, path):
         """A file from the web page's list, opened on the screen the way Files opens it. (One on another computer

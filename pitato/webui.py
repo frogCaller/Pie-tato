@@ -303,6 +303,16 @@ def coder_path():
     return request.path == "/coder" or request.path.startswith("/coder/")
 
 
+def on_my_network(addr):
+    """The address asking is this Pi's own, or on your network (a private, link-local or loopback address)."""
+    try:
+        ip = ipaddress.ip_address(addr or "")
+    except ValueError:
+        return False
+    ip = getattr(ip, "ipv4_mapped", None) or ip
+    return ip.is_private or ip.is_loopback or ip.is_link_local
+
+
 @app.before_request
 def check_password():
     try:
@@ -319,6 +329,8 @@ def check_password():
     if (request.method in ("GET", "HEAD") and request.path.startswith("/api/pi/")
             and request.path[8:] in PAGE_ONLY and request.headers.get("X-Pitato-Page") != "1"):
         return Response("Only the page asks for that", 403)
+    if request.path == "/api/shared":                  # (prices and the weather, for your other Pietatos: no password,
+        return None if on_my_network(request.remote_addr) else Response("Your network only", 403)   # your network)
     pw = settings().get("password")
     if not pw or request.path == "/coder_hooks.py":    # (that script has nothing private in it)
         return None
@@ -848,6 +860,18 @@ def pi_reply(got, cache="no-store"):
     status, data, ctype = got
     resp = Response(data, status, content_type=ctype)
     resp.headers["Cache-Control"] = cache if status == 200 else "no-store"
+    return resp
+
+
+@app.get("/api/shared")
+def shared():
+    """What this Pietato has fetched (coin and stock prices and charts, the weather), for your other Pietatos to use
+    rather than fetch it again: GET from your network only, as PiE-ink shares its own (nearby.py asks them)."""
+    got = ask_pi("GET", "/shared", timeout=5)
+    if got is None or got[0] != 200:
+        return jsonify(ok=False, error="Pietato isn't answering"), 503
+    resp = Response(got[1], 200, content_type="application/json")
+    resp.headers["Cache-Control"] = "no-store"
     return resp
 
 

@@ -13,7 +13,7 @@ from ..home import wallpaper
 from ..weather import find_me, geocode, place_text
 from ..voice import BOT_VOICES, VOICE_MB, voices_here
 from ..listen import mics
-from ..bot import FRIEND_CHATTER, FRIEND_PAGES
+from ..bot import FRIEND_CHATTER, FRIEND_PAGES, FRIEND_STYLES
 from ..inputs import HALT_WAIT
 
 RES_KEEP = 20          # Settings > Resolution: seconds to keep a new size, or the Pi goes back (it may show nothing)
@@ -46,6 +46,7 @@ class SettingsScreen:
         if self.set_page == "friend":
             rows = [("f_server", "Computer with Ollama", None), ("f_model", "Model", None),
                     ("f_name", "What it calls you", None),
+                    ("f_style", "How it talks", [n for _, n, *_ in FRIEND_STYLES]),
                     ("f_chatter", "Says something by itself", [t for t, _ in FRIEND_CHATTER]),
                     ("f_voice", "Voice", None), ("f_speak", "Says its replies out loud", ["On", "Off"])]
             found = mics()
@@ -613,7 +614,7 @@ class SettingsScreen:
             hints += [("X", "Scan"), ("B", "Back")]
         elif self.set_page == "friend":
             k = rows[sel][0]
-            hints = ([("◀▶", "Change")] if k in ("f_chatter", "f_speak", "f_listen", "f_mic") else
+            hints = ([("◀▶", "Change")] if k in ("f_style", "f_chatter", "f_speak", "f_listen", "f_mic") else
                      [("A", "Choose")] if k in ("f_model", "f_voice") else [("A", "Type")])
             hints += [("X", "Check"), ("B", "Back")]
         elif self.set_page == "f_voices":

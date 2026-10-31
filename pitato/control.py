@@ -129,6 +129,8 @@ def serve_control(media, control, port=CONTROL_PORT, key=None):
                         self.reply(404, {"error": "That camera isn't answering"})
                 if u.path == "/friend":
                     return self.reply(200, media.web_friend())
+                if u.path == "/shared":                # (what it has fetched, for your other Pietatos)
+                    return self.reply(200, media.web_shared())
                 if u.path == "/computers":             # (asks a computer: here, not on the screen's thread)
                     return self.reply(200, media.web_computers(q.get("addr", "")))
                 if u.path == "/coder":

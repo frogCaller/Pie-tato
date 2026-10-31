@@ -271,13 +271,21 @@ class DrawScreen:
     def status_signature(self):
         t = cpu_temp()
         return (time.strftime("%H:%M"), wifi_bars(wifi_quality()),
-                None if t is None else round(t), self.kind, self.meta.get("song"))
+                None if t is None else round(t), self.kind, self.meta.get("song"), self.assist_status())
 
     def status_bar(self, d, clock=True):
         F, W = self.fonts, self.fb.w
         y = self.STATUS_H // 2 + 1
         if clock:
             d.text((20, y), self.clock_text(), font=F["status_b"], fill=BODY, anchor="lm")
+            timer = self.assist_status()               # (a timer of yours, running: how long it has left)
+            if timer:                                  # (an hourglass, then how long)
+                tx = 20 + d.textlength(self.clock_text(), font=F["status_b"]) + 18
+                d.line((tx, y - 6, tx + 10, y - 6), fill=ACCENT, width=2)
+                d.line((tx, y + 6, tx + 10, y + 6), fill=ACCENT, width=2)
+                d.line((tx + 1.5, y - 5, tx + 5, y, tx + 8.5, y - 5), fill=ACCENT, width=1)
+                d.polygon([(tx + 5, y), (tx + 9, y + 5), (tx + 1, y + 5)], fill=ACCENT)
+                d.text((tx + 16, y), timer, font=F["status"], fill=ACCENT, anchor="lm")
         x = W - 20
         bars = wifi_bars(wifi_quality())
         for k in range(4):                       # signal bars, weakest on the left

@@ -2,6 +2,7 @@
 import http.client
 import json
 import os
+import random
 import re
 import threading
 import time
@@ -66,6 +67,8 @@ class Crypto:
         self.on_change = lambda: None
         self.lock = threading.Lock()
         self.gecko = threading.Lock()  # (CoinGecko is asked one thing at a time, the time between kept)
+        self.late = random.uniform(5, 60)   # with other Pietatos about: seconds past due before this one fetches (the
+                                            # one soonest due fetches, the rest take it from there)
         self.load_cache()
 
     # settings
@@ -198,7 +201,8 @@ class Crypto:
         e = self.quotes.get(key[1]) if key[0] == "quote" else self.hist.get(f"{key[1]}:{key[2]}")
         if ttl and e and time.time() - e.get("tried", 0) < 60:
             return False                               # failed a moment ago: give it a minute
-        return not e or time.time() - e.get("t", 0) > ttl
+        late = self.late if ttl and self.pie is not None and self.pie.peers() else 0
+        return not e or time.time() - e.get("t", 0) > ttl + late
 
     def next_job(self):
         jobs = []
@@ -215,29 +219,34 @@ class Crypto:
     def from_pie(self, job, ttl):
         """PiE-ink's numbers for a job when it has them and they aren't too old (a little past their
         time is fine: it's asked again in a minute): taken when newer than what's here, or else its
-        next ones are waited for, as PiE-ink is keeping them fresh. False: the internet is asked."""
+        next ones are waited for, as PiE-ink is keeping them fresh. Another Pietato's are taken when
+        they're newer than what's here; else this one fetches them (for it too). False: the internet is asked."""
         if self.pie is None:
             return False
+        fresh = 5 if self.pie.peers() else None        # (another Pietato may have just fetched it)
         try:
             if job[0] == "quote":
-                got, store, key = self.pie.quote(job[1]), self.quotes, job[1]
+                got, store, key = self.pie.have("coin", job[1], fresh=fresh), self.quotes, job[1]
             else:
-                got, store, key = self.pie.chart(job[1], job[2]), self.hist, f"{job[1]}:{job[2]}"
+                got, store, key = self.pie.have("coin_chart", job[1], job[2], fresh=fresh), self.hist, \
+                    f"{job[1]}:{job[2]}"
         except Exception:
             return False
         if not got:
             return False
-        value, age = got
+        value, age, peer = got
         now = time.time()
         if age >= (ttl * 1.5 if ttl else 60):
             return False                               # too old: the internet is asked
         held = store.get(key) or {}
         if now - age <= held.get("t", 0) + 1:          # what's here is as new as its: its next is coming
+            if peer:
+                return False                           # (another Pietato's: it isn't fetching, this one is due)
             if ttl:
                 with self.lock:
                     store[key] = dict(held, tried=now)   # (asked again in a minute)
             return True
-        entry = {"t": now - age, "pie": True}
+        entry = {"t": now - age, "pie": True}           # (shared on as this one's, its age as it was)
         if job[0] == "quote":
             q = dict(value)
             c = self.coin(job[1])

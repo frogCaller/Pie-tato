@@ -415,6 +415,7 @@ def main():
     media = Media()
     media.shrinker.start()                         # (big videos made smaller, in the background)
     media.updater.start()                          # (a newer version looked for now and then: System > Update software)
+    media.share_start()                            # (your other Pietatos told it's here: what it fetches, shared)
     media.dock_start()                             # (a GPi Case 2: its dock watched, the picture following it)
     media.chromium_leftover()                      # (Chromium, if the last Pietato left it running: closed)
     control = Control()

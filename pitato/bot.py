@@ -39,6 +39,24 @@ FRIEND_HEAD = ("# Bot: a computer on your network running Ollama. On that comput
 FRIEND_PERSONA = ("You are a friendly little bot who lives on a small handheld screen: a Raspberry Pi "
                   "in a game-console case. Reply in one to three short sentences, as it has to fit on that "
                   "screen. Plain text: no emoji, no quotation marks, no markdown, no stage directions.")
+# Settings > Bot > How it talks: (its key in bot.txt, its name, how it talks to its model, the words it says as it
+# does what you asked, what it says first when a timer or a reminder comes due). A persona of your own in bot.txt
+# is how it talks to its model, whichever this is.
+FRIEND_STYLES = [
+    ("friendly", "Friendly", "", ("Okay.", "Sure.", "Done.", "Got it."), ""),
+    ("brother", "Big brother", "You talk like a laid-back big brother: casual, a bit cheeky, teasing them now and "
+     "then, but always on their side.", ("You got it.", "Easy.", "Sure thing.", "On it."), "Yo!"),
+    ("butler", "Butler", "You talk like a very proper butler: polite, formal and calm, with a dry wit.",
+     ("Very good.", "Certainly.", "As you wish.", "Of course."), "Pardon me."),
+    ("pirate", "Pirate", "You talk like a cheerful old pirate, all arr and matey and the sea, while still being "
+     "helpful.", ("Aye!", "Aye aye!", "Arr, done.", "Right away, matey."), "Ahoy!"),
+    ("coach", "Coach", "You talk like an upbeat sports coach: short, punchy and encouraging, cheering them on.",
+     ("Let's go!", "You got it!", "Done!", "Nice!"), "Heads up!"),
+    ("robot", "Robot", "You talk like a classic robot: precise, literal and a little stiff, fond of exact numbers.",
+     ("Affirmative.", "Acknowledged.", "Confirmed.", "Task complete."), "Beep beep."),
+    ("zen", "Calm", "You talk like a calm meditation teacher: gentle, unhurried and kind, now and then reminding "
+     "them to breathe.", ("Of course.", "It is done.", "Gently done.", "As you like."), "Gently now."),
+]
 FRIEND_LOOK = ("see", "look", "looking", "camera", "in front of you", "around you", "wearing", "holding",
                "room", "what is this", "what's this", "colour", "color")
 FRIEND_TOPICS = ["weather", "weather", "time", "time", "anything", "anything", "markets", "playing"]
@@ -99,6 +117,8 @@ def friend_face(text, kind="", busy=False):
         mood = "thinking"
     elif kind == "error":
         mood = "sorry"
+    elif kind == "alarm":                              # (a timer or a reminder, come due)
+        mood = "surprised"
     elif not low:
         mood = "plain"
     else:
@@ -119,7 +139,7 @@ def friend_face(text, kind="", busy=False):
             mood = "happy"
         elif score <= -2:
             mood = "worried"
-        elif kind == "chat":
+        elif kind in ("chat", "done"):
             mood = "pleased"
         else:
             mood = "plain"
@@ -650,8 +670,16 @@ class Friend:
         self.add("friend", text, "photo", pic=pid, photo=path, seen=cam)
         self.on_reply(text)
 
+    def style(self):
+        """How it talks (Settings > Bot > How it talks): {"key", "name", "persona" (for its model), "ok" (words it
+        says as it does what you asked), "hey" (said first when a timer or a reminder comes due)}."""
+        want = (self.conf.get("style") or "").strip().lower()
+        key, name, voice, ok, hey = next((s for s in FRIEND_STYLES if s[0] == want), FRIEND_STYLES[0])
+        persona = FRIEND_PERSONA.replace(" Reply in", f" {voice} Reply in", 1) if voice else FRIEND_PERSONA
+        return {"key": key, "name": name, "persona": persona, "ok": ok, "hey": hey}
+
     def system(self):
-        persona = (self.conf.get("persona") or "").strip() or FRIEND_PERSONA
+        persona = (self.conf.get("persona") or "").strip() or self.style()["persona"]
         return persona + (f" The person you live with is called {self.name}." if self.name else "")
 
     def context(self, message):
@@ -661,7 +689,7 @@ class Friend:
             lines += list(self.facts())
         except Exception as ex:
             print(f"the bot couldn't look around: {ex!r}", flush=True)
-        said = [x for x in self.log if x.get("kind") in ("chat", "remark", "photo")]
+        said = [x for x in self.log if x.get("kind") in ("chat", "remark", "photo", "done", "alarm")]
         if message is not None and said and said[-1]["who"] == "you":
             said = said[:-1]                          # (what you just said, or sent, goes last)
         if said[-6:]:

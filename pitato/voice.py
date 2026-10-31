@@ -44,6 +44,9 @@ VOICE_IDLE = 120         # seconds quiet before Piper is let go (it holds about 
 VOICE_WAIT = 90          # a voice on a small Pi can take this long to load and make its first sentence
 VOICE_SAMPLE = "Hello! This is how I sound."
 VOICE_SINCE = time.time()  # (leftovers older than this, under this process's number, are from before)
+CHIME_RATE = 22050
+CHIME_NOTES = ((1046.5, 0.0), (1318.5, 0.14), (1568.0, 0.28))   # C, E and G, rising: a timer or a reminder, when
+                                                                # there's no voice to say it
 
 
 def piper_arch():
@@ -165,6 +168,21 @@ def read_speech(path, volume=100):
     return pcm, rate
 
 
+def chime_pcm(volume=100):
+    """The chime: three soft bell notes, as 16-bit mono samples at CHIME_RATE, at the media volume."""
+    import numpy
+    t = numpy.arange(int(CHIME_RATE * 1.5)) / CHIME_RATE
+    out = numpy.zeros_like(t)
+    for f, start in CHIME_NOTES:
+        x = numpy.clip(t - start, 0, None)
+        on = t >= start
+        bell = (numpy.sin(2 * numpy.pi * f * x) * numpy.exp(-x * 4.0)
+                + 0.25 * numpy.sin(4 * numpy.pi * f * x) * numpy.exp(-x * 9.0))
+        out += numpy.where(on, bell * numpy.minimum(1.0, x * 250), 0.0)
+    out *= 0.2 * max(0, min(100, volume)) / 100.0
+    return (numpy.clip(out, -1.0, 1.0) * 32767).astype("<i2").tobytes()
+
+
 class Voice:
     """The bot's voice: Piper, a neural voice that runs on the Pi, and aplay.
 
@@ -259,6 +277,21 @@ class Voice:
         self.wake.set()
         self.changed()
         return True, ""
+
+    def chime(self, device="", volume=100):
+        """The chime, on a thread of its own (not while it's speaking). False when it can't."""
+        if self.speaking or not shutil.which("aplay"):
+            return False
+
+        def job():
+            cmd = ["aplay", "-q", "-t", "raw", "-f", "S16_LE", "-c", "1", "-r", str(CHIME_RATE)]
+            try:
+                subprocess.run(cmd + (["-D", device] if device else []), input=chime_pcm(volume),
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+            except (OSError, ValueError, subprocess.SubprocessError) as ex:
+                print(f"voice: couldn't chime ({ex})", flush=True)
+        threading.Thread(target=job, daemon=True, name="chime").start()
+        return True
 
     def warm(self, vid):
         """The voice loaded ahead of the first reply (the bot's page just opened)."""

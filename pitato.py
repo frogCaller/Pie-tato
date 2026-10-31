@@ -141,7 +141,15 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
   Finance     - stock and coin prices with charts, laid out like PiE-ink's crypto screen (yours
                 in static/finance.txt); Y looks stocks up on Yahoo Finance and coins on CoinGecko
                 to add, or removes them
-  Bot         - like PiE-ink's bot: a model on another computer running Ollama (Settings >
+  Bot         - does what you ask at once, typed, said or sent from the web page, with or without
+                its model (pitato/assist.py): timers and a focus timer, your list, reminders and
+                notes (kept in /var/lib/pitato/assist.json), music and the radio, the lights,
+                opening an app. Timers and reminders speak up as they come due (a chime with no
+                voice), and the next timer shows in the status bar. Left of chatting, Today has your
+                list (A adds, X ticks off, SELECT twice takes off), timers, reminders and notes;
+                START there runs a focus timer. Its face blinks, glances, listens, thinks and talks
+                (pitato/face.py), and Settings > Bot > How it talks gives it a personality.
+                And like PiE-ink's bot: a model on another computer running Ollama (Settings >
                 Bot, or static/bot.txt) that knows the time, the weather, your stocks and coins,
                 and what's playing, and now and then says something by itself; its face follows
                 the tone of what it says. It looks through your camera and says what it sees, and
@@ -151,14 +159,14 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
                 With a voice (Piper, on the Pi) it says its replies out loud; SELECT says the
                 last one again. With a USB microphone plugged in, say the wake phrase ("hey potato")
                 and what you want (Vosk makes it out, on the Pi; X > Talk to it skips the phrase;
-                Settings > Bot > Listens turns it off). Left and right switch it between chat and
-                work: at work it sits at a desk and acts out what your coding agent is doing:
-                typing, reading, thinking, ringing its bell when it's done, waving when it needs
-                you. Claude Code tells it through hooks that coder_hooks.py sets up on the computer
-                it runs on; anything else can POST to the web page's /coder?pose=typing, and a WAV
-                to /coder/say is said out loud. At work, A types a prompt for Claude Code (which
-                takes it through coder_hooks.py's channel), Y rings the bell, X turns its sounds
-                off, up and down set the volume, START shows how to connect an agent
+                Settings > Bot > Listens turns it off). Right of chatting is work: at work it sits
+                at a desk and acts out what your coding agent is doing: typing, reading, thinking,
+                ringing its bell when it's done, waving when it needs you. Claude Code tells it
+                through hooks that coder_hooks.py sets up on the computer it runs on; anything else
+                can POST to the web page's /coder?pose=typing, and a WAV to /coder/say is said out
+                loud. At work, A types a prompt for Claude Code (which takes it through
+                coder_hooks.py's channel), Y rings the bell, X turns its sounds off, up and down
+                set the volume, START shows how to connect an agent
   Simulator   - little worlds to watch, each in a box beside its numbers or full screen (SELECT):
     Clock       - the time and the date in the middle of the page: a dial (the date under its middle) or big
                 figures (AM or PM and the seconds beside them, the date under them); A switches between

@@ -447,9 +447,33 @@
   /* ---- the bot: its face, and the conversation ---- */
   .fr-view { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 20px; height: calc(100% - 66px); min-height: 420px; }
   .fr-face {
-    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 22px 14px;
+    display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 10px; padding: 26px 14px 18px;
     border-radius: 18px; background: var(--surface-2); border: 1px solid var(--line); text-align: center; min-width: 0;
+    overflow-y: auto;
   }
+  .fr-today { align-self: stretch; display: flex; flex-direction: column; gap: 8px; margin-top: 8px; padding-top: 14px;
+    border-top: 1px solid var(--line); text-align: left; min-width: 0; }
+  .fr-today h4 { margin: 0; font-size: 14px; font-weight: 650; }
+  .fr-today h5 { margin: 6px 0 6px; font-size: 12.5px; font-weight: 650; color: var(--muted); }
+  .fr-tl, .fr-later { display: flex; flex-direction: column; gap: 6px; }
+  .fr-tl:empty, .fr-later:empty { display: none; }
+  .fr-timer { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--body); }
+  .fr-timer b { color: var(--accent); font-variant-numeric: tabular-nums; font-weight: 650; }
+  .fr-tasks, .fr-rem, .fr-notes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px;
+    font-size: 13.5px; line-height: 1.35; }
+  .fr-tasks li { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .fr-tasks li span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .fr-tasks li.done span { color: var(--muted); text-decoration: line-through; }
+  .fr-check { width: 18px; height: 18px; flex: none; padding: 0; border-radius: 50%; border: 2px solid var(--muted); background: none; }
+  .fr-tasks li.done .fr-check { background: var(--accent); border-color: var(--accent); }
+  .fr-check:focus-visible, .fr-drop:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .fr-drop { flex: none; border: 0; background: none; color: var(--faint); font-size: 17px; line-height: 1; padding: 0 2px; }
+  .fr-drop:hover { color: var(--bad); }
+  .fr-none { color: var(--muted); }
+  .fr-rem b { color: var(--accent); font-weight: 600; }
+  .fr-notes li { color: var(--body); }
+  .fr-add-task .in { width: 100%; min-width: 0; height: 34px; font-size: 13.5px; }
+  .fr-links .linkbtn { white-space: nowrap; }
   .face { font: 400 42px/1.1 "DejaVu Sans", "Noto Sans", "Segoe UI Symbol", "Apple Symbols", system-ui, sans-serif; white-space: nowrap; }
   .fr-model { font-size: 13.5px; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .fr-model.busy { color: var(--accent); }
@@ -751,7 +775,8 @@
     .grid.cams { --min: 220px; }
     .fr-view { grid-template-columns: minmax(0, 1fr); height: auto; min-height: 0; gap: 14px; }
     .fr-face { flex-direction: row; flex-wrap: wrap; justify-content: flex-start; gap: 8px 14px; padding: 12px 16px; text-align: left; }
-    .fr-links { flex-direction: row; gap: 14px; }
+    .fr-links { flex-direction: row; flex-wrap: wrap; gap: 6px 16px; }
+    .fr-today { flex-basis: 100%; }
     .face { font-size: 26px; }
     .fr-log { max-height: 56vh; min-height: 200px; }
     .dr { gap: 12px; }
@@ -2629,7 +2654,11 @@ function drawFriend() {
   links.append(show, atWork);
   const agent = el("div", "fr-agent", "");
   agent.hidden = true;
-  face.append(el("div", "face", FR.data ? FR.data.face : "(•‿•)"), el("div", "fr-model", ""), agent, links);
+  const day = button("linkbtn", "Show your day on the Pi");          // (the Bot's Today page)
+  day.onclick = () => friendDo("today");
+  links.append(day);
+  face.append(el("div", "face", FR.data ? FR.data.face : "(•‿•)"), el("div", "fr-model", ""), agent, links,
+    el("div", "fr-today"));
   const chat = el("section", "fr-chat");
   chat.hidden = true;
   const log = el("div", "fr-log");
@@ -2747,6 +2776,7 @@ function renderFriend() {
   aloud.hidden = !v.id;
   aloud.textContent = v.speaking ? "Stop talking" : "Say it out loud";
   wrap.querySelector(".fr-snap").hidden = !d.camera;
+  drawToday(wrap.querySelector(".fr-today"), d.today);
   const setup = !d.ready || FR.setup;
   wrap.querySelector(".fr-chat").hidden = setup;
   wrap.querySelector(".fr-setup").hidden = !setup;
@@ -2775,6 +2805,83 @@ function drawFriendLog(log, d) {
     log.append(t);
   }
   if (first || atEnd) log.scrollTop = log.scrollHeight;
+}
+// your day, beside the bot: its timers counting down, your list (ticked off here too), reminders and notes
+function drawToday(box, t) {
+  if (!box || !t) return;
+  FR.timers = t.timers.map((x) => Object.assign({}, x, { until: Date.now() + x.left * 1000 }));
+  if (!box.dataset.made) {                                   // its parts, made once (the box you type in kept as you type)
+    box.dataset.made = "1";
+    const f = el("form", "fr-add-task");
+    const add = el("input", "in");
+    add.placeholder = "Add to your list"; add.maxLength = 120; add.autocomplete = "off"; add.enterKeyHint = "done";
+    add.setAttribute("aria-label", "Add to your list");
+    f.append(add);
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const v = add.value.trim();
+      if (!v) return;
+      try { await pi("friend", { do: "task", text: v }); add.value = ""; } catch (err) { toast(err.message); }
+      friendPoll(libToken, 150);
+    };
+    box.append(el("h4", "", "Today"), el("div", "fr-tl"), el("ul", "fr-tasks"), f, el("div", "fr-later"));
+  }
+  const sig = JSON.stringify([t.tasks, t.reminders, t.notes, t.timers.map((x) => [x.name, x.kind, x.secs])]);
+  if (sig === box.dataset.sig) { tickTimers(box); return; }
+  box.dataset.sig = sig;
+  const tl = box.querySelector(".fr-tl");
+  tl.textContent = "";
+  FR.timers.forEach((x, i) => {
+    const r = el("div", "fr-timer");
+    r.dataset.i = i;
+    r.append(el("span", "", x.name), el("b", "fr-left", ""));
+    tl.append(r);
+  });
+  const ul = box.querySelector(".fr-tasks");
+  ul.textContent = "";
+  for (const x of t.tasks) {
+    const li = el("li", x.done ? "done" : "");
+    const tick = button("fr-check", "");
+    tick.setAttribute("role", "checkbox"); tick.setAttribute("aria-checked", String(x.done));
+    tick.setAttribute("aria-label", x.text);
+    tick.onclick = () => taskDo(x.done ? "untick" : "tick", x);
+    const drop = button("fr-drop", "×");
+    drop.title = "Take it off your list"; drop.setAttribute("aria-label", "Take " + x.text + " off your list");
+    drop.onclick = () => taskDo("drop", x);
+    li.append(tick, el("span", "", x.text), drop);
+    ul.append(li);
+  }
+  if (!t.tasks.length) ul.append(el("li", "fr-none", "Nothing on your list"));
+  const later = box.querySelector(".fr-later");
+  later.textContent = "";
+  if (t.reminders.length) {
+    later.append(el("h5", "", "Reminders"));
+    const rs = el("ul", "fr-rem");
+    for (const r of t.reminders) { const li = el("li"); li.append(el("b", "", r.when), document.createTextNode(" " + r.text)); rs.append(li); }
+    later.append(rs);
+  }
+  if (t.notes.length) {
+    later.append(el("h5", "", "Notes"));
+    const ns = el("ul", "fr-notes");
+    for (const n of t.notes) ns.append(el("li", "", n));
+    later.append(ns);
+  }
+  tickTimers(box);
+}
+function tickTimers(box) {
+  for (const r of box.querySelectorAll(".fr-timer")) {
+    const x = (FR.timers || [])[Number(r.dataset.i)];
+    if (!x) continue;
+    const left = Math.max(0, Math.ceil((x.until - Date.now()) / 1000)), two = (n) => String(n).padStart(2, "0");
+    r.querySelector(".fr-left").textContent = left >= 3600
+      ? Math.floor(left / 3600) + ":" + two(Math.floor(left % 3600 / 60)) + ":" + two(left % 60)
+      : Math.floor(left / 60) + ":" + two(left % 60);
+  }
+}
+setInterval(() => { const b = $("#content .fr-today"); if (b && FR.timers && FR.timers.length) tickTimers(b); }, 1000);
+async function taskDo(what, x) {
+  try { await pi("friend", { do: what, text: x.text, t: x.t }); } catch (e) { toast(e.message); }
+  friendPoll(libToken, 150);
 }
 function friendBubble(x, log) {
   const b = el("div", "bub " + (x.who === "you" ? "you" : "bot") + (x.kind === "error" ? " error" : ""));
@@ -2859,7 +2966,7 @@ async function putPicture(f) {
 const CHATTER = [["30", "Every 30 minutes"], ["60", "Every hour"], ["0", "Never"]];
 function drawFriendSetup(box, d) {
   const v = d.voice || { list: [] };
-  const sig = JSON.stringify([d.server, d.model, d.name, d.chatter, d.models, d.ready, FR.setup,
+  const sig = JSON.stringify([d.server, d.model, d.name, d.style, d.chatter, d.models, d.ready, FR.setup,
     v.id, v.speak, v.getting, v.can, v.piper, v.list.map((x) => x.here)]);
   const status = box.querySelector(".fr-status");
   if (status) status.textContent = d.modelsStatus || "";
@@ -2911,6 +3018,8 @@ function drawFriendSetup(box, d) {
   nf.append(nl, nrow);
   nf.onsubmit = (e) => { e.preventDefault(); name.blur(); friendSet({ name: name.value.trim() }); };
   box.append(nf);
+  if (d.styles) box.append(choose("How it talks", "frStyle", d.styles.map(([k]) => k), d.style, "",
+    (x) => friendSet({ style: x }), Object.fromEntries(d.styles)));
   const often = CHATTER.map(([v]) => v);
   const names = Object.fromEntries(CHATTER);
   if (!often.includes(String(d.chatter))) { often.push(String(d.chatter)); names[String(d.chatter)] = "Every " + d.chatter + " minutes"; }
@@ -2965,6 +3074,7 @@ async function friendDo(what) {
     await pi("friend", { do: what });
     if (what === "open") toast("Your bot is on the Pi's screen");
     if (what === "work") toast("Your bot is at work on the Pi's screen");
+    if (what === "today") toast("Your day is on the Pi's screen");
   } catch (e) { toast(e.message); }
   FR.sig = "";
   friendPoll(libToken, 250);

@@ -5,13 +5,15 @@ import json
 import os
 import random
 import shutil
+import socket
 import subprocess
 import threading
 import time
+import uuid
 
 from .theme import MUTED, set_accent, TEXT
-from .config import (home_dir, HOME_STYLE_WAS, SCREEN_MODES, SETTINGS_DEFAULT, SETTINGS_GONE, STATE_FILE, TURN_DEGREES,
-                     web_private)
+from .config import (clean_name, home_dir, HOME_STYLE_WAS, SCREEN_MODES, SETTINGS_DEFAULT, SETTINGS_GONE, STATE_FILE,
+                     TURN_DEGREES, WEB_PORT, web_private)
 from .util import classify, clock, FILE_KINDS, find_files, IMAGE_EXTS, item, looks_like_text, title_of
 from .system import SysHistory, has_desktop, is_pc, on_pc, system_info, system_numbers, system_stopping
 from .bluetooth import Bluetooth
@@ -23,11 +25,12 @@ from .library import (
     SLIDESHOW_SECS, VOLUME_STEP)
 from .weather import Weather
 from .documents import doc_text
-from .cameras import CAM_SHOT_SHOW, Camera
-from .nearby import PieInk
+from .cameras import CAM_BEACON, CAM_SHOT_SHOW, Camera
+from .nearby import PEER_KEEP, PEER_SAYS, PieInk
 from .voice import Voice
 from .listen import Ears, LISTEN_TRIES
 from .bot import Friend, FRIEND_PAGES
+from .assist import Assist
 from .coder import AgentPrompts, Coder, CODER_FPS
 from .crypto import Crypto
 from .stocks import Stocks
@@ -62,6 +65,7 @@ from .screens.pihole import PiholeScreen
 from .screens.sysdash import SysDashScreen
 from .screens.camera import CameraScreen
 from .screens.bot import BotScreen
+from .screens.assist import AssistScreen
 from .screens.coder import CoderScreen
 from .screens.sims import SimScreen
 from .screens.snake import SnakeScreen
@@ -86,7 +90,7 @@ UPDATE_STEP = 0.233            # seconds between the update screen's dots lighti
 
 class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, JellyfinScreen,
             PhotoScreen, ReadingScreen, ChannelScreen, RadioScreen, FinanceScreen,
-            RemoteScreen, LightsScreen, CameraScreen, BotScreen, CoderScreen, SimScreen,
+            RemoteScreen, LightsScreen, CameraScreen, BotScreen, AssistScreen, CoderScreen, SimScreen,
             SnakeScreen, GameScreen, SettingsScreen, BluetoothScreen, ControllerScreen, WeatherScreen, WebScreen,
             ComputersScreen, ProgScreen, PiholeScreen, SysDashScreen, SketchScreen, HaSettingsScreen,
             WebSettingsScreen, WwwScreen, ChromiumScreen, RestScreen):
@@ -252,10 +256,22 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.friend_more = None      # the Bot page's X menu, when open: {"sel": n}
         self.friend_pics = {}        # a picture's id -> (it, its rounded corners) as the Bot page shows it
         self.friend_work_shown = None    # what the chat said about your coding agent, last it was drawn
+        self.assist = Assist()       # what you ask the bot to do: your list, reminders, timers (screens/assist.py)
+        self.assist_next = 0.0       # ...when it next looks for one come due
+        self.assist_shown = 0        # ...the second the Today page's timers were last drawn for
+        self.alarm_until = 0.0       # ...one just come due: its face looks up till then
+        self.today_sel = 0           # the thing picked on the Today page
+        self.face_next = 0.0         # the bot's face: when it next looks different (a blink, a glance)
+        self.face_step = False       # ...and it's to be drawn again (just it)
+        self.face_shot = None        # ...the page it was drawn on: (it, where the face is, the screen's count, where)
         self.pie = PieInk(cameras=self.pie_cameras)   # PiE-ink on another Pi: asked first for what it has
         self.camera.on_pie = self.pie.hear
+        self.share_id = uuid.uuid4().hex[:12]   # this Pietato, to your other Pietatos (share_loop): its beacon's its own
+        self.pie.own = self.share_id
+        self.pie.peers_on = lambda: self.setting("share") != "Off"
+        self.sharing = False         # ...saying it's there, every few seconds
         self.crypto = Crypto(self.pie)   # the Finance tab's coins (CoinGecko)
-        self.stocks = Stocks()       # ...and its stocks (Yahoo Finance)
+        self.stocks = Stocks(self.pie)   # ...and its stocks (Yahoo Finance; another Pietato asked first)
         self.fin_card = 0            # the card on the Finance tab: its stocks', then its coins'
         self.fin_auto = False
         self.fin_list = False        # the Finance tab shows your stocks and coins and the search for more (Y)
@@ -527,6 +543,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             return max(0.0, min(0.25, self.lofi_next - time.monotonic()))   # (the lofi art's next frame)
         if self.on_sim_page() and self.sim_opts is None:      # (its next frame; the Clock's: a second or so off)
             return max(0.0, min(0.25 if self.sim_paced() is not None else 0.05, self.sim_next - time.monotonic()))
+        if self.on_face_page():                        # (the bot's face: as it next changes)
+            return max(0.0, min(0.25, self.face_next - time.monotonic()))
         return 0.1 if self.on_camera_page() or self.on_coder_page() else 0.25
 
     def load_tab(self, i):
@@ -1266,6 +1284,75 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         """job() done on media mode's own thread, at its next tick (from another thread: the web page's, say)."""
         self.soon_jobs.append(job)
 
+    # -- your other Pietatos: what's fetched, shared (nearby.py asks them) -------------------------------------------
+    def share_start(self):
+        """This Pietato says it's there on your network every few seconds, as PiE-ink does (Settings > Share with other
+        Pietatos: On), so your other Pietatos ask it for what it has fetched before they fetch it themselves."""
+        if self.sharing:
+            return
+        self.sharing = True
+        threading.Thread(target=self.share_loop, daemon=True, name="share").start()
+
+    def share_loop(self):
+        host = clean_name(socket.gethostname(), 40)
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        while self.sharing:
+            if self.setting("share") != "Off":
+                msg = json.dumps({"pietato": 1, "id": self.share_id, "port": WEB_PORT, "host": host}).encode()
+                try:
+                    s.sendto(msg, ("255.255.255.255", CAM_BEACON))
+                except OSError:
+                    pass                               # (no network yet: next time)
+            time.sleep(PEER_SAYS)
+
+    def web_shared(self):
+        """GET /api/shared (from your network only: webui.py): what this Pietato has fetched, for your other
+        Pietatos, in the shape PiE-ink shares its own (with its stocks too, each coin's and stock's charts, and the
+        weather's hours), each with how old it is. Nothing older than PEER_KEEP. (The control server's thread.)"""
+        if self.setting("share") == "Off":
+            return {"ok": False, "error": "Sharing is off"}
+        now = time.time()
+
+        def graphs(hist, key):
+            out = []
+            for k, h in list(hist.items()):
+                name, _, days = k.rpartition(":")
+                if name == key and days.isdigit() and len(h.get("v") or []) >= 2 and now - h.get("t", 0) <= PEER_KEEP:
+                    out.append({"days": int(days), "v": h["v"], "age": round(now - h["t"], 1)})
+            return out
+        coins = []
+        for cid, e in list(self.crypto.quotes.items()):
+            d = e.get("d") or {}
+            if d.get("price") is None or now - e.get("t", 0) > PEER_KEEP:
+                continue
+            gs = graphs(self.crypto.hist, cid)
+            first = min(gs, key=lambda g: g["age"]) if gs else None    # (PiE-ink's one chart: the newest)
+            coins.append({"id": cid, "symbol": d.get("symbol") or "", "name": d.get("name") or "",
+                          "age": round(now - e["t"], 1),
+                          "data": {"price": d["price"], "ath": d.get("ath"), "market_cap": d.get("market_cap"),
+                                   "rank": d.get("rank"), "circulating_supply": d.get("circulating_supply"),
+                                   "sentiment_up": d.get("sentiment_up"), "high_24h": d.get("high_24h"),
+                                   "low_24h": d.get("low_24h"), "change": {"24h": d.get("change_24h")}},
+                          "graph": first["v"] if first else [], "graph_days": first["days"] if first else None,
+                          "graph_age": first["age"] if first else None, "graphs": gs})
+        stocks = []
+        for sym, e in list(self.stocks.quotes.items()):
+            d = e.get("d") or {}
+            if d.get("price") is None or now - e.get("t", 0) > PEER_KEEP:
+                continue
+            stocks.append({"symbol": sym, "age": round(now - e["t"], 1), "data": dict(d),
+                           "graphs": graphs(self.stocks.hist, sym)})
+        weather = None
+        w, loc = self.weather, self.setting("location") or {}
+        if w.data and w.data.get("temp") is not None and loc.get("lat") is not None and now - w.t <= PEER_KEEP:
+            weather = {"lat": loc["lat"], "lon": loc["lon"], "units": w.data.get("units"), "age": round(now - w.t, 1),
+                       "place": ", ".join(x for x in (loc.get("name"), loc.get("admin")) if x),
+                       "country": loc.get("country") or "", "data": w.data, "nws": w.nws,
+                       "nws_age": round(now - w.t, 1) if w.nws else None}
+        return {"ok": True, "from": "pietato", "id": self.share_id, "at": now, "coins": coins, "stocks": stocks,
+                "weather": weather}
+
     def tick(self):
         """Called every loop: track position, move on when something ends."""
         now = time.monotonic()
@@ -1366,6 +1453,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.listen_arrived()
         if self.ears_said:
             self.bot_heard(self.ears_said.pop(0))
+        self.assist_tick(now)                          # (a timer or a reminder come due: said)
+        self.face_tick(now)                            # (the bot's face: a blink, a glance, talking)
         self.listen_tick(now)                          # (a microphone plugged in or taken out: Listens, Auto)
         self.ears_tick()
         self.rest_tick(now)                            # (the screen dark, to save the battery, or awake again)
@@ -1903,7 +1992,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
     def flush(self):
         """Redraw the screen if something changed (never over a video, or 'Shutting down'): just the camera's
         picture, if that's all that did."""
-        if not (self.active and (self.dirty or self.cam_fresh or self.update_step) and self.fb) \
+        if not (self.active and (self.dirty or self.cam_fresh or self.update_step or self.face_step) and self.fb) \
                 or time.monotonic() < self.halting or self.resting:
             return
         if self.proc_owns_screen():
@@ -1915,13 +2004,19 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
                 self.render_update(dots_only=True)
             self.taps_kept(shown)
             return
+        if not self.dirty and self.face_step and not self.cam_fresh:   # (the bot's face: just it)
+            self.face_step = False
+            if self.view == "list" and self.on_face_page():
+                self.render_face()
+            self.taps_kept(shown)
+            return
         if not self.dirty:
             self.cam_fresh = False
             if self.view == "list" and self.on_camera_page():
                 self.render_camera(picture_only=True)
             self.taps_kept(shown)
             return
-        self.dirty = self.cam_fresh = self.update_step = False
+        self.dirty = self.cam_fresh = self.update_step = self.face_step = False
         if self.view == "update":
             self.update_drawn = time.monotonic()
         draw = {"home": self.render_home, "keys": self.render_keys, "help": self.render_help,

@@ -46,7 +46,7 @@ CAM_PAGE_LINKS = 8       # pictures on a page tried, at most
 CAM_SNIFF = 4096         # bytes looked at, when a camera doesn't say what it sends
 CAM_LINK_WORDS = re.compile(r"stream|video|mjpe?g|jpe?g|snap|shot|feed|cam|frame|image|live|capture|picture|cgi",
                             re.I)
-CAM_BEACON = 5151        # PiE-inks and camera.py say they're there, a few times a minute
+CAM_BEACON = 5151        # PiE-inks, camera.py and Pietatos say they're there, a few times a minute
 CAM_FOUND_FOR = 30       # a camera gone quiet this long drops off "On your network"
 CAM_FOUND_KEEP = 16      # at most this many cameras heard on the network are kept in mind
 USB_CAMERA = "USB camera"   # what a USB camera plugged into this Pi answers as (camera.py's OwnCameras)
@@ -927,11 +927,11 @@ class Camera:
                 pass
 
     def heard(self, ip, data):
-        """One beacon: a PiE-ink or camera.py saying it's there."""
+        """One beacon: a PiE-ink, camera.py or another Pietato saying it's there."""
         msg = json.loads(data.decode())
         if not isinstance(msg, dict):
             return
-        if msg.get("pie") == 1:
+        if msg.get("pie") == 1 or msg.get("pietato") == 1:
             self.on_pie(ip, msg)
         caps = msg.get("caps")
         if msg.get("gpicam") == 1:

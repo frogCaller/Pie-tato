@@ -3,6 +3,7 @@ this Pi itself, a little at a time."""
 import http.client
 import json
 import os
+import random
 import re
 import threading
 import time
@@ -75,7 +76,9 @@ class Stocks:
     """Stock prices and charts from Yahoo Finance, fetched on a thread of its own and kept on disk, so the
     Finance tab shows the last numbers it had, with their age, when there's no WiFi."""
 
-    def __init__(self):
+    def __init__(self, pie=None):
+        self.pie = pie                # another Pietato (nearby.py): asked first for what it has
+        self.late = random.uniform(5, 30)   # (with other Pietatos about: seconds past due before this one fetches)
         self.stocks = [{"symbol": s, "name": n} for s, n in STOCKS]
         self.quotes, self.hist = {}, {}
         self.days = 1
@@ -289,7 +292,33 @@ class Stocks:
         e = self.quotes.get(key[1]) if key[0] == "quote" else self.hist.get(f"{key[1]}:{key[2]}")
         if ttl and e and time.time() - e.get("tried", 0) < 60:
             return False                               # failed a moment ago: give it a minute
-        return not e or time.time() - e.get("t", 0) > ttl
+        late = self.late if ttl and self.pie is not None and self.pie.peers() else 0
+        return not e or time.time() - e.get("t", 0) > ttl + late
+
+    def from_peer(self, job, ttl):
+        """Another Pietato's numbers for a job, when they're newer than what's here and not too old: taken (True).
+        False: Yahoo is asked."""
+        if self.pie is None or not self.pie.peers():
+            return False
+        try:
+            kind = "stock" if job[0] == "quote" else "stock_chart"
+            got = self.pie.have(kind, job[1], None if job[0] == "quote" else job[2], fresh=5)
+        except Exception:
+            return False
+        if not got or not got[2]:
+            return False
+        value, age, _ = got
+        now = time.time()
+        store, key = (self.quotes, job[1]) if job[0] == "quote" else (self.hist, f"{job[1]}:{job[2]}")
+        if age >= (ttl or 60) or now - age <= (store.get(key) or {}).get("t", 0) + 1:
+            return False                               # too old, or no newer than what's here: this one fetches it
+        with self.lock:
+            store[key] = {"t": now - age, "d": dict(value)} if job[0] == "quote" else {"t": now - age, "v": value}
+        if job[0] == "quote":
+            s = self.stock(job[1])
+            if s in self.stocks and value.get("name"):
+                s["name"] = value["name"]
+        return True
 
     def next_job(self):
         jobs = []
@@ -325,10 +354,12 @@ class Stocks:
             if not got:
                 time.sleep(1)
                 continue
-            job, _ = got
+            job, ttl = got
             err = None
             try:
-                if job[0] == "quote":
+                if self.from_peer(job, ttl):
+                    pass                               # another Pietato had it: Yahoo isn't asked
+                elif job[0] == "quote":
                     self.fetch_quote(job[1])
                 else:
                     self.fetch_hist(job[1], job[2])

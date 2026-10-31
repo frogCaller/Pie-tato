@@ -1,5 +1,5 @@
-"""Another Pi on your network that has already fetched the weather and prices: asked first, so the
-same things aren't fetched twice."""
+"""Another Pi on your network that has already fetched the weather and prices (a PiE-ink, or another Pietato): asked
+first, so the same things aren't fetched twice."""
 import ipaddress
 import json
 import os
@@ -9,7 +9,7 @@ import threading
 import time
 import urllib.parse
 
-from .config import CACHE_DIR, clean_name, read_config, settings_glob
+from .config import CACHE_DIR, clean_name, read_config, settings_glob, WEB_PORT
 from .util import UA
 from .net import cam_address, cam_host, cam_key, CamHTTP, CamHTTPS, read_capped
 
@@ -23,6 +23,9 @@ PIE_RETRY = 120                  # seconds before a PiE-ink that didn't answer i
 PIE_NOT = 3600                   # ...and before an address that isn't a PiE-ink is
 PIE_NEAR = 25                    # km: its weather is yours when it's for somewhere this close
 PIE_NWS_AGE = 3 * 3600           # its worded forecast is used while it's younger than this
+PEER_SAYS = 20                   # seconds between this Pietato saying it's there, for your other Pietatos
+PEER_KEEP = 2 * 3600             # what it shares: fetched no longer ago than this
+TICKER = re.compile(r"[A-Z0-9^][A-Z0-9.^=_-]{0,19}")    # a stock's symbol, as Yahoo writes it (stocks.py's SYMBOL)
 
 
 def _fnum(v, lo=None, hi=None):
@@ -122,7 +125,7 @@ def pie_weather(w):
             "data": {"temp": deg(d.get("temp")), "feels": deg(d.get("feels")), "humidity": _fnum(d.get("humidity"), 0, 100),
                      "wind": _fnum(d.get("wind"), 0, 500), "wind_dir": _fnum(d.get("wind_dir"), 0, 360),
                      "code": code(d.get("code")), "is_day": d.get("is_day") is not False, "units": units,
-                     "hours": [], "days": days},
+                     "hours": peer_hours(d.get("hours"), deg), "days": days},
             "nws": [n for n in nws if n[0] and n[1]], "nws_age": _age(w.get("nws_age"))}
 
 
@@ -148,7 +151,56 @@ def pie_coin(x):
     graph = [usd(v) for v in (x.get("graph")[:5000] if isinstance(x.get("graph"), list) else [])]
     days = _fnum(x.get("graph_days"), 1, 3650)
     return x["id"], {"q": q, "age": age, "graph": graph if None not in graph else [],
-                     "graph_days": None if days is None else int(days), "graph_age": _age(x.get("graph_age"))}
+                     "graph_days": None if days is None else int(days), "graph_age": _age(x.get("graph_age")),
+                     "graphs": peer_graphs(x.get("graphs"), usd)}
+
+
+def peer_graphs(graphs, num):
+    """Another Pietato's charts of one coin or stock, one for each window: {days: (prices, age)}."""
+    out = {}
+    for g in graphs[:8] if isinstance(graphs, list) else []:
+        if not isinstance(g, dict) or not isinstance(g.get("v"), list):
+            continue
+        days, age = _fnum(g.get("days"), 1, 3650), _age(g.get("age"))
+        v = [num(p) for p in g["v"][:5000]]
+        if days is not None and age is not None and len(v) >= 2 and None not in v:
+            out[int(days)] = (v, age)
+    return out
+
+
+def peer_stock(x):
+    """One of another Pietato's stocks: (its symbol, {"q": its quote as the Finance tab keeps it, "age", "graphs"}),
+    or None. Numbers no stock has are left out."""
+    if not isinstance(x, dict) or not isinstance(x.get("data"), dict) or not isinstance(x.get("symbol"), str) \
+            or not TICKER.fullmatch(x["symbol"]):
+        return None
+    d, age = x["data"], _age(x.get("age"))
+
+    def money(v):
+        return _fnum(v, 0, 1e13)
+    if age is None or money(d.get("price")) is None:
+        return None
+    q = {"symbol": x["symbol"], "name": clean_name(d.get("name"), 60), "price": money(d.get("price")),
+         "prev_close": money(d.get("prev_close")), "change_1d": _fnum(d.get("change_1d"), -100, 1e6),
+         "high_1d": money(d.get("high_1d")), "low_1d": money(d.get("low_1d")), "volume": _fnum(d.get("volume"), 0, 1e15),
+         "high_52w": money(d.get("high_52w")), "low_52w": money(d.get("low_52w")),
+         "currency": clean_name(d.get("currency"), 8), "kind": clean_name(d.get("kind"), 20),
+         "exchange": clean_name(d.get("exchange"), 24), "time": _fnum(d.get("time"), 0, 1e11),
+         "tz": clean_name(d.get("tz"), 8), "gmtoffset": int(_fnum(d.get("gmtoffset"), -86400, 86400) or 0),
+         "open_at": _fnum(d.get("open_at"), 0, 1e11), "close_at": _fnum(d.get("close_at"), 0, 1e11)}
+    return x["symbol"], {"q": q, "age": age, "graphs": peer_graphs(x.get("graphs"), money)}
+
+
+def peer_hours(hours, deg):
+    """Another Pietato's forecast's hours (PiE-ink has none)."""
+    out = []
+    for h in hours[:24] if isinstance(hours, list) else []:
+        if isinstance(h, dict) and isinstance(h.get("time"), str) and \
+                re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d", h["time"]):
+            code, rain = _fnum(h.get("code"), 0, 99), _fnum(h.get("rain"), 0, 100)
+            out.append({"time": h["time"], "temp": deg(h.get("temp")), "code": None if code is None else int(code),
+                        "rain": None if rain is None else int(rain), "is_day": h.get("is_day") is not False})
+    return out
 
 
 def pie_words(text):
@@ -157,18 +209,22 @@ def pie_words(text):
 
 
 class PieInk:
-    """PiE-ink on another Pi of yours. Before the weather or a coin's price or chart is fetched
+    """PiE-ink on another Pi of yours, or another Pietato. Before the weather or a coin's price or chart is fetched
     from the internet, it's asked what it has already (GET /api/shared: what it has fetched and how
     old each is), and what it has is used when it's fresh and for the same place or coin, so the
     two Pis don't both fetch the same thing. It's found by itself: PiE-ink says it's there on the network
     every few seconds, and a camera in camera.txt may be one. pieink.txt can name it
     (pieink = 192.168.1.30) or turn this off (pieink = off). It's only asked: nothing is sent to it,
-    and it fetches nothing for us. Nothing on the screen or in the README mentions it: it's a
-    little extra for anyone who runs both."""
+    and it fetches nothing for us.
+    Another Pietato says it's there the same way (Settings > Share with other Pietatos), and shares its stocks too,
+    each coin's and stock's charts and the weather's hours; what one fetches, the others use (whichever's due first
+    fetches it: media.py's share_loop, web_shared)."""
 
     def __init__(self, cameras=lambda: ([], [])):
         self.cameras = cameras        # () -> (cameras that answered as PiE-ink, camera.txt's addresses)
-        self.heard = {}               # its address -> {"host", "seen"}: its beacon
+        self.own = ""                 # this Pietato's own name for itself (its own beacon isn't another's)
+        self.peers_on = lambda: True  # Settings > Share with other Pietatos: On
+        self.heard = {}               # its address -> {"host", "seen", "peer"}: its beacon (peer: another Pietato's)
         self.bad = {}                 # an address -> when it may be asked again
         self.answer = (0.0, None)     # (when, what it had): see fetch()
         self.remembered = None        # {"url", "host"}: the one that answered last (kept on disk)
@@ -186,14 +242,14 @@ class PieInk:
                 got = json.load(f)
             url = pie_addr(got.get("url"))
             if url:
-                self.remembered = {"url": url, "host": clean_name(got.get("host"), 40)}
+                self.remembered = {"url": url, "host": clean_name(got.get("host"), 40), "peer": got.get("peer") is True}
         except (OSError, ValueError, AttributeError):
             pass
 
-    def remember(self, url, host):
-        if self.remembered == {"url": url, "host": host}:
+    def remember(self, url, host, peer=False):
+        if self.remembered == {"url": url, "host": host, "peer": peer}:
             return
-        self.remembered = {"url": url, "host": host}
+        self.remembered = {"url": url, "host": host, "peer": peer}
         try:
             os.makedirs(CACHE_DIR, exist_ok=True)
             with open(self.path + ".tmp", "w") as f:
@@ -210,8 +266,11 @@ class PieInk:
         return pie_addr(v) or ""
 
     def hear(self, ip, msg):
-        """A PiE-ink's beacon: it's there (the Camera tab's listener hears them all)."""
-        port = msg.get("port") or PIE_PORT
+        """A PiE-ink's beacon, or another Pietato's: it's there (the Camera tab's listener hears them all)."""
+        peer = msg.get("pietato") == 1
+        if peer and (not self.peers_on() or not isinstance(msg.get("id"), str) or msg["id"] == self.own):
+            return
+        port = msg.get("port") or (WEB_PORT if peer else PIE_PORT)
         if isinstance(port, str) and port.isdigit():
             port = int(port)
         if isinstance(port, bool) or not isinstance(port, int) or not 0 < port < 65536:
@@ -223,7 +282,7 @@ class PieInk:
         url, now = f"http://{ip}:{port}", time.time()
         with self.lock:
             back = now - (self.heard.get(url) or {}).get("seen", 0) > 60     # new, or back after a while
-            self.heard[url] = {"host": clean_name(msg.get("host"), 40) or ip, "seen": now}
+            self.heard[url] = {"host": clean_name(msg.get("host"), 40) or ip, "seen": now, "peer": peer}
             if len(self.heard) > 16:
                 for old in sorted(self.heard, key=lambda u: self.heard[u]["seen"])[:len(self.heard) - 16]:
                     del self.heard[old]
@@ -237,16 +296,15 @@ class PieInk:
         pieink.txt names; else the one that answered last time, those heard lately and cameras that
         answered as PiE-ink; and only when none of those is answering, the cameras in camera.txt (a
         PiE-ink's camera is at its address), each tried once an hour at most."""
-        s = self.setting()
-        if s == "off":
-            return [], set()
-        if s:
+        s, peers = self.setting(), self.peers_on()
+        if s and s != "off":
             return [s], set()
         now = time.time()
         with self.lock:
             heard = [u for u, h in sorted(self.heard.items(), key=lambda kv: -kv[1]["seen"])
-                     if now - h["seen"] <= 60]
-        sure, maybe = self.cameras()
+                     if now - h["seen"] <= 60 and (peers if h.get("peer") else s != "off")]
+        rem = self.remembered
+        rem = [rem["url"]] if rem and (peers if rem.get("peer") else s != "off") else []
 
         def tidy(addrs):
             out, seen = [], set()
@@ -256,12 +314,23 @@ class PieInk:
                     seen.add(cam_key(u))
                     out.append(u)
             return out
-        sure = tidy(([self.remembered["url"]] if self.remembered else []) + heard + list(sure))
+        if s == "off":                                 # (PiE-ink off: your other Pietatos only)
+            return tidy(rem + heard), set()
+        sure, maybe = self.cameras()
+        sure = tidy(rem + heard + list(sure))
         if any(self.bad.get(cam_key(u), 0) <= now for u in sure):
             return sure, set()
         mine = {cam_key(u) for u in sure}               # (none of those answering lately: camera.txt's too)
         maybe = [u for u in tidy(maybe) if cam_key(u) not in mine]
         return sure + maybe, {cam_key(u) for u in maybe}
+
+    def peers(self):
+        """Another Pietato has said it's there lately (and sharing's on)."""
+        if not self.peers_on():
+            return False
+        now = time.time()
+        with self.lock:
+            return any(h.get("peer") and now - h["seen"] <= 60 for h in self.heard.values())
 
     def known(self):
         """A PiE-ink has answered, or said it's there, lately."""
@@ -272,17 +341,20 @@ class PieInk:
             heard = any(now - h["seen"] <= 60 for h in self.heard.values())
         return heard and self.setting() != "off"
 
-    def ask(self):
-        """What PiE-ink has: the answer from a moment ago, or a new one. None when there's no
-        PiE-ink to ask or it isn't answering (or another question to it is taking long)."""
+    def ask(self, fresh=None):
+        """What PiE-ink has: the answer from a moment ago (no older than fresh seconds, when that's given), or a new
+        one. None when there's no PiE-ink to ask or it isn't answering (or another question to it is taking long)."""
+        fresh = PIE_FRESH if fresh is None else fresh
         at, got = self.answer
-        if time.time() - at < PIE_FRESH:
+        if got and got.get("peer") and not self.peers_on():
+            at, got = self.answer = (0.0, None)        # (another Pietato's, and sharing's off now)
+        if time.time() - at < fresh:
             return got
         if not self.asking.acquire(timeout=PIE_TIMEOUT * 4):
             return None
         try:
             at, got = self.answer
-            if time.time() - at < PIE_FRESH:
+            if time.time() - at < fresh:
                 return got
             got, start, tried = None, time.monotonic(), set()
             for _ in range(2):                         # (again when none answered: camera.txt's come in then)
@@ -354,25 +426,33 @@ class PieInk:
             return leave(PIE_RETRY)
         if not isinstance(got, dict) or got.get("ok") is not True:
             return leave(PIE_NOT)
+        peer = got.get("from") == "pietato"            # (another Pietato: its stocks too)
+        if peer and (got.get("id") == self.own or not self.peers_on()):
+            return leave(PIE_NOT)                      # (this one, asked by its address; or sharing's off here)
         try:
-            coins = {}
+            coins, stocks = {}, {}
             for x in got.get("coins")[:100] if isinstance(got.get("coins"), list) else []:
                 c = pie_coin(x)
                 if c:
                     coins[c[0]] = c[1]
+            for x in got.get("stocks")[:100] if peer and isinstance(got.get("stocks"), list) else []:
+                c = peer_stock(x)
+                if c:
+                    stocks[c[0]] = c[1]
             weather = pie_weather(got.get("weather"))
         except Exception:                              # (something in it no PiE-ink would send)
             return leave(PIE_RETRY)
         with self.lock:
             host = (self.heard.get(url) or {}).get("host") or cam_host(url)
-        self.remember(url, host)
-        return {"at": time.time(), "url": url, "host": host, "weather": weather, "coins": coins}
+        self.remember(url, host, peer)
+        return {"at": time.time(), "url": url, "host": host, "weather": weather, "coins": coins, "stocks": stocks,
+                "peer": peer}
 
     # what it has
-    def weather(self, loc, units):
-        """Its forecast for where you are (now and the next days, no hours), in your units:
-        {"data", "age", "nws"}; None when it has none for somewhere near."""
-        a = self.ask()
+    def weather(self, loc, units, fresh=None):
+        """Its forecast for where you are (now and the next days; another Pietato's has its hours too), in your units:
+        {"data", "age", "nws", "peer"}; None when it has none for somewhere near."""
+        a = self.ask(fresh)
         w = a and a["weather"]
         try:
             here = (float(loc["lat"]), float(loc["lon"]))
@@ -382,7 +462,8 @@ class PieInk:
             return None
         gone = time.time() - a["at"]
         nws = w["nws"] if w["nws_age"] is not None and w["nws_age"] + gone < PIE_NWS_AGE else []
-        return {"data": wx_units(w["data"], w["units"], units), "age": w["age"] + gone, "nws": nws}
+        return {"data": wx_units(w["data"], w["units"], units), "age": w["age"] + gone, "nws": nws,
+                "peer": a.get("peer", False)}
 
     def place(self):
         """Where its weather is for, as a location (Find me), or None."""
@@ -396,14 +477,37 @@ class PieInk:
 
     def quote(self, cid):
         """(a coin's quote, its age), or None."""
-        a = self.ask()
-        c = a and a["coins"].get(cid)
-        return (c["q"], c["age"] + time.time() - a["at"]) if c else None
+        got = self.have("coin", cid)
+        return got[:2] if got else None
 
     def chart(self, cid, days):
-        """(a coin's prices over `days`, their age), or None (it keeps one window: its own)."""
-        a = self.ask()
-        c = a and a["coins"].get(cid)
-        if not c or c["graph_days"] != days or len(c["graph"]) < 2 or c["graph_age"] is None:
+        """(a coin's prices over `days`, their age), or None (PiE-ink keeps one window: its own)."""
+        got = self.have("coin_chart", cid, days)
+        return got[:2] if got else None
+
+    def have(self, what, key, days=None, fresh=None):
+        """What the one answering has of a coin ("coin") or its chart over `days` ("coin_chart"), or of a stock
+        ("stock", "stock_chart"): (it, its age, whether it's another Pietato's), or None."""
+        a = self.ask(fresh)
+        if not a:
             return None
-        return c["graph"], c["graph_age"] + time.time() - a["at"]
+        gone, peer = time.time() - a["at"], a.get("peer", False)
+        if what in ("coin", "coin_chart"):
+            c = a["coins"].get(key)
+            if not c:
+                return None
+            if what == "coin":
+                return c["q"], c["age"] + gone, peer
+            if days in c.get("graphs", {}):
+                v, age = c["graphs"][days]
+                return v, age + gone, peer
+            if c["graph_days"] != days or len(c["graph"]) < 2 or c["graph_age"] is None:
+                return None
+            return c["graph"], c["graph_age"] + gone, peer
+        c = a.get("stocks", {}).get(key)
+        if not c:
+            return None
+        if what == "stock":
+            return c["q"], c["age"] + gone, peer
+        g = c["graphs"].get(days)
+        return (g[0], g[1] + gone, peer) if g else None

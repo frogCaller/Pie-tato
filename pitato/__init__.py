@@ -23,7 +23,10 @@
   nearby.py         what another Pi on your network has already fetched
   voice.py          the bot's voice (Piper)
   listen.py         the bot's ears: a USB microphone, the wake phrase, and Vosk fetched the first time
-  bot.py            the bot (Ollama)
+  bot.py            the bot (Ollama), and how it talks
+  assist.py         what you ask the bot to do, understood without a model; your list, notes, reminders
+                    and timers, kept
+  face.py           the bot's face: its eyes and mouth, drawn as shapes, blinking and glancing
   coder.py          the Bot at work
   crypto.py         coin prices (CoinGecko), for the Finance tab
   stocks.py         stock prices (Yahoo Finance), for the Finance tab

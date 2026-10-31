@@ -89,9 +89,10 @@ It starts on a home screen of apps:
 - **Camera**: a USB camera plugged into the Pi (it shows up by itself), any camera on your network, or the ones
   on your other Pis: switch between them with L and R, steer an OBSBOT, take pictures, and have your bot say
   what it sees
-- **Bot**: talks through Ollama on another computer, sees through your camera and takes pictures,
-  out loud if you give it a voice. At work, it acts out what your coding agent is doing, rings a
-  bell when it's done, and sends it prompts you type
+- **Bot**: does what you ask, like setting a timer, adding to your list or playing some music, and chats
+  through Ollama on another computer. It sees through your camera and takes pictures, and talks out loud if
+  you give it a voice. At work, it acts out what your coding agent is doing, rings a bell when it's done,
+  and sends it prompts you type
 - **Simulator**: a Clock with the time and the date (A switches between a dial and big figures, and START has
   its seconds and colours), Rock Paper Scissors (pick a winner before the first capture), Game of Life, Forest Fire
   and the Mandelbrot set, which takes you on dives (or press the d-pad to explore it, A to zoom in and
@@ -247,7 +248,25 @@ If you want another computer's files on the Pi, open Files, then Other computers
 address (like `192.168.1.20`). On Windows or a Mac, share a folder first; on Linux, turn on SSH. Its
 files open read-only, so nothing on that computer is changed from the Pi.
 
+If you have more than one Pietato on your network, they share what they fetch: coin and stock prices
+and charts, and the weather. Whichever needs something first fetches it, and the others ask it, so
+CoinGecko and Yahoo Finance see one Pietato instead of several. Settings > Share with other Pietatos
+turns it off.
+
 ## Bot
+
+Type it, say it into a USB microphone, or send it from the web page, and the bot does what you ask
+right away, even before you set up Ollama: "set a timer for 10 minutes", "start a focus session",
+"wake me up at 7", "add milk to my list", "remind me at 5 to call mom", "take a note: the car's on
+level 3", "play some jazz", "turn off the kitchen lights" or "open the weather". Timers and reminders
+speak up when they're due (or chime, if it has no voice), and a timer's time left shows beside the
+clock at the top of each app.
+
+Press left on the Bot for Today: your list, timers, reminders and notes. A adds to your list, X ticks
+a thing off, and SELECT twice takes it off. START starts a 25-minute focus timer, with a 5-minute
+break after it. Its face blinks, looks around, and shows when it's listening, thinking or talking.
+Settings > Bot > How it talks gives it a personality: Friendly, Big brother, Butler, Pirate, Coach, Robot
+or Calm.
 
 If you run [Ollama](https://ollama.com) on a computer on your network, set its address and a
 model in Settings > Bot, or on the web page. On that computer Ollama has to listen on the
@@ -296,7 +315,7 @@ to On to have it use a webcam's microphone or a PC's built-in one too.
 
 ## Bot at work
 
-Press left or right on the Bot to switch between chatting and work. At work it sits at a desk: it
+Press right on the Bot to go from chatting to work. At work it sits at a desk: it
 reads when your coding agent reads, types when it writes code, waves when it needs you, and rings a
 bell when it's done.
 
@@ -342,7 +361,7 @@ Settings writes most of them for you.
 | `streams.txt`, `radio.txt` | your own streams and stations, `Name \| URL` per line |
 | `finance.txt` | `stocks =` the stocks to show (tickers, as on Yahoo Finance) and `coins =` the coins (CoinGecko ids). Y on the Finance tab adds and removes them |
 | `camera.txt` | `camera =` an address per line, a name after it if you like |
-| `bot.txt` | `server =`, `model =`, `voice =`, `listen =` and `wake =` (Settings > Bot writes these) |
+| `bot.txt` | `server =`, `model =`, `style =`, `voice =`, `listen =` and `wake =` (Settings > Bot writes these) |
 | `homeassistant.txt` | `url =` and `token =` (a long-lived access token): Settings > Home writes them, on the Pi or the web page. Your TVs and lights are found by themselves, and `tv =` and `lights =` pick which ones show |
 | `pihole.txt` | `address =` and `password =`: the Pi-hole page writes them when you sign in there |
 | `jellyfin.txt` | `server =` if your Jellyfin server isn't found by itself, and `user =` and `password =` if you'd rather not use Quick Connect |
