@@ -68,6 +68,11 @@ set it up before it had Update software, or when it was called gpi-media, run `g
 software ever says the folder has changes of its own when you haven't changed anything, run
 `git fetch` and `git reset --hard origin/main` in the `pietato` folder, then `sudo bash setup.sh --update`.
 
+If you need all of your computer for something else for a while, run `sudo bash stop.sh` in the `pietato`
+folder. Pietato stops and won't start with the computer (a PC starts in its desktop again) until
+`sudo bash start.sh` turns it back on. If you'd rather not keep it, `sudo bash uninstall.sh` takes it off.
+Your own files and the `pietato` folder stay, so delete the folder too if you don't need your settings.
+
 It starts on a home screen of apps:
 
 - **Home**: a remote for your TVs and your lights (through Home Assistant), a dashboard of your

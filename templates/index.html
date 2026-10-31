@@ -35,6 +35,7 @@
     --glow: 70, 90, 150; --glow-a: .55;
     --key: linear-gradient(#36323e, #2c2833);
     --key-edge: 0 1px 0 rgba(255, 255, 255, .07) inset, 0 6px 14px -8px rgba(0, 0, 0, .7);
+    --letter: #ff6b5e; --cross: #322e39; --cross-hub: #26232c;   /* the remote's X Y A B, and its d-pad */
     --top: 64px;
     --sans: "Hyperlegible", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
@@ -48,6 +49,7 @@
       --glow-a: .34;
       --key: linear-gradient(#ffffff, #f3f2f6);
       --key-edge: 0 0 0 1px rgba(30, 24, 40, .1) inset, 0 6px 14px -9px rgba(30, 24, 40, .35);
+      --letter: #d03a2f; --cross: #fbfafc; --cross-hub: #ebe9f0;
     }
   }
   * { box-sizing: border-box; }
@@ -105,13 +107,15 @@
     display: flex; flex-direction: column; gap: 26px; min-width: 0; margin-inline: auto;
     width: min(100%, max(560px, calc((100vh - var(--top) - 236px) * var(--ar, 1.7778))));
   }
-  /* the remote, when it's wanted: beside the screen on a wide window, so both are in view */
+  /* a wide window (a computer's): the remote always beside the screen, on its right, both in view; a narrow one (a
+     phone's): under it, when it's wanted (Remote) */
   @media (min-width: 1100px) {
-    body.remote-open .col {
-      display: grid; grid-template-columns: minmax(0, 1fr) 300px; column-gap: 40px; align-items: start;
-      width: min(100%, calc(max(560px, calc((100vh - var(--top) - 236px) * var(--ar, 1.7778))) + 340px));
+    .col {
+      display: grid; grid-template-columns: minmax(0, 1fr) 380px; column-gap: 44px; align-items: start;
+      width: min(100%, calc(max(560px, calc((100vh - var(--top) - 236px) * var(--ar, 1.7778))) + 424px));
     }
-    body.remote-open .remote-card { grid-column: 2; grid-row: 1; }
+    .remote-card { grid-column: 2; grid-row: 1; }
+    #remoteBtn { display: none; }
   }
   .tv-wrap { position: relative; isolation: isolate; }
   .glow {
@@ -212,39 +216,71 @@
   .p-right { display: flex; gap: 2px; }
   .pc.sm { width: 38px; height: 38px; }
 
-  .remote { display: grid; justify-items: center; gap: 18px; user-select: none; -webkit-user-select: none; }
-  .ring {
-    --d: 228px; position: relative; width: var(--d); height: var(--d); border-radius: 50%;
-    background: var(--key); box-shadow: var(--key-edge), 0 0 0 1px var(--line) inset;
-  }
+  /* the remote: a game controller's buttons where your thumbs expect them (L and R on top, the d-pad on the left,
+     X Y A B on the right, Select and Start between them), in the same material as the page's other keys */
+  .remote { display: grid; justify-items: center; gap: 20px; padding-bottom: 6px; user-select: none; -webkit-user-select: none; }
   .rk { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
-  .ring .arrow {
-    position: absolute; width: 72px; height: 72px; border: 0; border-radius: 50%; background: none;
-    color: var(--muted); display: grid; place-items: center; transition: color .08s;
+  .gamepad {
+    --k: 1; width: min(100%, calc(372px * var(--k)));
+    display: grid; grid-template-columns: 1fr auto 1fr; grid-template-areas: "l . r" "dpad mid abxy";
+    align-items: center; row-gap: calc(16px * var(--k));
   }
-  .ring .up { left: 50%; top: 2px; transform: translateX(-50%); }
-  .ring .down { left: 50%; bottom: 2px; transform: translateX(-50%); }
-  .ring .left { top: 50%; left: 2px; transform: translateY(-50%); }
-  .ring .right { top: 50%; right: 2px; transform: translateY(-50%); }
-  .ring .arrow:hover { color: var(--text); }
-  .ring .arrow.held { color: var(--accent); }
-  .ring .ok {
-    position: absolute; left: 50%; top: 50%; width: 92px; height: 92px; transform: translate(-50%, -50%);
-    border-radius: 50%; border: 0; background: var(--room); color: var(--text); font-weight: 700; font-size: 16px;
-    box-shadow: 0 0 0 1px var(--line-2) inset, 0 2px 10px rgba(0, 0, 0, .25) inset;
-    transition: background-color .08s, color .08s;
+  .shoulder {
+    grid-area: l; justify-self: start; width: calc(96px * var(--k)); height: calc(38px * var(--k)); padding: 0;
+    border: 0; border-radius: calc(14px * var(--k)) calc(14px * var(--k)) calc(9px * var(--k)) calc(9px * var(--k));
+    background: var(--key); box-shadow: var(--key-edge), 0 0 0 1px var(--line) inset;
+    color: var(--body); font-size: calc(15px * var(--k)); font-weight: 750;
   }
-  .ring .ok.held { background: rgba(var(--accent-rgb), .22); color: var(--accent); }
-  .minikeys { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
-  .kk {
-    min-width: 40px; height: 34px; padding: 0 11px; border-radius: 10px; border: 0;
-    background: var(--key); box-shadow: var(--key-edge); color: var(--body); font-size: 14px; font-weight: 650;
+  .shoulder[data-b="r"] { grid-area: r; justify-self: end; }
+  .dpad {
+    grid-area: dpad; justify-self: start; position: relative; width: calc(128px * var(--k)); aspect-ratio: 1;
+    filter: drop-shadow(0 6px 8px rgba(0, 0, 0, .3));
   }
-  .kk.word { font-size: 13px; font-weight: 600; }
-  .kk:hover { color: var(--text); filter: brightness(1.08); }
-  .kk.held { background: rgba(var(--accent-rgb), .22); color: var(--accent); box-shadow: 0 0 0 1px rgba(var(--accent-rgb), .5) inset; }
-  .remote-card.off .remote .rk:not([data-b="home"]) { opacity: .35; pointer-events: none; }
-  .remote { padding-bottom: 6px; }
+  .dpad::before, .dpad::after { content: ""; position: absolute; background: var(--cross); border-radius: calc(11px * var(--k)); }
+  .dpad::before { inset: 0 33.4%; }                 /* (one cross, up to down and left to right) */
+  .dpad::after { inset: 33.4% 0; }
+  .dpad .hub {
+    position: absolute; left: 50%; top: 50%; z-index: 1; width: 26%; aspect-ratio: 1; border-radius: 50%;
+    transform: translate(-50%, -50%); background: var(--cross-hub); box-shadow: 0 2px 4px rgba(0, 0, 0, .3) inset;
+  }
+  .dp {
+    position: absolute; z-index: 2; display: grid; place-items: center; padding: 0; border: 0; background: none;
+    color: var(--muted); transition: color .08s;
+  }
+  .dp[data-b="up"], .dp[data-b="down"] { left: 33.4%; right: 33.4%; height: 37%; }
+  .dp[data-b="left"], .dp[data-b="right"] { top: 33.4%; bottom: 33.4%; width: 37%; }
+  .dp[data-b="up"] { top: 0; border-radius: calc(11px * var(--k)) calc(11px * var(--k)) 0 0; }
+  .dp[data-b="down"] { bottom: 0; border-radius: 0 0 calc(11px * var(--k)) calc(11px * var(--k)); }
+  .dp[data-b="left"] { left: 0; border-radius: calc(11px * var(--k)) 0 0 calc(11px * var(--k)); }
+  .dp[data-b="right"] { right: 0; border-radius: 0 calc(11px * var(--k)) calc(11px * var(--k)) 0; }
+  .dp:hover { color: var(--text); }
+  .dp.held { color: var(--accent); background: rgba(var(--accent-rgb), .2); }
+  .abxy { grid-area: abxy; justify-self: end; position: relative; width: calc(140px * var(--k)); aspect-ratio: 1; }
+  .fbtn {
+    position: absolute; width: 38%; aspect-ratio: 1; padding: 0; border: 0; border-radius: 50%;
+    background: var(--key); box-shadow: var(--key-edge), 0 0 0 1px var(--line) inset;
+    color: var(--letter); font-size: calc(20px * var(--k)); font-weight: 750; line-height: 1;
+  }
+  .fbtn[data-b="x"] { left: 31%; top: 0; }
+  .fbtn[data-b="y"] { left: 0; top: 31%; }
+  .fbtn[data-b="a"] { right: 0; top: 31%; }
+  .fbtn[data-b="b"] { left: 31%; bottom: 0; }
+  .mid { grid-area: mid; align-self: end; display: flex; gap: calc(4px * var(--k)); }
+  .pill {
+    display: grid; justify-items: center; gap: calc(9px * var(--k)); width: calc(48px * var(--k)); padding: calc(8px * var(--k)) 0 0;
+    border: 0; background: none; color: var(--muted); font-size: calc(11.5px * var(--k)); font-weight: 650;
+  }
+  .pill i {
+    display: block; width: calc(32px * var(--k)); height: calc(11px * var(--k)); border-radius: 999px; transform: rotate(-24deg);
+    background: var(--key); box-shadow: var(--key-edge), 0 0 0 1px var(--line-2) inset;
+  }
+  .shoulder:hover, .fbtn:hover { filter: brightness(1.1); }
+  .pill:hover { color: var(--text); }
+  .shoulder.held, .fbtn.held { background: rgba(var(--accent-rgb), .22); box-shadow: 0 0 0 1px rgba(var(--accent-rgb), .55) inset; }
+  .shoulder.held { color: var(--accent); }
+  .pill.held { color: var(--accent); }
+  .pill.held i { background: rgba(var(--accent-rgb), .5); }
+  .remote-card.off .gamepad { opacity: .35; pointer-events: none; }   /* (the Pi on its terminal: it waits, all of it) */
   .kbd-hint { margin: 2px 0 0; text-align: center; font-size: 12.5px; color: var(--faint); }
   .pads { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line); }
   .pads-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -685,7 +721,6 @@
   @media (hover: none) { .acts { opacity: 1; } .go2 { opacity: 1; } .kbd-hint { display: none; } }
   @media (max-width: 1180px) {
     main { padding: 24px; }
-    .ring { --d: 208px; }
     .lib-body { grid-template-columns: 188px minmax(0, 1fr); }
     .search { width: 210px; }
     .files { grid-template-columns: 340px minmax(0, 1fr); gap: 28px; }
@@ -763,7 +798,13 @@
     .set-c, .swatches, .set-ask { justify-content: flex-start; }
   }
   @media (max-width: 440px) { .modes { gap: 6px; } .chip { gap: 5px; padding: 0 10px 0 8px; font-size: 13.5px; } }
-  @media (max-width: 380px) { .ring { --d: 196px; } .ring .ok { width: 80px; height: 80px; } .tb { padding: 0 13px 0 10px; } }
+  @media (max-width: 420px) { .gamepad { --k: .88; } }
+  @media (max-width: 380px) { .tb { padding: 0 13px 0 10px; } }
+  @media (max-width: 374px) {                      /* (a small phone: Remote's icon alone, so the row fits) */
+    #remoteBtn { width: 40px; padding: 0; justify-content: center; }
+    #remoteBtn .tb-word { display: none; }
+  }
+  @media (max-width: 340px) { .gamepad { --k: .76; } }
   /* a phone on its side: the whole screen in view, with its buttons */
   @media (max-width: 900px) and (orientation: landscape) and (max-height: 560px) {
     .stage .tv-wrap, .stage .tv-bar { width: min(100%, calc((100vh - var(--top) - 160px) * var(--ar, 1.7778))); margin-inline: auto; }
@@ -802,7 +843,7 @@
           <button class="tb rk" type="button" data-b="b" aria-label="Back (B)"><span class="ic-back"></span>Back</button>
           <button class="tb rk" type="button" data-b="home" aria-label="Home screen"><span class="ic-home"></span>Home</button>
           <span class="tb-gap"></span>
-          <button class="tb" type="button" id="remoteBtn" aria-expanded="false" aria-controls="remoteBox"><span class="ic-remote-sm"></span>Remote</button>
+          <button class="tb" type="button" id="remoteBtn" aria-expanded="false" aria-controls="remoteBox" aria-label="Remote"><span class="ic-remote-sm"></span><span class="tb-word">Remote</span></button>
           <button class="tb sq" type="button" id="fullBtn" title="Full screen" aria-label="Full screen"></button>
         </div>
         <div class="here" id="here" hidden>
@@ -861,20 +902,26 @@
 
     <section class="remote-card" id="remoteCard" aria-label="Remote">
       <div class="remote" id="remoteBox" hidden>
-        <div class="ring">
-          <button class="rk arrow up" type="button" data-b="up" aria-label="Up"></button>
-          <button class="rk arrow left" type="button" data-b="left" aria-label="Left"></button>
-          <button class="rk arrow right" type="button" data-b="right" aria-label="Right"></button>
-          <button class="rk arrow down" type="button" data-b="down" aria-label="Down"></button>
-          <button class="rk ok" type="button" data-b="a" aria-label="OK (A)">OK</button>
-        </div>
-        <div class="minikeys">
-          <button class="rk kk" type="button" data-b="l" title="L: the tab to the left">L</button>
-          <button class="rk kk" type="button" data-b="r" title="R: the tab to the right">R</button>
-          <button class="rk kk" type="button" data-b="x" title="X: the controls for this page">X</button>
-          <button class="rk kk" type="button" data-b="y" title="Y">Y</button>
-          <button class="rk kk word" type="button" data-b="select">Select</button>
-          <button class="rk kk word" type="button" data-b="start">Start</button>
+        <div class="gamepad" role="group" aria-label="Controller">
+          <button class="rk shoulder" type="button" data-b="l" title="L: the tab to the left">L</button>
+          <button class="rk shoulder" type="button" data-b="r" title="R: the tab to the right">R</button>
+          <div class="dpad">
+            <button class="rk dp" type="button" data-b="up" aria-label="Up"></button>
+            <button class="rk dp" type="button" data-b="left" aria-label="Left"></button>
+            <button class="rk dp" type="button" data-b="right" aria-label="Right"></button>
+            <button class="rk dp" type="button" data-b="down" aria-label="Down"></button>
+            <span class="hub" aria-hidden="true"></span>
+          </div>
+          <div class="mid">
+            <button class="rk pill" type="button" data-b="select"><i aria-hidden="true"></i>Select</button>
+            <button class="rk pill" type="button" data-b="start"><i aria-hidden="true"></i>Start</button>
+          </div>
+          <div class="abxy">
+            <button class="rk fbtn" type="button" data-b="x" title="X: the controls for this page">X</button>
+            <button class="rk fbtn" type="button" data-b="y" title="Y">Y</button>
+            <button class="rk fbtn" type="button" data-b="a" title="A: OK">A</button>
+            <button class="rk fbtn" type="button" data-b="b" title="B: back">B</button>
+          </div>
         </div>
         <div class="seg" id="modeSeg" role="group" aria-label="What the Pi shows">
           <button type="button" data-mode="media" aria-pressed="false">Media mode</button>
@@ -1419,11 +1466,11 @@ async function homeButton() {
   } catch (e) { toast(e.message); }
   kick(150);
 }
-function flash(name) {
-  const b = document.querySelector(`.rk[data-b="${name}"]`);
-  if (!b) return;
-  b.classList.add("held");
-  clearTimeout(b._flash); b._flash = setTimeout(() => b.classList.remove("held"), 140);
+function flash(name) {                                    // (B is on the remote and under the screen: both)
+  for (const b of $$(`.rk[data-b="${name}"]`)) {
+    b.classList.add("held");
+    clearTimeout(b._flash); b._flash = setTimeout(() => b.classList.remove("held"), 140);
+  }
 }
 for (const b of $$(".rk[data-b]")) {
   const name = b.dataset.b;
@@ -1566,16 +1613,19 @@ $("#typer").addEventListener("submit", (e) => { e.preventDefault(); sendTyped(tr
 $("#typeIn").addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); $("#typeNo").click(); } });
 $("#typeNo").onclick = () => { clearTimeout(TY.timer); $("#typeIn").blur(); press("b"); };
 
-// the remote: put away till it's wanted
+// the remote: always beside the screen on a wide window (a computer's); on a narrow one (a phone's), under it when
+// it's wanted
+const WIDE = matchMedia("(min-width: 1100px)");
 function showRemote(open) {
-  $("#remoteBox").hidden = !open;
+  $("#remoteBox").hidden = !(open || WIDE.matches);
   $("#remoteBtn").setAttribute("aria-expanded", String(open));
-  document.body.classList.toggle("remote-open", open);    // (a wide window: it's beside the screen)
   store.set("remote", open);
 }
-$("#remoteBtn").onclick = () => showRemote($("#remoteBox").hidden);
+$("#remoteBtn").onclick = () => showRemote($("#remoteBtn").getAttribute("aria-expanded") !== "true");
 for (const b of [$("#remoteBtn"), $("#fullBtn")]) b.addEventListener("mousedown", (e) => e.preventDefault());   // (the keyboard
                                                                                                                   // stays the Pi's)
+const followWidth = () => showRemote(store.get("remote", false));
+if (WIDE.addEventListener) WIDE.addEventListener("change", followWidth); else WIDE.addListener(followWidth);
 showRemote(store.get("remote", false));
 $("#tvTip").hidden = store.get("taps", 0) >= 3;
 

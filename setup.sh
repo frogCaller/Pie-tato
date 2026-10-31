@@ -48,6 +48,7 @@
 #               Pi), nothing started and no restart; with --gpi for the GPi Case 2W, --gpi2
 #               for the GPi Case 2
 # Safe to run again: it replaces its own settings instead of adding duplicates.
+# Beside it: stop.sh turns Pietato off (start.sh turns it back on), and uninstall.sh takes it off.
 
 set -e
 
@@ -948,6 +949,8 @@ fi
 if [ "$PC" = yes ] && [ "$UPDATE" != yes ] && [ "$(systemctl get-default 2>/dev/null)" = graphical.target ]; then
   step "This computer starts in Pietato now, not the desktop (System > Desktop starts the desktop)"
   systemctl set-default multi-user.target
+  install -d /var/lib/pitato
+  touch /var/lib/pitato/was-graphical          # (it started in its desktop: stop.sh and uninstall.sh put that back)
 fi
 
 # --------------------------------------------------------------------------
