@@ -1,19 +1,21 @@
 """The Games tab: Snake and your own games, with their pictures (Y finds them) and a box to find one by name
-(START); a game while it plays (a process of its own draws it, pitato/emulator.py), and the menu HOME brings up
-over it."""
+(START); with more than a few, a folder for each console (and the ones played last, your favourites, all of them);
+a game while it plays (a process of its own draws it, pitato/emulator.py), and the menu HOME brings up over it."""
+import json
 import os
 import struct
 import time
 import unicodedata
 
+from ..config import CACHE_DIR
 from ..theme import ACCENT, BG, BODY, LINE, MUTED, ROW, TEXT
 from ..util import item
 from ..screen import aplay_device, screen_turn, sound_place
 from ..library import LIBRARY
 from ..snake import snake_card
 from ..games import (ANALOG_SYSTEMS, art_path, ArtFinder, bios_missing, built_for_other_pi, find_core, find_games,
-                     game_kind, GAME_PACKAGES, GAME_PLAYERS, GameRun, games_dir, has_resume, neogeo_unknown,
-                     plain_title, playable, save_name, SAVES_FOLDER, system)
+                     game_kind, GAME_PACKAGES, GAME_PLAYERS, GAME_SYSTEMS, GameRun, games_dir, has_resume,
+                     neogeo_unknown, plain_title, playable, save_name, SAVES_FOLDER, system)
 from ..emulator import screen_picture
 from ..fine import made_fine, scale
 from ..gameai import GameAI
@@ -31,7 +33,7 @@ DPAD = ("up", "down", "left", "right")
 GAME_MENU = [("resume", "Back to the game"), ("save", "Save state"), ("load", "Load state"),
              ("reset", "Start over"), ("disc", "Disc"), ("screens", "Screens"), ("touch", "Touch screen"),
              ("volume", "Volume"), ("picture", "Picture"), ("players", "Players"), ("ai", "AI player"),
-             ("quit", "Quit game")]
+             ("cheevos", "Achievements"), ("quit", "Quit game")]
 DS_ONLY = ("screens", "touch")      # (a DS game's own)
 GAME_CHANGE = ("disc", "volume", "picture", "screens", "touch", "ai")   # (◀▶ changes these)
 DS_SCREENS = [("Left/Right", "Side by side"), ("Top/Bottom", "One above the other"),
@@ -51,12 +53,26 @@ WIDE_SCREEN = 1.5                   # a screen wider than this (a TV's 16:9, not
 N64_WIDE = "mupen64plus-aspect=16:9 adjusted"   # (its own wide picture: more to each side, nothing stretched; it
                                                 # takes it as it starts)
 GAME_FIND_MOST = 40                 # letters in the box that finds a game
+CHEEVO_PAGE = 5                     # ◀▶ in a game's list of achievements: this many at a time
+GAMES_FLAT = 12                     # this many games or fewer: one list of them all (more: a folder for each console)
+GAMES_RECENT = 20                   # the games played last, kept for Recently played
+GAME_FOLDERS = {"recent": ("Recently played", "LAST"), "fav": ("Favourites", "★"), "all": ("All games", "ALL")}
 
 
 def fold(text):
     """A name as it's matched when you look for a game: lower case, no accents, its punctuation spaces."""
     text = "".join(c for c in unicodedata.normalize("NFKD", text or "") if not unicodedata.combining(c)).lower()
     return " ".join("".join(c if c.isalnum() else " " for c in text).split())
+
+
+def game_letter(row):
+    """The letter a game goes under in a list in order of name: its name's first (# for a number or a sign)."""
+    c = fold(row.get("label") or row.get("title", ""))[:1].upper()
+    return c if c.isalpha() else "#"
+
+
+def games_count(n):
+    return f"{n} game{'' if n == 1 else 's'}"
 
 
 def game_matches(row, words):
@@ -78,30 +94,177 @@ class GameScreen:
     """The Games tab: Snake and your own games; a game while it plays, and its menu (HOME)."""
 
     def games_rows(self):
-        """Snake, then the games in your Games folder (a word on where they go, if there are none). While you're
-        finding one (START): just the ones with what you typed in their names, those starting with it first."""
+        """Snake, then the games in your Games folder (a word on where they go, if there are none). More than a
+        dozen: a folder for each console instead (and the ones played last, your favourites, all of them), and in a
+        folder, its games. While you're finding one (START): just the ones with what you typed in their names (of
+        all of them), those starting with it first."""
         snake = next(k for k, t in enumerate(LIBRARY) if t.get("sim") == "snake")
         rows = [dict(item("grp:Snake", "Snake", "child", str(snake), sub=LIBRARY[snake].get("about", "")),
                      icon=LIBRARY[snake].get("badge", ""))]
         games = find_games()
+        self.games_all = games
+        words = fold(getattr(self, "games_q", None)).split()
+        if words:
+            hits = [r for r in rows + self.game_rows(games) if game_matches(r, words)]
+            hits.sort(key=lambda r: not fold(r.get("label") or r["title"]).startswith(words[0]))
+            return hits or [dict(item("games:none", f"No game has “{self.games_q}” in its name", "info", ""),
+                                 sub="")]
+        if len(games) <= GAMES_FLAT:
+            self.games_dir = None
+            rows += self.game_rows(games)
+            if len(rows) == 1:
+                rows.append(dict(item("games:where", "Your own games go in", "info", ""),
+                                 sub="the Games folder"))
+            return rows
+        if self.games_dir:
+            inside = self.game_rows(self.games_in(self.games_dir, games))
+            return inside or [dict(item("games:empty", "No favourites yet: SELECT on a game adds it"
+                                        if self.games_dir == "fav" else "No games here now", "info", ""), sub="")]
+        return rows + self.games_folders(games)
+
+    def game_rows(self, games):
+        """A row for each game: its name without its tags (unless two have it), its console's badge, its picture's
+        key, and whether it's one of your favourites."""
+        rows = []
         plain = [plain_title(g["title"]) for g in games]
         titles = [g["title"] for g in games]
+        favs = set(self.games_favs())
         for g, short in zip(games, plain):
             _, badge, name = system(g["system"])[:3]
             label = (short if plain.count(short) == 1 else g["title"] if titles.count(g["title"]) == 1
                      else f"{g['title']} ({badge})")      # (two of a name: their tags, or their kinds, tell them apart)
             rows.append(dict(item(g["path"], g["title"], "game", g["path"], sub=name), icon=badge,
-                             system=g["system"], label=label))
-        words = fold(getattr(self, "games_q", None)).split()
-        if words:
-            hits = [r for r in rows if game_matches(r, words)]
-            hits.sort(key=lambda r: not fold(r.get("label") or r["title"]).startswith(words[0]))
-            return hits or [dict(item("games:none", f"No game has “{self.games_q}” in its name", "info", ""),
-                                 sub="")]
-        if len(rows) == 1:
-            rows.append(dict(item("games:where", "Your own games go in", "info", ""),
-                             sub="the Games folder"))
+                             system=g["system"], label=label, fav=g["path"] in favs))
         return rows
+
+    # -- folders: each console's, the ones played last, your favourites, all of them -----------------------------------
+    def games_recent(self):
+        v = self.setting("games_recent")
+        return [p for p in v if isinstance(p, str)] if isinstance(v, list) else []
+
+    def games_favs(self):
+        v = self.setting("games_favourites")
+        return [p for p in v if isinstance(p, str)] if isinstance(v, list) else []
+
+    def games_in(self, folder, games):
+        """A folder's games: a console's, the ones played last (the last first), your favourites, or all of them."""
+        if folder == "recent":
+            by_path = {g["path"]: g for g in games}
+            return [by_path[p] for p in self.games_recent() if p in by_path]
+        if folder == "fav":
+            favs = set(self.games_favs())
+            return [g for g in games if g["path"] in favs]
+        if folder.startswith("sys:"):
+            return [g for g in games if g["system"] == folder[4:]]
+        return list(games)
+
+    def games_folders(self, games):
+        """The top of a long list: the games played last, your favourites, a folder for each console (in the order
+        the consoles came out, near enough), then all of them. Each with a picture of one of its games, if one has
+        one."""
+        rows = []
+
+        def folder(key, title, sub, icon, inside, **more):
+            cover = next((g["path"] for g in inside if art_path(g["path"])), None)
+            rows.append(dict(item("games:" + key, title, "gamedir", key, sub=sub), icon=icon, cover=cover, **more))
+        recent = self.games_in("recent", games)
+        if recent:
+            folder("recent", GAME_FOLDERS["recent"][0], plain_title(recent[0]["title"]), GAME_FOLDERS["recent"][1],
+                   recent)
+        favs = self.games_in("fav", games)
+        if favs:
+            folder("fav", GAME_FOLDERS["fav"][0], games_count(len(favs)), GAME_FOLDERS["fav"][1], favs)
+        keys = [s[0] for s in GAME_SYSTEMS if any(g["system"] == s[0] for g in games)]
+        for key in keys:
+            inside = [g for g in games if g["system"] == key]
+            _, badge, name = system(key)[:3]
+            folder("sys:" + key, name, games_count(len(inside)), badge, inside, system=key)
+        if len(keys) > 1:
+            folder("all", GAME_FOLDERS["all"][0], games_count(len(games)), GAME_FOLDERS["all"][1], games)
+        return rows
+
+    def games_dir_title(self, folder):
+        if folder in GAME_FOLDERS:
+            return GAME_FOLDERS[folder][0]
+        return system(folder[4:])[2] if folder.startswith("sys:") else ""
+
+    def games_open_dir(self, it):
+        """A on a folder: its games, the first picked."""
+        i = self.tab_index("games")
+        if i is None:
+            return
+        self.games_dir = it["src"]
+        self.items[i] = self.games_rows()
+        self.sels[i], self.tops[i] = 0, 0
+        self.dirty = True
+
+    def games_back(self):
+        """B in a folder: back to the folders, that one picked. False: not in one."""
+        i = self.tab_index("games")
+        if i is None or not self.games_dir:
+            return False
+        was, self.games_dir = self.games_dir, None
+        self.items[i] = self.games_rows()
+        self.sels[i] = next((k for k, r in enumerate(self.items[i]) if r.get("kind") == "gamedir" and r["src"] == was),
+                            0)
+        self.tops[i] = 0
+        self.dirty = True
+        return True
+
+    def games_by_letter(self):
+        """◀▶ go by letter here: a folder of games in order of name (not the ones played last, nor what's found)."""
+        return bool(self.tab_type() == "games" and self.games_dir and self.games_dir != "recent"
+                    and not self.games_q)
+
+    def games_letter_step(self, items, sel, d):
+        """The row ◀ (d -1) or ▶ (d 1) goes to: the first game of the letter before, or after (round to the other
+        end). ◀ in a letter's games, past its first: its first."""
+        n = len(items)
+        if not n:
+            return 0
+        sel = max(0, min(sel, n - 1))
+        here = game_letter(items[sel])
+        if d > 0:
+            k = next((k for k in range(sel + 1, n) if game_letter(items[k]) != here), None)
+            return 0 if k is None else k
+        start = sel
+        while start > 0 and game_letter(items[start - 1]) == here:
+            start -= 1
+        if start < sel:
+            return start
+        k = (start - 1) % n                            # (the letter before: its first game)
+        there = game_letter(items[k])
+        while k > 0 and game_letter(items[k - 1]) == there:
+            k -= 1
+        return k
+
+    def games_fav_toggle(self, it):
+        """SELECT on a game: one of your favourites, or not any more."""
+        if not it or it.get("kind") != "game":
+            return
+        favs = self.games_favs()
+        if it["src"] in favs:
+            favs.remove(it["src"])
+            self.toast("Taken out of Favourites", 2)
+        else:
+            favs.append(it["src"])
+            self.toast("★ Added to Favourites", 2)
+        self.set_setting("games_favourites", favs)
+        i = self.tab_index("games")
+        if i is not None:
+            sel = self.sels.get(i, 0)
+            self.items[i] = self.games_rows()
+            self.sels[i] = max(0, min(sel, len(self.items[i]) - 1))
+        self.dirty = True
+
+    def games_played(self, path):
+        """A game started: first of the ones played last."""
+        self.set_setting("games_recent", ([path] + [p for p in self.games_recent() if p != path])[:GAMES_RECENT])
+
+    def games_systems(self):
+        """The consoles you have games for, in the order they're listed."""
+        have = {g["system"] for g in getattr(self, "games_all", None) or []}
+        return [s[0] for s in GAME_SYSTEMS if s[0] in have]
 
     def games_find(self):
         """START on the Games tab: a box to type a game's name in (what you typed last, if it's still finding it)."""
@@ -254,6 +417,9 @@ class GameScreen:
         run = self.game
         if run is None:
             return
+        if run.state in ("on", "paused") and not getattr(run, "noted", False):   # (it's started: one of the ones
+            run.noted = True                                                    # played last now)
+            self.games_played(run.game["path"])
         if run.ended or (run.state == "starting" and now - self.game_since > 15):
             why = run.error or ("The game didn't start" if run.state == "starting" else "The game stopped")
             self.game_end()
@@ -264,6 +430,8 @@ class GameScreen:
         """Y on the Games tab: pictures for the games without one, from libretro's thumbnails."""
         games = [{"path": it["src"], "title": it["title"], "system": it["system"]}
                  for it in self.tab_items() if it["kind"] == "game"]
+        if not games and not self.games_dir and not self.games_q:   # (the folders: every game's)
+            games = [dict(g) for g in getattr(self, "games_all", None) or []]
         if not games:
             self.toast("Put some games in the Games folder first", 3)
             return
@@ -286,8 +454,10 @@ class GameScreen:
         from PIL import ImageFilter, ImageOps
         if it.get("kind") == "child":
             src, stamp = "icon", 0
-        elif it.get("kind") == "game":
-            src = art_path(it["src"])
+        elif it.get("kind") in ("game", "gamedir"):
+            if it["kind"] == "gamedir" and (kind == "thumb" or not it.get("cover")):
+                return None                             # (on its row: its badge)
+            src = art_path(it["src"] if it["kind"] == "game" else it["cover"])
             if src is None:
                 return None
             try:
@@ -350,6 +520,13 @@ class GameScreen:
             room = W - 60 - d.textlength(note, font=F["small"])
             d.text((20, self.LIST_TOP + 10), self.fit(d, crumbs, F["small"], room), font=F["small"], fill=MUTED,
                    anchor="lm")
+        elif self.games_dir:                           # in a folder: which, and how many in it
+            note = games_count(sum(it["kind"] == "game" for it in items))
+            d.text((W - 20, self.LIST_TOP + 10), note, font=F["small"], fill=MUTED, anchor="rm")
+            crumbs = f"{LIBRARY[self.tab]['name']}  ›  {self.games_dir_title(self.games_dir)}"
+            room = W - 60 - d.textlength(note, font=F["small"])
+            d.text((20, self.LIST_TOP + 10), self.fit(d, crumbs, F["small"], room), font=F["small"], fill=MUTED,
+                   anchor="lm")
         top_y = self.list_top()
         rows = self.visible_rows()
         top = self.tops.get(self.tab, 0)
@@ -385,8 +562,11 @@ class GameScreen:
             tx += GAME_THUMB + 12
             font = F["row_b"] if i == sel else F["row"]
             name = it.get("label") or it["title"]
-            d.text((tx, mid), self.fit(d, name, font, x1 - 12 - tx), font=font, fill=TEXT if i == sel else BODY,
-                   anchor="lm")
+            star = d.textlength("  ★", font=font) if it.get("fav") else 0
+            name = self.fit(d, name, font, x1 - 12 - tx - star)
+            d.text((tx, mid), name, font=font, fill=TEXT if i == sel else BODY, anchor="lm")
+            if star:                                   # (one of your favourites)
+                d.text((tx + d.textlength(name + "  ", font=font), mid), "★", font=font, fill=ACCENT, anchor="lm")
         if n > rows:                                    # (where you are in a long list)
             t0, t1 = top_y + 6, top_y + rows * self.ROW_H - 6
             d.rounded_rectangle((x1 + 4, t0, x1 + 7, t1), radius=2, fill=LINE)
@@ -401,9 +581,11 @@ class GameScreen:
                 py += pic.height + 14
             else:
                 d.rounded_rectangle((px0, py, px0 + GAME_PANEL_W, py + 150), radius=12, fill=ROW)
-                d.text((px0 + GAME_PANEL_W / 2, py + 62), cur.get("icon", ""), font=F["big"], fill=ACCENT, anchor="mm")
-                d.text((px0 + GAME_PANEL_W / 2, py + 104), "No picture yet: Y finds one", font=F["small"],
-                       fill=MUTED, anchor="mm")
+                d.text((px0 + GAME_PANEL_W / 2, py + (62 if cur["kind"] == "game" else 75)), cur.get("icon", ""),
+                       font=F["big"], fill=ACCENT, anchor="mm")
+                if cur["kind"] == "game":
+                    d.text((px0 + GAME_PANEL_W / 2, py + 104), "No picture yet: Y finds one", font=F["small"],
+                           fill=MUTED, anchor="mm")
                 py += 150 + 14
             if cur["kind"] == "game":
                 full = os.path.splitext(os.path.basename(cur["src"]))[0]
@@ -413,7 +595,14 @@ class GameScreen:
                 d.text((px0, py + 2), cur.get("sub", ""), font=F["small"], fill=MUTED, anchor="lt")
                 if has_resume(cur["src"]):
                     d.text((px0, py + 22), "Picks up where you left off", font=F["small"], fill=ACCENT, anchor="lt")
-            else:
+                    py += 20
+                if cur.get("fav"):
+                    d.text((px0, py + 22), "★ One of your favourites", font=F["small"], fill=ACCENT, anchor="lt")
+            else:                                      # (a folder: its name, and how many in it)
+                if cur["kind"] == "gamedir":
+                    d.text((px0, py), self.fit(d, cur["title"], F["small"], GAME_PANEL_W), font=F["small"], fill=BODY,
+                           anchor="lt")
+                    py += 20
                 d.text((px0, py), cur.get("sub", ""), font=F["small"], fill=MUTED, anchor="lt")
         f = self.art_finder
         right = f"Finding pictures {f.done} of {f.total}" if f is not None and f.busy else None
@@ -536,6 +725,11 @@ class GameScreen:
         gi = self.tab_index("games")
         if gi is not None:
             self.load_tab(gi)
+            path = (getattr(run, "game", None) or {}).get("path")
+            at = next((k for k, r in enumerate(self.items.get(gi) or []) if r.get("kind") == "game"
+                       and r.get("src") == path), None)
+            if at is not None:
+                self.sels[gi] = at
         self.dirty = True
 
     # -- its menu (HOME) -------------------------------------------------------------------
@@ -578,8 +772,9 @@ class GameScreen:
         many = self.game is not None and self.game.disc[1] > 1
         ds = self.game is not None and self.game.game.get("system") == "nds"
         together = self.game is not None and GAME_PLAYERS.get(self.game.game.get("system"), 1) > 1
+        cheevos = self.game is not None and self.game.cheevos is not None
         return [m for m in GAME_MENU if (m[0] != "disc" or many) and (m[0] not in DS_ONLY or ds)
-                and (m[0] != "players" or together)]
+                and (m[0] != "players" or together) and (m[0] != "cheevos" or cheevos)]
 
     # -- the AI player (a decision model on your bot's computer plays, looking at the screen; your Bot's model
     #    coaches it) -----------------------------------------------------------------------------------------
@@ -632,6 +827,8 @@ class GameScreen:
         if job == "ai":
             ai = getattr(self, "game_ai", None)
             return ai.model if ai is not None and ai.alive() else "Off"
+        if job == "cheevos" and self.game is not None and self.game.cheevos:
+            return f"{self.game.cheevos[0]} of {self.game.cheevos[1]}"
         return ""
 
     def game_change(self, job, d):
@@ -692,6 +889,17 @@ class GameScreen:
             self.view = "list" if run is None else "game"
             self.dirty = True
             return None
+        if m.get("list"):                              # the achievements' list: up and down, then back to the menu
+            lst = m["list"]
+            if name in ("up", "down"):
+                lst["sel"] = max(0, min(lst["sel"] + (1 if name == "down" else -1), len(lst["rows"]) - 1))
+            elif name in ("left", "right"):
+                lst["sel"] = max(0, min(lst["sel"] + (CHEEVO_PAGE if name == "right" else -CHEEVO_PAGE),
+                                        len(lst["rows"]) - 1))
+            elif name in ("a", "b") and not repeat:
+                m["list"] = None
+            self.dirty = True
+            return None
         menu = self.game_menu_items()
         n = len(menu)
         m["sel"] = min(m["sel"], n - 1)
@@ -734,6 +942,20 @@ class GameScreen:
             self.toast("Back in the game, press a button on each controller: player 1 first", 4)
         elif job in GAME_CHANGE:
             self.game_change(job, 1)
+        elif job == "cheevos":                         # the game's achievements, as a list over the menu
+            path = os.path.join(CACHE_DIR, "games", "cheevos.json")
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            what, _ = run.ask(f"cheevolist {path}", ("cheevolist",), 5)
+            try:
+                with open(path) as f:
+                    got = json.load(f)
+                os.remove(path)
+            except (OSError, ValueError):
+                got = None
+            if what != "cheevolist" or not isinstance(got, dict) or not got.get("list"):
+                self.toast("Its achievements aren't here just now", 3)
+                return
+            self.game_menu["list"] = {"rows": got["list"], "sel": 0, "top": 0, "head": got.get("head", "")}
         elif job == "quit":
             self.game_end()
             self.toast("Saved. It picks up there next time", 3)
@@ -746,9 +968,13 @@ class GameScreen:
         if m.get("bg") is not None:
             img.paste(m["bg"])
         g = self.game.game if self.game is not None else {"title": "", "system": ""}
+        if m.get("list"):
+            self.render_cheevos(img, d, m["list"], g)
+            return
         menu = self.game_menu_items() if self.game is not None else GAME_MENU
         n, mw = len(menu), 360
-        rh = 38 if n <= 7 else 34                       # (a game on discs has a row more)
+        rh = 38 if n <= 7 else 34                       # (a game on discs has a row more; a DS game, more again:
+        rh = min(rh, max(28, (H - self.FOOTER - 98) // n))   # as many as fit)
         mh = 64 + n * rh + 10
         mx0, my0 = (W - mw) / 2, max(12, (H - self.FOOTER - 50 - mh) / 2)   # (room below for a toast)
         d.rounded_rectangle((mx0 - 2, my0 - 2, mx0 + mw + 2, my0 + mh + 2), radius=14, fill=LINE)
@@ -794,10 +1020,59 @@ class GameScreen:
         self.footer(d, hints)
         self.fb.show(img)
 
+    def render_cheevos(self, img, d, lst, g):
+        """The game's achievements, over it: yours first (a tick), then the rest (how far along, or their points)."""
+        F = self.fonts
+        W, H = self.fb.w, self.fb.h
+        rows = lst["rows"]
+        mw = min(W - 32, 600)
+        rh = 50
+        fit = max(1, (H - self.FOOTER - 24 - 70) // rh)
+        shown = min(fit, len(rows))
+        mh = 70 + shown * rh + 8
+        mx0, my0 = (W - mw) / 2, max(12, (H - self.FOOTER - mh) / 2)
+        d.rounded_rectangle((mx0 - 2, my0 - 2, mx0 + mw + 2, my0 + mh + 2), radius=14, fill=LINE)
+        d.rounded_rectangle((mx0, my0, mx0 + mw, my0 + mh), radius=13, fill=BG)
+        d.text((mx0 + 22, my0 + 24), self.fit(d, f"Achievements: {g.get('title', '')}", F["row_b"], mw - 44),
+               font=F["row_b"], fill=TEXT, anchor="lm")
+        d.text((mx0 + 22, my0 + 47), self.fit(d, lst.get("head", ""), F["small"], mw - 44), font=F["small"],
+               fill=MUTED, anchor="lm")
+        sel = max(0, min(lst["sel"], len(rows) - 1))
+        top = lst["top"]
+        if sel < top:
+            top = sel
+        elif sel >= top + shown:
+            top = sel - shown + 1
+        lst["top"] = top = max(0, min(top, len(rows) - shown))
+        for k, i in enumerate(range(top, top + shown)):
+            r = rows[i]
+            ry = my0 + 66 + k * rh
+            if i == sel:
+                d.rounded_rectangle((mx0 + 8, ry, mx0 + mw - 8, ry + rh - 4), radius=10, fill=ROW)
+            mine = bool(r.get("unlocked"))
+            right = "✓" if mine else (r.get("progress") or f"{r.get('points', 0)} points")
+            rw = d.textlength(right, font=F["small"])
+            d.text((mx0 + 24, ry + 15), self.fit(d, str(r.get("title", "")), F["row_b"] if i == sel else F["row"],
+                                               mw - 60 - rw), font=F["row_b"] if i == sel else F["row"],
+                   fill=(TEXT if i == sel else BODY) if mine else MUTED, anchor="lm")
+            d.text((mx0 + 24, ry + 35), self.fit(d, str(r.get("description", "")), F["small"], mw - 60 - rw),
+                   font=F["small"], fill=MUTED, anchor="lm")
+            d.text((mx0 + mw - 22, ry + 15), right, font=F["small"], fill=ACCENT if mine else MUTED, anchor="rm")
+        if len(rows) > shown:                          # (where you are in a long list)
+            t0, t1 = my0 + 70, my0 + 70 + shown * rh - 12
+            d.rounded_rectangle((mx0 + mw - 7, t0, mx0 + mw - 4, t1), radius=2, fill=LINE)
+            th = max((t1 - t0) * shown / len(rows), 16)
+            ty = t0 + (t1 - t0 - th) * top / max(len(rows) - shown, 1)
+            d.rounded_rectangle((mx0 + mw - 7, ty, mx0 + mw - 4, ty + th), radius=2, fill=BODY)
+        self.footer(d, [("▲▼", "Scroll"), ("B", "Back to the menu")])
+        self.fb.show(img)
+
     def game_hint(self, it):
         """A on a row of the Games tab."""
         if it.get("kind") == "game":
             return "Continue" if has_resume(it["src"]) else "Play"
         if it.get("kind") == "child":
             return "Play"
+        if it.get("kind") == "gamedir":
+            return "Open"
         return None

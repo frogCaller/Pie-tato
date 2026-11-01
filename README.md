@@ -46,7 +46,7 @@ the game emulators), so leave the Pi on until it says All set.
 
 If you have a regular computer (Intel or AMD) with Ubuntu 24.04, Desktop or Server, you can run it there
 too and play with a USB or Bluetooth controller. Set it up the same way, with the commands above.
-It builds every game emulator (about half an hour), so leave the computer on until it says All set.
+It builds every game emulator (under an hour), so leave the computer on until it says All set.
 After that, the computer starts in Pietato, like a console. If you have Ubuntu's desktop, open System,
 press SELECT for its list and pick Desktop to use it, then restart the computer to come back to Pietato.
 Settings > Resolution sets the screen's size at start-up. With Ubuntu's desktop installed, Bluetooth
@@ -94,8 +94,8 @@ It starts on a home screen of apps:
   through what's running and X or Y sort it by CPU or memory; and B stops any of them
 - **Games**: Snake (press X and a decision model on your bot's computer plays it for you), and your own
   Game Boy, Game Boy Advance, NES, SNES, Genesis, Master System, Game Gear, Neo Geo, Neo Geo Pocket and
-  PlayStation games, and N64, PSP, DS and Dreamcast games on a Pi 4 or 5 or a PC. Two can play on two
-  controllers
+  PlayStation games, N64, PSP, DS and Dreamcast games on a Pi 4 or 5 or a PC, and PlayStation 2, GameCube
+  and Wii games on a PC. Two can play on two controllers
 - **System**: a dashboard of the Pi's temperature, how busy it is, its memory, storage and network. SELECT
   shows it as a list instead, with Update software, Reboot and Shut down
 - **Settings**: WiFi, Bluetooth, the home screen's style, background, colours, video size, a TV or monitor's
@@ -198,16 +198,20 @@ steer it, press START on it there for its settings: Flip left and right, and Fli
 
 Put your games in the `Games` folder in your home folder. It has a folder for each: `gb`, `gbc`, `gba`,
 `nes`, `snes`, `genesis`, `sms`, `gg`, `ngp`, `ngpc`, `neogeo` and `ps1`, and on a Pi 4 or 5 or a PC, `n64`,
-`psp`, `nds` and `dc`. You can also drop them on the web page (zips work too, for the cartridge ones). They're
-played by mGBA, Nestopia, Snes9x, Genesis Plus GX, Beetle NeoPop, FinalBurn Neo, PCSX ReARMed, Mupen64Plus-Next,
-PPSSPP, melonDS and Flycast.
+`psp`, `nds` and `dc`, and on a PC, `ps2`, `gc` and `wii`. You can also drop them on the web page (zips work
+too, for the cartridge ones). They're played by mGBA, Nestopia, Snes9x, Genesis Plus GX, Beetle NeoPop,
+FinalBurn Neo, PCSX ReARMed, Mupen64Plus-Next, PPSSPP, melonDS, Flycast, and on a PC, LRPS2 and Dolphin.
+
+If you have more than a dozen games, the Games tab has a folder for each console, plus Recently played,
+Favourites and All games. In a folder, ◀ and ▶ jump by letter, and SELECT adds a game to your favourites
+(or takes it out). START searches all your games by name.
 
 In a game, Home opens its menu: save or load a state, start over, the players, the volume, the picture
 size, the AI player (see Bot below), or quit. For the picture, Fit keeps the game's shape, Sharp uses
 whole pixels, and Fill fills the screen: on a TV an N64 game is drawn wide, and the others are
 stretched. Each console keeps its own. Quitting keeps your place for next time. If you want to play
 with someone, plug in or pair a second controller: the one that started the game is player 1, and the
-next one to press a button is player 2 (an N64 or Dreamcast game takes four).
+next one to press a button is player 2 (an N64, Dreamcast, GameCube or Wii game takes four).
 
 - N64: the right stick is the C buttons, and L2 is Z.
 - DS (with the 64-bit Raspberry Pi OS): both screens side by side, and the right stick moves a pointer
@@ -215,6 +219,12 @@ next one to press a button is player 2 (an N64 or Dreamcast game takes four).
 - PlayStation: `.cue` and `.bin`, `.chd`, `.pbp` or `.m3u` files. Change discs in the game's menu.
 - Dreamcast: `.gdi` (keep each game's tracks in a folder of its own), `.chd`, `.cdi` or `.cue` files. L
   and R are its triggers, as are L2 and R2.
+- PlayStation 2 (on a PC): `.iso`, `.chd` (in the `ps2` folder), `.cso` or `.cue` files. It needs the BIOS
+  from your own PS2 in `Games/BIOS` (a file like `scph39001.bin`).
+- GameCube and Wii (on a PC): `.iso`, `.rvz`, `.gcz`, `.ciso` or `.wia` files, and `.gcm` for a GameCube or
+  `.wbfs` for a Wii. L2 and R2 are a GameCube's triggers, and R is Z. For a Wii, your controller is a Wii
+  remote with its nunchuk: the left stick is the nunchuk's, the right stick points at the screen, X and Y
+  are C and Z, and R2 shakes the remote.
 - Neo Geo (on a Pi 2 or newer): each game is a zip with the name FinalBurn Neo knows it by (like
   `mslug.zip`), and they need the Neo Geo's BIOS, `neogeo.zip`, in `Games/BIOS`. SELECT puts in a coin.
 - Other than that, a BIOS isn't needed, but if you have one from your own console, put it in `Games/BIOS`
@@ -222,6 +232,11 @@ next one to press a button is player 2 (an N64 or Dreamcast game takes four).
 
 Press Y on the Games tab to find pictures of your games. If you have a lot of them, press Start to
 search by name (or by console, like `gba`), and B to see them all again.
+
+If you have a RetroAchievements account (it's free, at [retroachievements.org](https://retroachievements.org)),
+sign in on the web page, in Settings > Achievements, and your games earn achievements as you play. Each one
+shows at the top of the game when you get it, and Achievements in the game's menu lists them all. They're the
+regular kind (not hardcore), so save states still work. Disc games in `.chd` files don't get them yet.
 
 ## Web
 
@@ -308,13 +323,14 @@ If you pick a voice in Settings > Bot > Voice, it says its replies out loud with
 downloads Piper (about 25 MB) and the voice (about 60 MB). The quick voices suit a Pi Zero
 best. Press SELECT to hear the last reply again, or Say it out loud on the web page.
 
-If you plug a USB microphone into the Pi (one with a free USB port, so not in a GPi Case) or a PC, you
-can talk to it: say "hey potato" and what you want. It makes out what you say on the Pi itself with
-[Vosk](https://alphacephei.com/vosk/), which it downloads the first time you plug one in (about 45 MB). It
-listens while music plays or is paused, and turns the music down while you talk. It doesn't listen while
-it's talking, while you play a game, or while a video plays on a Pi Zero, 1, 2 or 3. You can change the
-wake phrase in Settings > Bot, or press X on the Bot page and Talk to it instead. Set Settings > Bot >
-Listens to Off to stop it, or to On to have it use a webcam's microphone or a PC's built-in one too.
+If you plug a USB microphone into the Pi (one with a free USB port: in a GPi Case, only the GPi Case 2's
+dock has one) or a PC, you can talk to it: say "hey potato" and what you want. It makes out what you say on
+the Pi itself with [Vosk](https://alphacephei.com/vosk/), which it downloads the first time you plug one in
+(about 45 MB). It listens while music plays or is paused, and turns the music down while you talk. It
+doesn't listen while it's talking, while you play a game, or while a video plays on a Pi Zero, 1, 2 or 3.
+You can change the wake phrase in Settings > Bot, or press X on the Bot page and Talk to it instead. Set
+Settings > Bot > Listens to Off to stop it, or to On to have it use a webcam's microphone or a PC's built-in
+one too.
 
 ## Bot at work
 

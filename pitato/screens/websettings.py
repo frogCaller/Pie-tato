@@ -20,6 +20,7 @@ from ..stocks import STOCKS_LINE, STOCKS_MOST, SYMBOL
 from ..net import cam_address
 from ..weather import geocode, place_text
 from ..games import system
+from ..cheevos import LoginError, ra_account, ra_forget, ra_login, ra_save
 from .weather import WX_UNITS
 from .games import DS_SCREENS, DS_TOUCH, GAME_PICTURES
 
@@ -257,12 +258,7 @@ class WebSettingsScreen:
         sec("bot", "Bot", rows, "It talks through Ollama on another computer on your network.")
 
         # the games
-        gi = self.tab_index("games")
-        systems = []
-        for it in self.items.get(gi) or []:
-            key = it.get("system")
-            if key and key not in systems:
-                systems.append(key)
+        systems = self.games_systems()
         rows = [choice(f"game_picture_{k}", f"{system(k)[2]}: picture", GAME_PICTURES, value=self.game_picture(k))
                 for k in systems]
         if "nds" in systems:
@@ -272,6 +268,20 @@ class WebSettingsScreen:
                      choice("ds_touch", "DS: touching the screen", DS_TOUCH,
                             value=self.setting("ds_touch") if self.setting("ds_touch") in DS_TOUCH else DS_TOUCH[0])]
         sec("games", "Games", rows, "Each console's games keep the picture you pick for them.")
+        account = ra_account()                          # achievements: your RetroAchievements account
+        if account:
+            rows = [dict({"key": "ra_who", "label": "Signed in as", "kind": "info", "value": account[0]},
+                         **said(getattr(self, "ra_said", None))),
+                    {"key": "ra_forget", "label": "", "kind": "action", "button": "Sign out", "tone": "bad",
+                     "confirm": "Its key is taken off the Pi. The achievements you've earned stay yours."}]
+        else:
+            rows = [dict({"key": "ra_add", "label": "Sign in to RetroAchievements", "kind": "form", "button": "Sign in",
+                          "fields": [{"name": "user", "label": "User", "placeholder": "Your user name there"},
+                                     {"name": "password", "label": "Password", "secret": True,
+                                      "placeholder": "Its password (only to sign in: it isn't kept)"}]},
+                         **said(getattr(self, "ra_said", None)))]
+        sec("cheevos", "Achievements", rows, "With a free account at retroachievements.org, your games earn "
+            "achievements as you play.")
         sec("sim", "Simulator", [choice("sim_full", "Full screen", ["Off", "On"],
                                         value="On" if self.setting("sim_full") == "On" else "Off")])
 
@@ -466,6 +476,44 @@ class WebSettingsScreen:
             return {"ok": True}
         self.pihole_forget()
         return {"ok": True, "said": "Forgot your Pi-hole"}
+
+    # achievements
+    def web_set_ra_add(self, value, cmd):
+        """Signs in to RetroAchievements: the key it gives kept, not the password. The asking's on a thread of its
+        own: the page hears how it went."""
+        value = value if isinstance(value, dict) else {}
+        user = clean_name(value.get("user"), 40)
+        password = str(value.get("password") or "")[:200]
+        if not user or not password:
+            return {"error": "Put in your user name and its password"}
+        self.ra_said = ("busy", "Signing in…")
+
+        def job():
+            try:
+                who, token = ra_login(user, password)
+            except LoginError:
+                self.ra_said = (False, "RetroAchievements didn't take that user and password")
+                return
+            except (OSError, ValueError):
+                self.ra_said = (False, "Can't reach retroachievements.org")
+                return
+            try:
+                ra_save(who, token)
+            except OSError as ex:
+                self.ra_said = (False, f"Couldn't keep it ({ex.strerror or ex})")
+                return
+            self.ra_said = None
+            self.dirty = True
+        threading.Thread(target=job, daemon=True, name="ra-signin").start()
+        return {"ok": True}
+
+    def web_set_ra_forget(self, value, cmd):
+        try:
+            ra_forget()
+        except OSError as ex:
+            return {"error": f"Couldn't take it off ({ex.strerror or ex})"}
+        self.ra_said = None
+        return {"ok": True, "said": "Signed out of RetroAchievements"}
 
     # Plex and Jellyfin
     def web_set_plex(self, value, cmd):

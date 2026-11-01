@@ -89,11 +89,12 @@ KINDS = {   # what goes where when the page picks for you
                   ".ods", ".csv", ".pptx", ".ppt", ".odp"],
     "games": [".gb", ".gbc", ".gba", ".nes", ".sfc", ".smc", ".md", ".gen", ".smd", ".sms", ".gg", ".z64", ".n64",
               ".v64", ".cue", ".bin", ".chd", ".pbp", ".m3u", ".iso", ".cso", ".nds", ".gdi", ".cdi", ".raw", ".ngp",
-              ".ngc", ".ngpc", ".npc"],
+              ".ngc", ".ngpc", ".npc", ".gcm", ".rvz", ".wia", ".wbfs", ".ciso", ".gcz"],
 }
 SETTINGS_FILES = ["radio.txt", "streams.txt", "streams.m3u", "finance.txt", "crypto.txt", "camera.txt", "bot.txt",
                   "homeassistant.txt", "plex.txt", "jellyfin.txt", "pihole.txt"]   # media mode's settings: in static/
-PRIVATE = {"webui.txt", "homeassistant.txt", "plex.txt", "jellyfin.txt", "pihole.txt"}   # passwords: never shown
+PRIVATE = {"webui.txt", "homeassistant.txt", "plex.txt", "jellyfin.txt", "pihole.txt",   # passwords and keys:
+           "retroachievements.txt"}                                                            # never shown
 INLINE = set(KINDS["music"] + KINDS["videos"] + KINDS["pictures"] + [".pdf", ".txt", ".md"])
 ACCENTS = {"Blue": "#60aae4", "Teal": "#40c4b4", "Green": "#6ec878", "Purple": "#a082e6",
            "Pink": "#e878aa", "Red": "#ec6464", "Gold": "#e6be50", "White": "#e4e8ee"}

@@ -20,9 +20,11 @@ import urllib.request
 import zipfile
 import zlib
 
+from .cheevos import CHEEVO_CONSOLES, ra_account
 from .config import CACHE_DIR, home_dir
 from .discs import cue_files, cue_fixed, dc_title, DISC_EXTS, disc_info, disc_number, gdi_files, m3u_files
 from .screen import first_pi, slow_pi
+from .system import is_pc
 from .util import UA
 
 # what plays what: key, badge, name, the files, and the emulators (libretro cores), the first installed one.
@@ -44,8 +46,11 @@ GAME_SYSTEMS = [
     ("psp", "PSP", "PlayStation Portable", (".iso", ".cso", ".pbp", ".chd"), ("ppsspp",)),
     ("nds", "DS", "Nintendo DS", (".nds",), ("melonds", "melondsds", "desmume", "desmume2015")),
     ("dc", "DC", "Dreamcast", (".gdi", ".cdi", ".chd", ".cue", ".m3u"), ("flycast",)),
+    ("ps2", "PS2", "PlayStation 2", (".iso", ".chd", ".cso", ".cue", ".bin", ".m3u"), ("pcsx2",)),
+    ("gc", "GC", "GameCube", (".iso", ".gcm", ".rvz", ".ciso", ".gcz", ".wia"), ("dolphin",)),
+    ("wii", "Wii", "Wii", (".iso", ".wbfs", ".rvz", ".wia", ".gcz", ".ciso"), ("dolphin",)),
 ]
-DISC_SYSTEMS = ("ps1", "psp", "dc")              # discs: what's in the file says (pitato/discs.py)
+DISC_SYSTEMS = ("ps1", "psp", "dc", "ps2", "gc", "wii")   # discs: what's in the file says (pitato/discs.py)
 ARCADE_SYSTEMS = ("neogeo",)                     # its games are sets of chips in a zip, named as its emulator knows
                                                  # them (mslug.zip): the name says which (neogeo_sets)
 SHARED_EXTS = (".bin",)                          # a Genesis game's, or a PlayStation disc's: what's in it says which
@@ -53,20 +58,25 @@ GAME_EXTS = {e: s[0] for s in GAME_SYSTEMS if s[0] not in DISC_SYSTEMS + ARCADE_
              if e not in SHARED_EXTS}            # cartridges: a file says which (a zip too)
 GENESIS_FOLDERS = ("genesis", "megadrive", "mega drive", "md", "sega genesis", "sega mega drive",
                    "sega - mega drive - genesis")   # (a .bin in one: a Genesis game, whatever it says)
-NEEDS_3D = ("n64", "psp", "dc")   # drawn in 3D by the graphics chip: a Pi 4 or 5 (pitato/gpu.py)
+NEEDS_3D = ("n64", "psp", "dc", "ps2", "gc", "wii")   # drawn in 3D by the graphics chip: a Pi 4 or 5 (pitato/gpu.py)
+PC_ONLY = ("ps2", "gc", "wii")       # a PlayStation 2's, a GameCube's and a Wii's: a PC's alone (on a Pi: not shown)
 FAST_PI_ONLY = NEEDS_3D + ("nds",)   # ...and a DS's two processors and screens: a Pi 4 or 5 too
 NEW_PI_ONLY = ("neogeo",)            # a Neo Geo's: a Pi 2 or newer (not the first Pis, or a Pi Zero W)
-ANALOG_SYSTEMS = ("n64", "psp", "nds", "dc")   # its games take the sticks as they are, not as the d-pad (a DS's:
-                                         # the right one moves the pointer on its touch screen, pitato/screens/games.py)
-OWN_FILES = ("n64", "psp", "dc")   # its emulator keeps files of its own (settings, shaders, a PSP's fonts, a
-                                   # Dreamcast's clock): not in Games/BIOS
-GAME_PLAYERS = {"nes": 2, "snes": 2, "genesis": 2, "sms": 2, "neogeo": 2, "ps1": 2, "n64": 4, "dc": 4}   # how many play its games
+ANALOG_SYSTEMS = ("n64", "psp", "nds", "dc", "ps2", "gc", "wii")   # its games take the sticks as they are, not as
+                                         # the d-pad (a DS's: the right one moves the pointer on its touch screen,
+                                         # pitato/screens/games.py)
+OWN_FILES = ("n64", "psp", "dc", "ps2", "gc", "wii")   # its emulator keeps files of its own (settings, shaders, a
+                                   # PSP's fonts, a Dreamcast's clock, Dolphin's Sys): not in Games/BIOS
+GAME_PLAYERS = {"nes": 2, "snes": 2, "genesis": 2, "sms": 2, "neogeo": 2, "ps1": 2, "n64": 4, "dc": 4, "ps2": 2,
+                "gc": 4, "wii": 4}   # how many play its games
                                                  # at once, each on a controller of their own (the rest: one, on any)
 GAME_PACKAGES = {"mgba": "libretro-mgba", "nestopia": "libretro-nestopia", "snes9x": "libretro-snes9x",
                  "genesis_plus_gx": "libretro-genesisplusgx",
                  "mupen64plus_next": "mupen64plus_next", "pcsx_rearmed": "pcsx_rearmed", "ppsspp": "ppsspp",
                  "melonds": "melonds", "flycast": "flycast", "mednafen_ngp": "mednafen_ngp",
-                 "fbneo_neogeo": "fbneo_neogeo"}
+                 "fbneo_neogeo": "fbneo_neogeo", "dolphin": "dolphin", "pcsx2": "pcsx2"}
+PS2_BIOS_SIZE = (4 << 20, 8 << 20)               # a PlayStation 2's BIOS, from 4 to 8 MB (as LRPS2 takes them)
+PS2_BIOS_FOLDERS = ("", "ps2", "pcsx2", os.path.join("pcsx2", "bios"))   # in Games/BIOS, where one may be
 DC_BIOS = ("dc_boot.bin", "dc_bios.bin")         # a Dreamcast's own BIOS, if it's in Games/BIOS (or Games/BIOS/dc):
                                                  # Flycast plays without it, and with it the few games that need it
 GENERIC_NAMES = ("disc", "game", "gdi", "image")   # a .gdi named for what it is, not the game (GDEMU's disc.gdi): its
@@ -93,8 +103,9 @@ def system(key):
 
 def playable(key):
     """A system this Pi plays. N64, PSP, DS and Dreamcast games need a Pi 4 or 5, and Neo Geo games a Pi 2 or newer: on
-    an older Pi they aren't shown at all."""
-    return not (key in FAST_PI_ONLY and slow_pi()) and not (key in NEW_PI_ONLY and first_pi())
+    an older Pi they aren't shown at all. PlayStation 2, GameCube and Wii games: a PC's alone."""
+    return not (key in FAST_PI_ONLY and slow_pi()) and not (key in NEW_PI_ONLY and first_pi()) \
+        and not (key in PC_ONLY and not is_pc())
 
 
 def game_title(path):
@@ -311,10 +322,53 @@ def find_core(key):
     return None
 
 
+def ps2_rom(head):
+    """A PlayStation 2's BIOS, by its first MB: its ROM's directory (16 bytes a file: its name, its size), RESET first
+    and its version (ROMVER) in it, as LRPS2 looks for it."""
+    at = head.find(b"RESET\0")
+    while at >= 0:
+        if at % 16 == 0:
+            for k in range(at, len(head) - 15, 16):
+                name = head[k:k + 10].split(b"\0")[0]
+                if not name or len(name) == 10:
+                    break
+                if name == b"ROMVER":
+                    return True
+        at = head.find(b"RESET\0", at + 1)
+    return False
+
+
+def ps2_bios():
+    """The PlayStation 2 BIOS files in Games/BIOS (or its ps2 or pcsx2 folder): a PS2's own, copied from one (4 to 8
+    MB, its ROM's directory in it). Their paths, the first first."""
+    out = []
+    bios = os.path.join(games_dir(), BIOS_FOLDER)
+    for sub in PS2_BIOS_FOLDERS:
+        folder = os.path.join(bios, sub)
+        try:
+            names = sorted(os.listdir(folder))
+        except OSError:
+            continue
+        for n in names:
+            path = os.path.join(folder, n)
+            try:
+                if not (os.path.isfile(path) and PS2_BIOS_SIZE[0] <= os.path.getsize(path) <= PS2_BIOS_SIZE[1]):
+                    continue
+                with open(path, "rb") as f:
+                    if ps2_rom(f.read(1 << 20)) and path not in out:
+                        out.append(path)
+            except OSError:
+                pass
+    return out
+
+
 def bios_missing(core, game=None):
     """The BIOS file an emulator can't start without, when it isn't in Games/BIOS ('' when it's fine). A Neo Geo's
-    can be beside the game, or in Games/BIOS/fbneo, too (FinalBurn Neo looks there; the others only in Games/BIOS)."""
+    can be beside the game, or in Games/BIOS/fbneo, too (FinalBurn Neo looks there; the others only in Games/BIOS). A
+    PlayStation 2's: a BIOS from your own PS2, any of them."""
     name = os.path.basename(core).replace("_libretro.so", "")
+    if name == "pcsx2":
+        return "" if ps2_bios() else "the BIOS from your own PS2"
     need = NEEDS_BIOS.get(name, ())
     bios = os.path.join(games_dir(), BIOS_FOLDER)
     have = set()
@@ -389,7 +443,8 @@ LIBRETRO_NAMES = {"gb": "Nintendo - Game Boy", "gbc": "Nintendo - Game Boy Color
                   "ps1": "Sony - PlayStation", "psp": "Sony - PlayStation Portable", "nds": "Nintendo - Nintendo DS",
                   "genesis": "Sega - Mega Drive - Genesis", "sms": "Sega - Master System - Mark III",
                   "gg": "Sega - Game Gear", "dc": "Sega - Dreamcast", "ngp": "SNK - Neo Geo Pocket",
-                  "ngpc": "SNK - Neo Geo Pocket Color", "neogeo": "SNK - Neo Geo"}
+                  "ngpc": "SNK - Neo Geo Pocket Color", "neogeo": "SNK - Neo Geo", "ps2": "Sony - PlayStation 2",
+                  "gc": "Nintendo - GameCube", "wii": "Nintendo - Wii"}
 ART_PAIRS = (("gb", "gbc"), ("ngp", "ngpc"))     # both lists looked in: a colour game's file can end .gb or .ngp
 N64_ORDERS = {b"\x37\x80\x40\x12": "H", b"\x40\x12\x37\x80": "I"}   # .v64, .n64: the bytes swapped in twos, fours
 GAME_LISTS = "https://raw.githubusercontent.com/libretro/libretro-database/master/metadat/{kind}/{system}.dat"
@@ -465,6 +520,10 @@ def code_key(code, key="ps1"):
     """A game's code, the same however it's written: SLUS_005.94 and SLUS-00594 are SLUS-00594. A Dreamcast's: its
     letters and numbers, without Sega's MK (its disc says MK-51064, Redump's list 51064). None: it isn't one."""
     c = (code or "").upper().strip()
+    if key in ("gc", "wii"):                           # (GALE01, or Redump's DL-DOL-GALE-USA: GALE)
+        m = next((m for m in (re.fullmatch(r"([A-Z0-9]{4})(?:[A-Z0-9]{2})?", p) for p in re.split(r"[-_ ]", c)) if m),
+                 None)
+        return m.group(1) if m else None
     if key == "dc":
         c = re.sub(r"[^A-Z0-9]", "", c.split("(")[0])
         c = c[2:] if c.startswith("MK") and c[2:].isdigit() else c
@@ -846,6 +905,39 @@ def psp_files(sysdir, core):
         print(f"games: no PSP fonts for PPSSPP ({ex})", flush=True)
 
 
+def dolphin_files(sysdir, core):
+    """Dolphin's own files (Sys: its fonts, its game settings), set up beside it by setup.sh: where it looks for them,
+    dolphin-emu/Sys in the folder it's given (a link to them)."""
+    folder = os.path.join(sysdir, "dolphin-emu")
+    link, have = os.path.join(folder, "Sys"), os.path.join(os.path.dirname(core), "dolphin-emu", "Sys")
+    try:
+        os.makedirs(folder, exist_ok=True)
+        if os.path.islink(link) and not os.path.exists(link):
+            os.remove(link)                              # (they've moved)
+        if not os.path.lexists(link) and os.path.isdir(have):
+            os.symlink(have, link)
+    except OSError as ex:
+        print(f"games: no Sys files for Dolphin ({ex})", flush=True)
+
+
+def ps2_files(sysdir):
+    """The PlayStation 2 BIOS files of yours (in Games/BIOS), where LRPS2 looks for them: pcsx2/bios in the folder it's
+    given (links to them; a link's gone when its BIOS is)."""
+    folder = os.path.join(sysdir, "pcsx2", "bios")
+    want = {os.path.basename(p): p for p in reversed(ps2_bios())}   # (one name twice: the first one found)
+    try:
+        os.makedirs(folder, exist_ok=True)
+        for n in os.listdir(folder):
+            link = os.path.join(folder, n)
+            if os.path.islink(link) and os.readlink(link) != want.get(n):
+                os.remove(link)                        # (moved, or gone)
+        for n, path in want.items():
+            if not os.path.lexists(os.path.join(folder, n)):
+                os.symlink(path, os.path.join(folder, n))
+    except OSError as ex:
+        print(f"games: no PS2 BIOS for LRPS2 ({ex})", flush=True)
+
+
 def dc_files(sysdir):
     """A Dreamcast's BIOS (Games/BIOS/dc_boot.bin, or in Games/BIOS/dc), where Flycast looks for it: the dc folder in
     the one it's given (a link to it). None there: Flycast plays with its own (and a link's gone when the BIOS is)."""
@@ -900,14 +992,18 @@ class GameRun:
         self.resumed = False
         self.slow = False                            # it was behind before its menu came up
         self.disc = (0, 1)                           # the disc in (from 0), of how many
+        self.cheevos = None                          # its achievements: (yours, of how many), or None: none (not
+                                                     # signed in, or none for it)
         self.answers = []                            # what it said that hasn't been asked about
         self.cond = threading.Condition()
         self.writing = threading.Lock()              # (a line at a time: an AI player sends from its own thread)
         self.ended = False                           # it's gone (quit, or it stopped)
 
-    def start(self, core, sound="", volume=80, picture="Fit", fb="/dev/fb0", resume=True, options=(), turn=0):
+    def start(self, core, sound="", volume=80, picture="Fit", fb="/dev/fb0", resume=True, options=(), turn=0,
+              cheevos=True):
         """options: the emulator's settings ("key=value"), over what it'd have otherwise (a DS game's screens).
-        turn: degrees the screen's picture is turned clockwise (a screen on its side: Settings > Rotate screen)."""
+        turn: degrees the screen's picture is turned clockwise (a screen on its side: Settings > Rotate screen).
+        cheevos: its achievements, if you've signed in to RetroAchievements."""
         exts = ",".join(system(self.game["system"])[3])
         saves = os.path.join(games_dir(), SAVES_FOLDER)
         own = self.game["system"] in OWN_FILES          # (Mupen64Plus: its settings, its shaders)
@@ -919,9 +1015,18 @@ class GameRun:
                 psp_files(sysdir, core)
             elif self.game["system"] == "dc":
                 dc_files(sysdir)
+            elif self.game["system"] in ("gc", "wii"):
+                dolphin_files(sysdir, core)
+            elif self.game["system"] == "ps2":
+                ps2_files(sysdir)
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         env = dict(os.environ)
         env["PYTHONPATH"] = root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        env.pop("PITATO_RA", None)
+        console = CHEEVO_CONSOLES.get(self.game["system"])
+        account = ra_account() if cheevos and console else None   # your RetroAchievements account, and the game's
+        if account:                                    # kind's number there (its key: not on its command line,
+            env["PITATO_RA"] = "\n".join(account + (str(console),))   # where anyone could see it)
         cmd = [sys.executable, "-m", "pitato.emulator", "--core", core, "--game", self.game["path"],
                "--exts", exts, "--saves", saves, "--name", save_name(self.game["path"]),
                "--system", sysdir, "--fb", fb, "--sound", sound or "",
@@ -961,7 +1066,14 @@ class GameRun:
                         self.error = rest
                     elif what == "failed":                 # (it ended itself as it started)
                         self.error = rest
-                    self.answers.append((what, rest))
+                    elif what == "cheevos":                # its achievements: how many are yours, of how many
+                        try:
+                            got, total = (int(x) for x in rest.split()[:2])
+                            self.cheevos = (got, total) if total > 0 else None
+                        except ValueError:
+                            self.cheevos = None
+                    if what not in ("cheevos", "cheevo"):    # (news, not answers)
+                        self.answers.append((what, rest))
                     self.cond.notify_all()
                 self.on_change()
         except (OSError, ValueError):

@@ -89,6 +89,7 @@ class HomeScreen:
         self.ha_menu = None
         self.cam_menu = None
         self.games_q = None                            # (finding a game: not any more)
+        self.games_dir = None                          # (the Games tab's folder: shut)
         if ttype == "radio" and self.radio_stack:
             self.radio_stack = []
             self.status[self.tab] = None

@@ -71,10 +71,10 @@ modprobe -r snd-aloop 2> /dev/null || true
 # its programs, the emulators it built, and what it kept for itself
 rm -f /usr/local/bin/pitato.py /var/log/pitato-update.log
 rm -rf /usr/local/share/pitato /usr/local/lib/pitato /var/lib/pitato /var/cache/pitato
-for core in pcsx_rearmed mupen64plus_next ppsspp melonds flycast; do
+for core in pcsx_rearmed mupen64plus_next ppsspp melonds flycast dolphin pcsx2; do
   rm -f "/usr/local/lib/libretro/${core}_libretro.so" "/usr/local/lib/libretro/$core.version"
 done
-rm -rf /usr/local/lib/libretro/PPSSPP
+rm -rf /usr/local/lib/libretro/PPSSPP /usr/local/lib/libretro/dolphin-emu
 rmdir /usr/local/lib/libretro 2> /dev/null || true
 if [ -n "$user_home" ] && [ "$user_home" != / ] && [ -d "$user_home/.cache/pitato" ]; then
   rm -rf "$user_home/.cache/pitato"

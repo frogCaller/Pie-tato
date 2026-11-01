@@ -13,7 +13,7 @@ CONTROL_PORT = 5480        # the web page (webui.py) works media mode through th
 WEB_PORT = 5432            # ...which is itself on this port (the Bot at work gives its address to agents)
 CONTROL_KEY = "/run/pitato/control-key"   # ...with this key, readable by you and root only
 # passwords and tokens: never shown
-WEB_PRIVATE = {"webui.txt", "homeassistant.txt", "plex.txt", "jellyfin.txt", "pihole.txt"}
+WEB_PRIVATE = {"webui.txt", "homeassistant.txt", "plex.txt", "jellyfin.txt", "pihole.txt", "retroachievements.txt"}
 
 
 # ---- your settings files: the static folder ---------------------------------

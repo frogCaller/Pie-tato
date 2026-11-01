@@ -1,7 +1,7 @@
 """A game, in a process of its own: a libretro core (mGBA, Nestopia, Snes9x, PCSX ReARMed, Mupen64Plus, PPSSPP,
-Flycast...) runs it, and this draws its pictures straight onto the screen and plays its sound through aplay, a frame at
-a time. A game drawn in 3D (an N64's, a PSP's, a Dreamcast's) is drawn by the graphics chip, and each frame read back
-(pitato/gpu.py).
+Flycast, Dolphin, LRPS2...) runs it, and this draws its pictures straight onto the screen and plays its sound through
+aplay, a frame at a time. A game drawn in 3D (an N64's, a PSP's, a Dreamcast's, a PlayStation 2's, a GameCube's or a
+Wii's) is drawn by the graphics chip, and each frame read back (pitato/gpu.py).
 Media mode starts it (pitato/games.py) and tells it what to do, a line at a time:
     down a / up a        a button pressed, let go (a b x y l r l2 r2 start select up down left right)
     stick lx -64         where a stick is (lx ly: the left one, rx ry: the right), -127 to 127 (up and left
@@ -29,6 +29,7 @@ Run as: python3 -m pitato.emulator --core CORE --game GAME --saves FOLDER [--res
 import argparse
 import ctypes as C
 import fcntl
+import json
 import math
 import os
 import re
@@ -47,9 +48,10 @@ import zlib
 import numpy as np
 
 from .discs import cue_fixed
-from .gpu import CORE_CB, GPU, GPUError, HWRender, ON_GPU, wanted_version
+from .gpu import CONTEXT_GLES_VERSION, CORE_CB, GPU, GPUError, HWRender, ON_GPU, wanted_version
 from . import screen as screens
 from .screen import TURNS, fb_geometry, slow_pi, turn_block, turn_pixels, turned, unturn_pixels
+from .theme import FONT, FONT_BOLD
 
 # libretro's numbers (libretro.h)
 EXP = 0x10000
@@ -80,7 +82,16 @@ GAME_OPTIONS = {"mgba_sgb_borders": "OFF",      # a Game Boy game fills the scre
                 # a Dreamcast game: its memory card (the first controller's) its own, kept with its saves; a frame
                 # now and then left undrawn when it's behind (so it keeps up); no extra smoothing of its textures
                 "reicast_per_content_vmus": "VMU A1", "reicast_auto_skip_frame": "some",
-                "reicast_anisotropic_filtering": "off"}
+                "reicast_anisotropic_filtering": "off",
+                # a GameCube or Wii game (Dolphin, on a PC): drawn by the graphics chip at twice its own size (sharp on
+                # a TV), a Wii remote with its nunchuk on each controller (the left stick the nunchuk's, the right one
+                # pointing)
+                "dolphin_renderer": "Hardware", "dolphin_efb_scale": "2", "dolphin_wiimote_default_device": "nunchuk",
+                # a PlayStation 2 game (LRPS2, on a PC): its own memory cards, kept with its saves (not one shared,
+                # kept where the emulator's files are); drawn at twice its size; straight into the game
+                "pcsx2_shared_memory_cards": "disabled", "pcsx2_upscale_multiplier": "2x", "pcsx2_fastboot": "enabled"}
+PREFER_GLES = ("dolphin-emu", "ParaLLEl PS2", "LRPS2")   # emulators asked to draw with OpenGL ES first (they ask for
+                                                         # the rest, then come to it: it's what's here)
 LOG_ARGS = 6             # an emulator's printf (its log): what's after the format, read as whole numbers. (Where
                          # they are, as a function that takes them all would find them: in registers, then on
                          # the stack, on a Pi's 64-bit or 32-bit ARM and on a PC.) Only as many as the format
@@ -265,6 +276,18 @@ def player(word):
     return port if 0 <= port < PLAYERS else 0
 
 
+def bin_cue(path, folder):
+    """A .cue for a disc's .bin on its own (a raw CD image, 2352-byte sectors, or a plain one), made in folder: its
+    path."""
+    with open(path, "rb") as f:
+        raw = f.read(12) == b"\x00" + b"\xff" * 10 + b"\x00"
+    cue = os.path.join(folder, os.path.splitext(os.path.basename(path))[0] + ".cue")
+    with open(cue, "w") as f:
+        f.write(f'FILE "{os.path.abspath(path)}" BINARY\n  TRACK 01 {"MODE2/2352" if raw else "MODE1/2048"}\n'
+                '    INDEX 01 00:00:00\n')
+    return cue
+
+
 def game_data(path, exts):
     """(the game's bytes, in a buffer the emulator's given; how many; the name it goes by): a zip's first game
     inside it, if it's a zip. (A file's read straight into the buffer: a DS game can be hundreds of MB, so not
@@ -361,10 +384,46 @@ def picture_size(sw, sh, w, h, aspect, mode, most=None, whole=True):
     return max(1, min(sw, int(round(dw)))), max(1, min(sh, int(round(dh))))
 
 
+RCHEEVOS_LIB = "/usr/local/lib/pitato/librcheevos.so"   # achievements: rcheevos, as setup.sh builds it
+RA_NAME, RA_VERSION = "Pietato", "1.1"                    # ...how it introduces itself to RetroAchievements
+CHEEVOS_EXT = ".cheevos"                                  # ...how far along they are, beside a saved state
+NOTE_SECS = 5.0          # a notice over the picture (an achievement unlocked): this long
+NOTE_GOLD = (240, 196, 72)   # ...its first line's colour, and its edge's
+NOTE_BG = (18, 21, 27)
+
+
+def notice_picture(lines, width, scale=1):
+    """A notice as a picture (RGBA, its corners clear): a line in gold, then a bold one, then the rest, plain;
+    as wide as it needs, up to width."""
+    from PIL import Image, ImageDraw, ImageFont
+    sizes = (13, 16, 13)
+    fonts = [ImageFont.truetype(FONT_BOLD if i == 1 else FONT, sizes[min(i, 2)] * scale) for i in range(len(lines))]
+    d = ImageDraw.Draw(Image.new("L", (1, 1)))
+    pad, gap = 12 * scale, 4 * scale
+    room = width - 2 * pad
+    shown = []
+    for text, f in zip(lines, fonts):
+        while text and d.textlength(text, font=f) > room:
+            text = text[:-2].rstrip() + "…" if len(text) > 2 else ""
+        shown.append(text)
+    w = min(width, int(max(d.textlength(t, font=f) for t, f in zip(shown, fonts)) + 2 * pad))
+    hs = [f.getbbox("Ag")[3] for f in fonts]
+    h = sum(hs) + gap * (len(hs) - 1) + 2 * pad - 2 * scale
+    img = Image.new("RGBA", (max(w, 1), max(h, 1)), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle((0, 0, w - 1, h - 1), radius=10 * scale, fill=NOTE_BG + (255,), outline=NOTE_GOLD + (255,),
+                        width=max(1, scale))
+    y = pad - scale
+    for i, (text, f, lh) in enumerate(zip(shown, fonts, hs)):
+        d.text((pad, y), text, font=f, fill=NOTE_GOLD if i == 0 else (236, 239, 244) if i == 1 else (170, 178, 190))
+        y += lh + gap
+    return img
+
+
 class Screen:
     """The framebuffer, written a band of rows at a time: the picture in the middle, black either side. A screen on
     its side (turn: degrees, clockwise; Settings > Rotate screen) is all that as it's seen (w x h): the picture's
-    turned as it goes onto the screen's own pixels (dev_w x dev_h)."""
+    turned as it goes onto the screen's own pixels (dev_w x dev_h). A notice can go over the picture for a while."""
 
     def __init__(self, dev="/dev/fb0", turn=0):
         test = os.environ.get("PITATO_FB")         # (the tests: path:WxH:bits, a plain file)
@@ -390,6 +449,9 @@ class Screen:
         self.luts = {}
         self.plan = None                              # what the last picture's layout was for
         self.mode = "Fit"
+        self.notes = []                               # notices waiting their turn over the picture: lines of text
+        self.note = None                              # the one up: its lines, until, and as drawn (pixels, mask,
+                                                      # where in the band's view, what was under it)
 
     def native(self, fmt):
         """The core's pixels go straight onto the screen."""
@@ -447,6 +509,8 @@ class Screen:
         cols = np.empty(((w if turned_ else h), len(cols_i)), dtype=self.dtype)
         if self.plan is not None:
             self.clear()                              # (a new size: no bits of the old one left)
+        if self.note is not None:
+            self.note["drawn"] = None                 # (drawn again for this size)
         self.plan = {"key": key, "size": (dw, dh), "ys": ys, "xs": xs, "band": band, "view": view,
                      "at": (by + self.yo) * self.stride, "turned": turned_, "rows_i": np.ascontiguousarray(rows_i),
                      "cols_i": np.ascontiguousarray(cols_i), "cols": cols, "up": None}
@@ -460,6 +524,7 @@ class Screen:
         src = self.convert(a, fmt)
         np.take(src.T if p["turned"] else src, p["cols_i"], axis=1, out=p["cols"], mode="clip")
         np.take(p["cols"], p["rows_i"], axis=0, out=p["view"], mode="clip")
+        self.stamp(p)
         os.pwrite(self.f.fileno(), p["band"], p["at"])
 
     def show_gpu(self, gpu, w, h, aspect, flipped=True):
@@ -479,10 +544,72 @@ class Screen:
             into[...] = self.pack(got[..., 0], got[..., 1], got[..., 2])
         if self.turn:
             p["view"][...] = turn_pixels(into, self.turn)
+        self.stamp(p)
         os.pwrite(self.f.fileno(), p["band"], p["at"])
+
+    # -- a notice over the picture --------------------------------------------------------------------------------
+    def notice(self, lines):
+        """A notice over the picture for a few seconds (after any before it): lines of text."""
+        self.notes.append([str(t) for t in lines if t])
+
+    def stamp(self, p):
+        """The notice up, onto the picture's rows before they're written (what's under it kept, to put back)."""
+        note = self.note
+        if note is None:
+            if not self.notes:
+                return
+            note = self.note = {"lines": self.notes.pop(0), "until": time.monotonic() + NOTE_SECS, "drawn": None}
+        if note["drawn"] is None:
+            note["drawn"] = self.notice_drawn(p, note["lines"])
+        if note["drawn"] is False:
+            return
+        pix, mask, (y0, x0) = note["drawn"]
+        part = p["view"][y0:y0 + pix.shape[0], x0:x0 + pix.shape[1]]
+        note["under"] = (p, part.copy())
+        part[mask] = pix[mask]
+
+    def notice_drawn(self, p, lines):
+        """The notice for this picture: its pixels as the screen's, which of them it covers, and where it goes in
+        the band's view (top middle of the picture, as it's seen). False: the picture's too small for one."""
+        dw, dh = p["size"]
+        scale = 2 if dw >= 1600 else 1
+        if dw < 240 * scale:                          # (a small picture: it'd hide too much of it)
+            return False
+        img = notice_picture(lines, min(dw - 16 * scale, 420 * scale), scale)
+        if img.height > dh // 3:
+            return False
+        rgba = np.asarray(img)
+        mask = rgba[..., 3] >= 128
+        pix = self.pack(rgba[..., 0], rgba[..., 1], rgba[..., 2])
+        x, y = (dw - img.width) // 2, 8 * scale       # (as it's seen, in the picture)
+        pix, mask = turn_pixels(pix, self.turn), turn_pixels(mask, self.turn)
+        x0, y0 = (self.w - dw) // 2, (self.h - dh) // 2
+        px, py, _, _ = turn_block(self.turn, self.dev_w, self.dev_h, x0, y0, dw, dh)
+        nx, ny, _, _ = turn_block(self.turn, self.dev_w, self.dev_h, x0 + x, y0 + y, img.width, img.height)
+        return np.ascontiguousarray(pix), np.ascontiguousarray(mask), (ny - py, nx - px)
+
+    def notice_tick(self):
+        """A notice's time up: what was under it put back (and written: the picture may not change again for a
+        while); the next one, at the next frame."""
+        note = self.note
+        if note is None or time.monotonic() < note["until"]:
+            return
+        self.note = None
+        under = note.get("under")
+        if under is not None and note["drawn"]:
+            p, was = under
+            pix, mask, (y0, x0) = note["drawn"]
+            if p is self.plan:
+                p["view"][y0:y0 + was.shape[0], x0:x0 + was.shape[1]] = was
+                os.pwrite(self.f.fileno(), p["band"], p["at"])
 
     def clear(self):
         os.pwrite(self.f.fileno(), bytes(self.stride * self.dev_h), self.yo * self.stride)
+
+    def again(self):
+        """The last picture, written again (something was over it: the game's picture may not change for a while)."""
+        if self.plan is not None:
+            os.pwrite(self.f.fileno(), self.plan["band"], self.plan["at"])
 
     def shot(self, path, most=SHOT_MOST):
         """The game's last picture, as it is on the screen (not the black either side; as it's seen), one of the
@@ -630,6 +757,8 @@ class Core:
         self.av = AVInfo()
         self.defaults, self.held_strings = {}, {}
         self.draw = True
+        self.missed = None                             # a picture left undrawn (it was behind): (its pixels or None,
+                                                       # still in the graphics chip; its format or its size)
         self.quit = False
         self.on_video = on_video
         self.audio = bytearray()
@@ -642,6 +771,7 @@ class Core:
         self.missing = []                              # the chips an arcade game's zip hasn't got, as its emulator says
         self.disk, self.disk_ext = None, False         # (a game on discs: changing them)
         self.regions = []                              # its memory, where the game sees it: (start, length, pointer)
+        self.memdescs = []                             # ...and its map of it, as it gave it
         self.saves, self.name = saves, name
         self.system_dir = system_dir.encode()
         self.saves_b = saves.encode()
@@ -681,6 +811,9 @@ class Core:
                         f.write(C.string_at(buf, size))
                     del buf
                     ext = os.path.splitext(game)[1].lower().lstrip(".")
+                if kinds and ext == "bin" and "bin" not in kinds and "cue" in kinds:   # (a disc's .bin alone, to
+                    self.scratch = self.scratch or scratch_dir()                   # one that wants a .cue: LRPS2)
+                    game, ext = bin_cue(game, self.scratch), "cue"
                 if kinds and ext not in kinds:
                     raise GameError(f"This emulator can't play .{ext} files")
                 if ext == "cue":
@@ -696,6 +829,7 @@ class Core:
         else:
             self.data, size, fake_path = game_data(game, exts)   # (kept until the game's unloaded)
             self.game_path = fake_path.encode()
+        self.data_size = size
         self.callbacks = [ENVIRONMENT(self.environment), VIDEO(self.video), SAMPLE(self.sample),
                           BATCH(self.batch), POLL(self.poll), STATE(self.state)]
         for fn, cb in zip(("retro_set_environment", "retro_set_video_refresh", "retro_set_audio_sample",
@@ -843,9 +977,18 @@ class Core:
             return True
         if cmd == (36 | EXP):                         # SET_MEMORY_MAPS: where its memory is (an AI player reads it)
             m = C.cast(data, C.POINTER(MemoryMap))[0]
-            self.regions = [(d.start, d.len, d.ptr + d.offset)
-                            for d in (m.descriptors[i] for i in range(m.num_descriptors)) if d.ptr and d.len]
+            descs = [m.descriptors[i] for i in range(m.num_descriptors)]
+            self.regions = [(d.start, d.len, d.ptr + d.offset) for d in descs if d.ptr and d.len]
+            self.memdescs = [dict(flags=d.flags, ptr=d.ptr or 0, offset=d.offset, start=d.start, select=d.select,
+                                  disconnect=d.disconnect, len=d.len,
+                                  addrspace=d.addrspace.decode(errors="replace") if d.addrspace else None)
+                             for d in descs]          # (all of it, as it was: achievements map it so)
             return True
+        if cmd == 56 and self.library in PREFER_GLES:   # GET_PREFERRED_HW_RENDER: OpenGL ES, what's here
+            C.cast(data, C.POINTER(C.c_int))[0] = CONTEXT_GLES_VERSION
+            return True
+        if cmd == (44 | EXP):                         # SET_HW_SHARED_CONTEXT: (its state's kept as it was, as
+            return True                               # a frame's read: pitato/gpu.py)
         if cmd in (8, 11, 34, 35, 42 | EXP, 44, 55, 60, 63):
             return True                               # (told, and nothing to do about it)
         return False
@@ -864,6 +1007,7 @@ class Core:
             except GPUError as ex:
                 self.gpu_error = str(ex)
                 return False
+        self.gpu_error = ""                           # (a kind asked for before, and not given: it's this one now)
         self.gpu.hand_over(hw)
         self.hw = {"reset": hw.context_reset, "destroy": hw.context_destroy, "depth": bool(hw.depth),
                    "stencil": bool(hw.stencil), "flipped": bool(hw.bottom_left_origin), "live": False}
@@ -887,15 +1031,26 @@ class Core:
         print(f"game: the emulator says {text!r}", file=sys.stderr, flush=True)
 
     def video(self, data, w, h, pitch):
-        if not data or not self.draw:
+        if not data:                                  # the same picture as before: if the one before was left
+            if self.draw and self.missed is not None:   # undrawn (it was behind), that one now (the picture
+                (a, fmt), self.missed = self.missed, None   # may stay as it is a long while: a menu's)
+                if a is not None:
+                    self.on_video(a, fmt, self.av.geometry.aspect_ratio)
+                elif self.gpu is not None:
+                    self.on_video(None, fmt, self.av.geometry.aspect_ratio)
             return
         if data == ON_GPU:                            # drawn by the graphics chip, and still in it
-            if self.gpu is not None:
+            self.missed = None if self.draw else (None, (w, h))
+            if self.draw and self.gpu is not None:
                 self.on_video(None, (w, h), self.av.geometry.aspect_ratio)
             return
         bpp = 4 if self.fmt == FMT_XRGB8888 else 2
         buf = (C.c_uint8 * (pitch * h)).from_address(data)
         a = np.frombuffer(buf, dtype=np.uint32 if bpp == 4 else np.uint16).reshape(h, pitch // bpp)[:, :w]
+        if not self.draw:
+            self.missed = (a.copy(), self.fmt)        # (a copy: the emulator's own may change)
+            return
+        self.missed = None
         self.on_video(a, self.fmt, self.av.geometry.aspect_ratio)
 
     def sample(self, left, right):
@@ -920,6 +1075,8 @@ class Core:
             return (held >> id_) & 1 if id_ < 16 else 0
         if kind == ANALOG and index < 2 and id_ < 2:   # a stick (0 the left, 1 the right): x or y
             return self.sticks[port][index * 2 + id_]
+        if kind == ANALOG and index == 2 and id_ < 16:   # a button as how far it's pressed (a GameCube's triggers): all
+            return 0x7FFF if (self.buttons[port] >> id_) & 1 else 0   # the way, or not at all
         return 0
 
     def plug(self, port):
@@ -1061,6 +1218,7 @@ class Session:
         self.next_keep = time.monotonic() + KEEP_EVERY
         self.stats = [0, 0, 0.0, 0.0, time.monotonic()]   # frames, not drawn, emulator secs, picture secs, since
         self.recent = [[0, 0], [0, 0]]                # (frames, not drawn): the window before, and this one
+        self.core = None                              # (until it's started: a frame can come as it starts)
         try:
             if not os.path.isdir(args.saves):
                 os.makedirs(args.saves, exist_ok=True)
@@ -1090,6 +1248,9 @@ class Session:
             self.screen.close()
             raise
         self.sound = Sound(args.sound, self.core.av.timing.sample_rate, args.volume)
+        self.ra = None                                # its achievements (RetroAchievements), if you're signed in
+        self.ra_said = None                           # ...how many are yours, as media mode was last told
+        self.cheevos_start()
 
     def slow(self):
         """It's been behind (frames left undrawn) a good share of the last few hundred frames."""
@@ -1106,6 +1267,8 @@ class Session:
     def picture(self, a, fmt, aspect):
         t = time.perf_counter()
         if a is None:                                 # (a 3D game's: the chip has it, fmt is its size)
+            if self.core is None:                     # (one drawn as it starts, before it's ours: Dolphin's)
+                return
             self.screen.show_gpu(self.core.gpu, fmt[0], fmt[1], aspect, self.core.hw["flipped"])
         else:
             self.screen.show(a, fmt, aspect)
@@ -1158,10 +1321,17 @@ class Session:
             return False
         try:
             write_file(self.base + ext, data)
-            return True
         except OSError as ex:
             print(f"game: couldn't save its state ({ex})", file=sys.stderr, flush=True)
             return False
+        if self.ra is not None:                       # (how far along its achievements are, beside it)
+            try:
+                progress = self.ra.serialize_progress()
+                if progress:
+                    write_file(self.base + ext + CHEEVOS_EXT, progress)
+            except Exception as ex:
+                print(f"game: achievements' progress not kept ({ex!r})", file=sys.stderr, flush=True)
+        return True
 
     def load_state(self, ext):
         """True: put back; False: it wouldn't go; None: there isn't one."""
@@ -1170,7 +1340,164 @@ class Session:
                 data = f.read()
         except OSError:
             return None
-        return self.core.unserialize(data)
+        ok = self.core.unserialize(data)
+        if ok and self.ra is not None:                # (its achievements, as far along as they were then)
+            try:
+                with open(self.base + ext + CHEEVOS_EXT, "rb") as f:
+                    progress = f.read()
+            except OSError:
+                progress = None                       # (none: they start again from where the game is)
+            try:
+                self.ra.deserialize_progress(progress)
+            except Exception as ex:
+                print(f"game: achievements' progress not put back ({ex!r})", file=sys.stderr, flush=True)
+        return ok
+
+    # -- achievements (RetroAchievements) ---------------------------------------------------------------------
+    def cheevos_start(self):
+        """Your RetroAchievements account (from media mode, if you've signed in) and this kind of game's number
+        there: signed in, the game looked up by its file, its achievements watched for as it plays. None here (no
+        rcheevos, say): it plays just the same."""
+        told = os.environ.pop("PITATO_RA", "").split("\n")
+        if len(told) != 3 or not all(told) or not told[2].isdigit():
+            return
+        user, token, console = told[0], told[1], int(told[2])
+        try:
+            from . import rcheevos as RC
+            lib = RC.RCheevos(os.environ.get("PITATO_RCHEEVOS") or RCHEEVOS_LIB)
+            ra = RC.RAClient(lib, user_agent=RC.make_user_agent(RA_NAME, RA_VERSION, self.args.core),
+                             host=os.environ.get("PITATO_RA_HOST") or None)
+        except Exception as ex:                       # (not built here, or too old: no achievements)
+            print(f"game: no achievements ({ex!r})", file=sys.stderr, flush=True)
+            return
+        core = L = None
+        try:
+            core, L = self.core, self.core.lib
+            save_size = int(L.retro_get_memory_size(SAVE_RAM))   # (as it loaded: Genesis Plus GX says less later)
+
+            def memory(kind):                         # where its memory is, for rcheevos to map
+                ptr, size = L.retro_get_memory_data(kind), int(L.retro_get_memory_size(kind))
+                if kind == SAVE_RAM:
+                    size = max(size, save_size)
+                return (ptr, size) if ptr and size else (0, 0)
+            ra.memory.get_memory = memory
+            if core.memdescs:
+                ra.set_memory_map(core.memdescs)
+            ra.on_achievement_triggered = self.cheevo_got
+            ra.on_game_loaded = self.cheevos_loaded
+            ra.on_game_completed = lambda info: self.screen.notice(["★ Every achievement is yours",
+                                                                    info.get("title") or ""])
+            ra.on_login = self.cheevos_login
+            ra.on_login_required = self.cheevos_signed_out
+            ra.login_token(user, token)
+            if core.data is not None:                 # (a cartridge's bytes, unzipped: what it's known by)
+                ra.load_game(console, data=memoryview(core.data)[:core.data_size], path=self.args.game)
+            else:                                     # (a disc, an arcade game's zip, a cartridge out of its zip:
+                path = os.fsdecode(core.game_path)    # by its file, as the emulator has it; a .cso's insides read
+                if self.args.game.lower().endswith(".cso"):   # through Python: rcheevos can't)
+                    ra.set_file_reader(RC.CsoFileReader())
+                ra.load_game(console, path=path)
+        except Exception as ex:                       # (never the game's end: it plays, without them)
+            print(f"game: no achievements ({ex!r})", file=sys.stderr, flush=True)
+            try:
+                ra.close(drain_timeout=0)
+            except Exception:
+                pass
+            return
+        self.ra = ra
+        self.cheevos_memdescs = core.memdescs
+
+    def cheevos_frame(self, idle=False):
+        try:
+            if self.core.memdescs is not self.cheevos_memdescs:   # (a new map of its memory: mGBA's, as it starts)
+                self.cheevos_memdescs = self.core.memdescs
+                self.ra.set_memory_map(self.core.memdescs)
+            if idle:
+                self.ra.idle()
+            else:
+                self.ra.do_frame()
+        except Exception as ex:                       # (never the game's end: just no more achievements)
+            print(f"game: achievements stopped ({ex!r})", file=sys.stderr, flush=True)
+            self.cheevos_close()
+            self.cheevos_tell(0, 0)
+
+    def cheevos_tell(self, got, total):
+        """Media mode told how many of its achievements are yours (0 0: none, or none now)."""
+        if self.ra_said != (got, total):
+            self.ra_said = (got, total)
+            self.say("cheevos", got, total)
+
+    def cheevos_all(self):
+        """Its achievements (not RetroAchievements' own note that it doesn't know this program: that one's only
+        about its hardcore mode)."""
+        return [a for a in self.ra.achievements() if not a.get("warning")]
+
+    def cheevos_counts(self, rows=None):
+        rows = self.cheevos_all() if rows is None else rows
+        return sum(1 for a in rows if a["unlocked"]), len(rows)
+
+    def cheevos_loaded(self, result, message):
+        game = self.ra.game if self.ra is not None else None
+        if result != 0 or not game:                   # (a game it doesn't know, or can't be asked about now)
+            print(f"game: no achievements for it ({result}, {message!r})", file=sys.stderr, flush=True)
+            self.cheevos_tell(0, 0)
+            return
+        got, total = self.cheevos_counts()
+        self.cheevos_tell(got, total)
+        if total:
+            self.screen.notice(["★ Achievements", game.get("title") or "", f"{got} of {total} are yours"])
+
+    def cheevo_got(self, ach):
+        if ach.get("warning"):
+            return
+        pts = int(ach.get("points") or 0)
+        self.screen.notice([f"★ Achievement unlocked · {pts} point{'' if pts == 1 else 's'}",
+                            ach.get("title") or "", ach.get("description") or ""])
+        self.cheevos_tell(*self.cheevos_counts())
+        self.say("cheevo", (ach.get("title") or "").replace("\n", " "))
+
+    def cheevos_login(self, result, message):
+        """Signed in, or not: its key turned down (or too old), or RetroAchievements not reached (no word of it
+        then: the game plays on, without them)."""
+        from .rcheevos import RC_ACCESS_DENIED, RC_EXPIRED_TOKEN, RC_INVALID_CREDENTIALS
+        if result in (RC_ACCESS_DENIED, RC_EXPIRED_TOKEN, RC_INVALID_CREDENTIALS):
+            self.cheevos_signed_out(f"its key turned down: {message}")
+        elif result != 0:
+            print(f"game: couldn't sign in to RetroAchievements ({result}, {message!r})", file=sys.stderr, flush=True)
+
+    def cheevos_signed_out(self, reason):
+        print(f"game: RetroAchievements wants you to sign in again? ({reason!r})", file=sys.stderr, flush=True)
+        if reason.startswith(("its key turned down", "server rejected")):   # (not just RetroAchievements not reached)
+            self.screen.notice(["★ Achievements", "Sign in to RetroAchievements again, on the web page"])
+        self.cheevos_tell(0, 0)
+
+    def cheevos_list(self, path):
+        """Its achievements, for media mode's list: yours first (the last first), then the rest, those nearly
+        done first; and how many are yours, of how many, and their points."""
+        rows = self.cheevos_all()
+        mine = sorted((a for a in rows if a["unlocked"]), key=lambda a: -a.get("unlock_time", 0))
+        rest = sorted((a for a in rows if not a["unlocked"]), key=lambda a: -a.get("measured_percent", 0.0))
+        got, total = self.cheevos_counts(rows)
+        points = sum(int(a["points"] or 0) for a in rows)
+        pts = f": {sum(int(a['points'] or 0) for a in mine)} of {points} points" if points else ""
+        out = {"head": f"{got} of {total} yours{pts}",
+               "list": [{"title": a["title"] or "", "description": a["description"] or "", "points": a["points"],
+                         "unlocked": a["unlocked"], "progress": "" if a["unlocked"] else a["measured_progress"] or ""}
+                        for a in mine + rest]}
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(out, f)
+        os.replace(tmp, path)
+
+    def cheevos_close(self):
+        """An unlock on its way given a moment to get there first (one that can't: lost, as RetroArch's is)."""
+        ra, self.ra = self.ra, None
+        if ra is not None:
+            try:
+                ra.unload_game(drain_timeout=2.0)
+                ra.close(drain_timeout=1.0)
+            except Exception as ex:
+                print(f"game: achievements: {ex!r}", file=sys.stderr, flush=True)
 
     # -- what media mode says -------------------------------------------------------------
     def commands(self, wait):
@@ -1235,6 +1562,7 @@ class Session:
             if self.paused:
                 self.paused = False
                 self.screen.clear()
+                self.screen.again()                   # (the menu's gone: the game, as it was)
                 self.sound.start()
                 self.beat = time.monotonic()
             self.say("resumed")
@@ -1245,7 +1573,18 @@ class Session:
             self.say("nostate" if ok is None else "loaded" if ok else "error That save wouldn't load")
         elif what == "reset":
             self.core.lib.retro_reset()
+            if self.ra is not None:
+                self.ra.reset()
             self.say("reset")
+        elif what == "cheevolist":                     # its achievements, into a file for media mode's list
+            ok = False
+            if self.ra is not None and len(words) > 1:
+                try:
+                    self.cheevos_list(" ".join(words[1:]))
+                    ok = True
+                except Exception as ex:
+                    print(f"game: achievements' list: {ex!r}", file=sys.stderr, flush=True)
+            self.say("cheevolist", "ok" if ok else "none")
         elif what == "keep":
             self.keep()
         elif what == "volume":
@@ -1293,6 +1632,11 @@ class Session:
                 want = -1
             if self.core.swap(want):
                 self.insert_at = self.frame + SWAP_FRAMES   # (the tray open a moment, as the game expects)
+                if self.ra is not None and self.core.disc_path(want):   # (its achievements: that disc's)
+                    try:
+                        self.ra.change_media(path=self.core.disc_path(want))
+                    except Exception as ex:
+                        print(f"game: achievements: another disc: {ex!r}", file=sys.stderr, flush=True)
             i, n = self.core.discs()
             self.say("disc", i + 1, n)
         elif what == "quit":
@@ -1326,6 +1670,8 @@ class Session:
             self.commands(0)
             if self.paused:
                 self.commands(0.25)
+                if self.ra is not None:               # (its asking of RetroAchievements goes on meanwhile)
+                    self.cheevos_frame(idle=True)
                 continue
             for (port, name), at in list(self.letgo.items()):
                 if self.frame >= at:
@@ -1346,6 +1692,8 @@ class Session:
             self.core.draw = now - self.beat < period or skipped >= SKIP_MOST   # behind: this one isn't drawn
             t = time.perf_counter()
             self.core.run()
+            if self.ra is not None:
+                self.cheevos_frame()
             self.stats[2] += time.perf_counter() - t
             self.frame += 1
             self.stats[0] += 1
@@ -1362,6 +1710,7 @@ class Session:
             if self.core.audio:
                 self.sound.write(bytes(self.core.audio))
                 self.core.audio.clear()
+            self.screen.notice_tick()                 # (a notice over the picture: gone when its time's up)
             self.beat += period * (1.0 + self.sound.drift())
             while not (self.quit or self.paused):     # (buttons pressed meanwhile are read at once)
                 left = self.beat - time.monotonic()
@@ -1395,6 +1744,7 @@ class Session:
             self.keep_disc()
             self.save_state(".state.auto")
         finally:
+            self.cheevos_close()                      # (an unlock still on its way: sent first)
             self.core.close()
             self.screen.close()
             give_back(self.args.saves)

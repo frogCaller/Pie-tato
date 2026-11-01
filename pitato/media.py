@@ -234,6 +234,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.art_finder = None       # finding the games' pictures (Y on the Games tab), once asked
         self.game_pics = {}          # the games' pictures, ready to draw
         self.games_q = None          # what you typed to find a game (START on the Games tab), while it's finding it
+        self.games_dir = None        # the Games tab's folder open: a console's (sys:gba), recent, fav, all; or None
+        self.games_all = []          # every game (find_games), as the Games tab was last loaded
         self.sim_opts = None         # a sim's START card: the row picked on it, or None
         self.sim_t = None            # when the sim on screen last moved on
         self.lofi = None             # Now playing's lofi art (pitato/lofi.py), once it's been on
@@ -1080,6 +1082,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         elif kind == "child":
             self.tab = int(it["src"])
             self.load_tab(self.tab)
+        elif kind == "gamedir":
+            self.games_open_dir(it)
         elif kind in ("wwwgo", "wwwsearch", "wwwtype", "wwwchromium", "wwwpage"):
             self.www_open_row(it)
         elif kind == "hasettings":
@@ -1837,6 +1841,19 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         if ttype == "games" and name == "b" and self.games_q:
             if not repeat:
                 self.games_search("")                  # (all of them again)
+            return None
+        if ttype == "games" and name == "b" and self.games_dir:
+            if not repeat:
+                self.games_back()                      # (out of the folder)
+            return None
+        if ttype == "games" and name == "select":      # one of your favourites, or not
+            if not repeat and n:
+                self.games_fav_toggle(items[sel])
+            return None
+        if ttype == "games" and name in ("left", "right") and n and self.games_by_letter():
+            self.sels[self.tab] = self.games_letter_step(items, sel, 1 if name == "right" else -1)
+            self.confirm = (None, 0.0)
+            self.dirty = True
             return None
         if ttype == "finance" and self.fin_list:
             r = self.press_fin_list(name, repeat)

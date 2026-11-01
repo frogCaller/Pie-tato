@@ -746,6 +746,138 @@ else
   build_fbneo || echo "(Couldn't build FinalBurn Neo: Neo Geo games won't start.)"
 fi
 
+# PlayStation 2, GameCube and Wii: on a PC alone (a Pi can't keep up). Dolphin (GameCube and Wii) and LRPS2
+# (PlayStation 2), built here from their source; media mode gives them OpenGL ES to draw with. Dolphin's own files
+# (Sys: its fonts, its game settings) go beside it. A PlayStation 2 game needs the BIOS from your own PS2, in
+# ~/Games/BIOS
+DOLPHIN=b93001ed50c8b34e6ead4eed713c2005a80386e4
+LRPS2=1457fdf67885841c1b5299a95441532b3309eef7
+git_at() {         # git_at URL COMMIT FOLDER: that commit's files, alone
+  git init -q "$3" && git -C "$3" remote add origin "$1" && git -C "$3" fetch -q --depth 1 origin "$2" \
+    && git -C "$3" -c advice.detachedHead=false checkout -q FETCH_HEAD
+}
+dolphin_source() {  # dolphin_source FOLDER
+  local -x GIT_TERMINAL_PROMPT=0     # (a question from git would wait unseen: an error instead)
+  local parts
+  git_at https://github.com/libretro/dolphin.git "$DOLPHIN" "$1/src" || return 1
+  # the parts it's built from, not Windows' or Android's, its tests, or its bzip2 (the system's, below)
+  parts=$(git -C "$1/src" config -f .gitmodules --get-regexp 'submodule\..*\.path' | awk '{print $2}' \
+    | grep -v -E '^Externals/(Qt|FFmpeg-bin|libadrenotools|wil|bzip2/bzip2|gtest)$')
+  # shellcheck disable=SC2086
+  git -C "$1/src" submodule update -q --init --depth 1 -- $parts
+}
+dolphin_make() {   # dolphin_make FOLDER JOBS
+  cmake -S "$1/src" -B "$1/build" -DCMAKE_BUILD_TYPE=Release -DLIBRETRO=ON -DENABLE_TESTS=OFF \
+    && make -C "$1/build" -j"$2" dolphin_libretro
+}
+lrps2_source() {   # lrps2_source FOLDER
+  local -x GIT_TERMINAL_PROMPT=0
+  git_at https://github.com/libretro/ps2.git "$LRPS2" "$1/src"
+}
+lrps2_make() {     # lrps2_make FOLDER JOBS
+  cmake -S "$1/src" -B "$1/build" -DCMAKE_BUILD_TYPE=Release && make -C "$1/build" -j"$2" pcsx2_libretro
+}
+big_jobs() {       # jobs at once for a big C++ emulator: about 2 GB of memory each
+  local jobs mem
+  jobs=$(nproc 2>/dev/null || echo 1)
+  mem=$(awk '/MemTotal/ {print int($2 / 1024)}' /proc/meminfo)
+  if [ $((mem / 2000)) -lt "$jobs" ]; then jobs=$((mem / 2000)); fi
+  if [ "$jobs" -lt 1 ]; then jobs=1; fi
+  echo "$jobs"
+}
+build_dolphin() {
+  local tmp so
+  apt-get install -y build-essential git cmake pkg-config libasound2-dev libx11-dev libxi-dev libxrandr-dev \
+    libudev-dev libevdev-dev libegl-dev libgl-dev libgles-dev libbz2-dev libmbedtls-dev libcurl4-openssl-dev \
+    zlib1g-dev libegl-mesa0 libgl1-mesa-dri libgbm1 || return 1
+  tmp="$(mktemp -d /var/tmp/dolphin-XXXXXX)" || return 1
+  BUILDING="$tmp"
+  working "Downloading" "$tmp/build.log" dolphin_source "$tmp" \
+    && working "Building" "$tmp/build.log" dolphin_make "$tmp" "$(big_jobs)" \
+    || { tail -n 20 "$tmp/build.log"; rm -rf "$tmp"; return 1; }
+  so="$(find "$tmp/build" -name dolphin_libretro.so | head -n 1)"
+  install -d "$CORES" && install -m 644 "$so" "$CORES/" || { rm -rf "$tmp"; return 1; }
+  rm -rf "$CORES/dolphin-emu" && install -d "$CORES/dolphin-emu" && cp -a "$tmp/src/Data/Sys" "$CORES/dolphin-emu/Sys" \
+    && chmod -R a+rX "$CORES/dolphin-emu" || { rm -rf "$tmp"; return 1; }
+  echo "$DOLPHIN" > "$CORES/dolphin.version"
+  rm -rf "$tmp"
+}
+build_lrps2() {
+  local tmp so
+  apt-get install -y build-essential git cmake liblzma-dev libgl-dev libgles-dev libegl-dev zlib1g-dev \
+    libegl-mesa0 libgl1-mesa-dri libgbm1 || return 1
+  tmp="$(mktemp -d /var/tmp/lrps2-XXXXXX)" || return 1
+  BUILDING="$tmp"
+  working "Downloading" "$tmp/build.log" lrps2_source "$tmp" \
+    && working "Building" "$tmp/build.log" lrps2_make "$tmp" "$(big_jobs)" \
+    || { tail -n 20 "$tmp/build.log"; rm -rf "$tmp"; return 1; }
+  so="$(find "$tmp/build" -name pcsx2_libretro.so | head -n 1)"
+  install -d "$CORES" && install -m 644 "$so" "$CORES/" || { rm -rf "$tmp"; return 1; }
+  echo "$LRPS2" > "$CORES/pcsx2.version"
+  rm -rf "$tmp"
+}
+if [ "$PC" = yes ]; then
+  if [ "$(cat "$CORES/dolphin.version" 2>/dev/null)" = "$DOLPHIN" ] && [ -f "$CORES/dolphin_libretro.so" ] \
+      && [ -d "$CORES/dolphin-emu/Sys" ]; then
+    echo "The GameCube and Wii emulator (Dolphin) is built already."
+  else
+    step "Building the GameCube and Wii emulator (Dolphin): about 15 minutes"
+    build_dolphin || echo "(Couldn't build Dolphin: GameCube and Wii games won't start.)"
+  fi
+  if [ "$(cat "$CORES/pcsx2.version" 2>/dev/null)" = "$LRPS2" ] && [ -f "$CORES/pcsx2_libretro.so" ]; then
+    echo "The PlayStation 2 emulator (LRPS2) is built already."
+  else
+    step "Building the PlayStation 2 emulator (LRPS2): about 15 minutes"
+    build_lrps2 || echo "(Couldn't build LRPS2: PlayStation 2 games won't start.)"
+  fi
+fi
+
+# Achievements (RetroAchievements, with your account: Settings > Achievements on the web page): rcheevos, built here
+# from its source as a library each game's process loads, with a little C of Pietato's (native/) that reads the
+# game's memory for it quickly
+RCHEEVOS=1433173220a7eaede6a9ed7a18e94117be1821e0        # (rcheevos 12.5.0)
+RCHEEVOS_PARTS="rc_client rc_compat rc_util rc_version rc_libretro rapi/rc_api_common rapi/rc_api_info
+  rapi/rc_api_runtime rapi/rc_api_user rcheevos/alloc rcheevos/condition rcheevos/condset rcheevos/consoleinfo
+  rcheevos/format rcheevos/lboard rcheevos/memref rcheevos/operand rcheevos/richpresence rcheevos/runtime
+  rcheevos/runtime_progress rcheevos/trigger rcheevos/value rhash/md5 rhash/hash rhash/hash_rom rhash/hash_disc
+  rhash/cdreader rhash/hash_zip rhash/hash_encrypted rhash/aes"
+rcheevos_source() {   # rcheevos_source FOLDER
+  local -x GIT_TERMINAL_PROMPT=0
+  git_at https://github.com/RetroAchievements/rcheevos.git "$RCHEEVOS" "$1/src"
+}
+rcheevos_make() {     # rcheevos_make FOLDER: its .so in FOLDER (its 64-bit time and files on a 32-bit Pi too; its
+  local rc="$1/src" part             # own names alone shown, and its own calls kept to itself)
+  for part in $RCHEEVOS_PARTS; do
+    cc -c -O2 -g0 -fPIC -fvisibility=hidden -DRC_SHARED -DRC_CLIENT_SUPPORTS_HASH -D_DEFAULT_SOURCE \
+      -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -D_TIME_BITS=64 -DNDEBUG -I"$rc/include" -I"$rc/src" \
+      -I"$HERE/native" "$rc/src/$part.c" -o "$1/$(echo "$part" | tr / _).o" || return 1
+  done
+  cc -c -O2 -g0 -fPIC -fvisibility=hidden -DRC_SHARED -DRC_CLIENT_SUPPORTS_HASH -D_DEFAULT_SOURCE \
+    -D_FILE_OFFSET_BITS=64 -D_TIME_BITS=64 -DNDEBUG -I"$rc/include" -I"$rc/src" -I"$HERE/native" \
+    "$HERE/native/rcheevos_glue.c" -o "$1/glue.o" \
+    && cc -shared -Wl,-soname,librcheevos.so -Wl,-Bsymbolic -Wl,--no-undefined -Wl,-O1 -o "$1/librcheevos.so" \
+      "$1"/*.o -lpthread -lm
+}
+build_rcheevos() {
+  local tmp
+  apt-get install -y build-essential git || return 1
+  tmp="$(mktemp -d /var/tmp/rcheevos-XXXXXX)" || return 1
+  BUILDING="$tmp"
+  working "Downloading" "$tmp/build.log" rcheevos_source "$tmp" \
+    && working "Building" "$tmp/build.log" rcheevos_make "$tmp" \
+    || { tail -n 20 "$tmp/build.log"; rm -rf "$tmp"; return 1; }
+  install -d "$PROGS" && install -m 644 "$tmp/librcheevos.so" "$PROGS/librcheevos.so" || { rm -rf "$tmp"; return 1; }
+  echo "$RCHEEVOS $GLUE" > "$PROGS/rcheevos.version"
+  rm -rf "$tmp"
+}
+GLUE="$(cksum < "$HERE/native/rcheevos_glue.c" | cut -d' ' -f1)"   # (Pietato's own C: built again when it changes)
+if [ "$(cat "$PROGS/rcheevos.version" 2>/dev/null)" = "$RCHEEVOS $GLUE" ] && [ -f "$PROGS/librcheevos.so" ]; then
+  echo "Achievements (rcheevos) are built already."
+else
+  step "Building achievements (rcheevos): $(how_long "a few minutes" "a minute or so")"
+  build_rcheevos || echo "(Couldn't build rcheevos: games won't have achievements.)"
+fi
+
 # Chromium, from Web's first page on a Pi 4 or 5: the whole web on the whole screen. cage shows it there with no
 # desktop round it (through Xwayland, so it can be a TV's size), and wlr-randr gives it the size and turn media mode
 # has. It runs as you, in a session of your own on a console of its own, and this is that session's PAM service:
@@ -1200,7 +1332,7 @@ chown "$USER_NAME:$USER_NAME" "$USER_HOME/Videos" "$USER_HOME/Music" "$USER_HOME
   "$USER_HOME/Documents" "$USER_HOME/Games" "$USER_HOME/Games/BIOS"
 GAME_FOLDERS="gb gbc gba nes snes genesis sms gg ngp ngpc neogeo ps1"
 case "$MODEL" in *"Pi 4"*|*"Pi 5"*|*"Compute Module 4"*|*"Compute Module 5"*) GAME_FOLDERS="$GAME_FOLDERS n64 psp nds dc" ;; esac
-if [ "$PC" = yes ]; then GAME_FOLDERS="$GAME_FOLDERS n64 psp nds dc"; fi
+if [ "$PC" = yes ]; then GAME_FOLDERS="$GAME_FOLDERS n64 psp nds dc ps2 gc wii"; fi
 if [ "${NEO_OLD:-no}" = yes ] && [ "$IMAGE" != yes ]; then   # (no Neo Geo emulator on this Pi: no folder for its games)
   GAME_FOLDERS="${GAME_FOLDERS/ neogeo/}"
 fi

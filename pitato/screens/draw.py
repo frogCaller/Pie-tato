@@ -104,7 +104,8 @@ class DrawScreen:
     def list_top(self):
         crumbs = (self.tab_type() in ("browser", "plex") or self.parent_of(self.tab) is not None
                   or (self.tab_type() == "radio" and self.radio_stack)
-                  or (self.tab_type() == "games" and getattr(self, "games_q", None)))
+                  or (self.tab_type() == "games" and (getattr(self, "games_q", None)
+                                                       or getattr(self, "games_dir", None))))
         return self.LIST_TOP + (28 if crumbs else 0)
 
     def visible_rows(self):
@@ -201,6 +202,19 @@ class DrawScreen:
         if len(label) == 1:
             return 22
         return max(d.textlength(label, font=self.fonts["key"]) + 14, 24)
+
+    def hints_room(self, hints, keep=()):
+        """As many of the hints as fit along the bottom: those not kept left out, the last first, until they do."""
+        from PIL import Image, ImageDraw
+        d = ImageDraw.Draw(Image.new("L", (1, 1)))
+        W = self.fb.w if self.fb else 640
+
+        def width(hs):                                 # (as the footer lays them out)
+            return 2 + sum(self.key_w(d, h[0]) + 25 + d.textlength(h[1], font=self.fonts["small"]) for h in hs)
+        out = list(hints)
+        while width(out) > W - 12 and any(h[0] not in keep for h in out):
+            out.pop(max(i for i, h in enumerate(out) if h[0] not in keep))
+        return out
 
     def key(self, d, x, y, label, on=False):
         """Button icon (a dot round a letter, a pill round a word), vertically centred on y, lit when what it
@@ -429,7 +443,7 @@ class DrawScreen:
             if it.get("watched"):
                 return "✓ " + year + clock(length), DONE, None
             return year + (clock(length) if length else ""), MUTED, None
-        if kind in ("child", "game", "wwwgo", "wwwsearch", "wwwtype", "wwwchromium", "wwwpage"):
+        if kind in ("child", "game", "gamedir", "wwwgo", "wwwsearch", "wwwtype", "wwwchromium", "wwwpage"):
             return it.get("sub", ""), MUTED, None
         if kind == "hasettings":                       # (the Home tab's: where it is, or set it up)
             return it.get("sub", ""), MUTED if self.hass.configured else ACCENT, None
@@ -557,13 +571,18 @@ class DrawScreen:
         if ttype == "group":
             hints = [("A", "Open"), ("L R", "Tabs"), ("B", "Home")] + hints[4:]
         if ttype == "games":                           # (START: a game found by name, not Now playing; L R
-            act = self.game_hint(items[sel]) if items and sel < len(items) else None   # on its Controls, for room)
+            it = items[sel] if items and sel < len(items) else None   # on its Controls, for room)
+            act = self.game_hint(it) if it else None
             finding = self.art_finder is not None and self.art_finder.busy
-            some = any(it["kind"] == "game" for it in items)
-            back = ("B", "All games") if self.games_q else None
-            hints = (([("A", act)] if act else []) + ([("Y", "Find pictures")] if some and not finding else [])
+            some = any(r["kind"] in ("game", "gamedir") for r in items)   # (the folders: every game's pictures)
+            back = ("B", "All games") if self.games_q else ("B", "Back") if self.games_dir else None
+            fav = [("SELECT", "★" if not it.get("fav") else "Unstar")] if it and it["kind"] == "game" else []
+            letters = [("◀▶", "A–Z")] if self.games_by_letter() and len(items) > self.visible_rows() else []
+            hints = (([("A", act)] if act else []) + fav + letters
+                     + ([("Y", "Pictures" if fav or letters else "Find pictures")] if some and not finding else [])
                      + [back if back and h[0] == "B" else h for h in hints if h[0] not in ("A", "START", "L R")]
                      + [("START", "Search")])
+            hints = self.hints_room(hints, keep=("A", "SELECT", "◀▶", "B", "START"))   # (Y and X: if there's room)
         if ttype == "channels" and items and sel < len(items):
             it = items[sel]
             first = {"chdir": "Open", "chsearch": "Open", "chplex": "Sign in", "chretry": "Try again"}.get(
