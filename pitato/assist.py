@@ -171,7 +171,9 @@ def say_clock(when, now=None, h24=False):
 # ---- what was asked -----------------------------------------------------------------------------------------------
 FILLER = re.compile(r"^(?:(?:hey|hi|hello|ok|okay|please|so|um|uh|er|and|now|then|alright|all right|yo|oh)\s+)+")
 POLITE = re.compile(r"^(?:(?:can|could|would|will) you(?: please)?|i want you to|i'd like you to|i need you to|"
-                    r"go ahead and|please)\s+")
+                    r"go ahead and|please|i want to|i wanna|i wan na|i'd like to|i would like to|i'd love to|"
+                    r"i would love to|let's|lets|let us|let me(?! know)|can i|could i|may i|can we|could we|"
+                    r"i'm gonna|im gonna|i am gonna|i'm going to|im going to|i am going to)\s+")
 TRAIL = re.compile(r"(?:\s+(?:please|thanks|thank you|for me|now|right now|ok|okay))+$")
 LIST = r"(?:(?:my|the|our)\s+)?(?:(?:to ?do|to-do|todo|task|tasks|shopping|grocery|groceries)\s+)?list"
 
@@ -294,9 +296,11 @@ SHUFFLE = _rx(r"(?:turn )?(?:shuffle|mix it up)(?: (?:on|off|it|the songs|the mu
 PLAY_ALL = _rx(r"shuffle (?:all )?(?:of )?(?:my |all my |the |some )?(?:music|songs|tunes)")
 PLAYING = _rx(r"(?:what's|what is|whats) (?:playing|this song|that song|the song|this track|on)(?: now)?",
               r"what (?:song|track|station) is (?:this|playing|on)(?: now)?", r"who (?:is this|sings this|is singing)")
-PLAY = _rx(r"(?:play|put on|start playing|listen to|i want to (?:hear|listen to)|let's (?:hear|listen to)|let me hear|"
+PLAY = _rx(r"(?:play|put on|start playing|listen to|hear|i want to (?:hear|listen to)|let's (?:hear|listen to)|"
+           r"let me hear|"
            r"queue up|throw on|spin)(?: me| us)?(?: some| a little| a bit of)? (?P<what>.+)")
-OPEN = _rx(r"(?:open|show(?: me)?|go to|launch|start|switch to|take me to|bring up|pull up|go back to)(?: the| my| up)?"
+OPEN = _rx(r"(?:open|show(?: me)?|go to|launch|start|switch to|take me to|bring up|pull up|go back to|browse|"
+           r"look at|look through|go through|view|see|check out)(?: the| my| up| all my| all the)?"
            r" (?P<app>.+?)(?: app| tab| page| screen)?")
 HOME = _rx(r"(?:go |take me |back to the |go back )?home(?: screen)?", r"go back home")
 LIGHTS = _rx(r"(?:turn|switch|put|flip) (?P<onoff>on|off) (?:the |all the |all |my )?(?P<which>[a-z ]*?)"
@@ -350,6 +354,26 @@ CAM_TURN = _rx(r"(?:rotate|turn|flip) (?:the |my )?(?P<which>[a-z ]*?)camera(?:'
 CAM_STEER = _rx(r"(?:turn|move|point|pan|tilt|swing|aim) (?:the |my )?(?P<which>[a-z ]*?)camera (?:to the )?"
                 r"(?P<way>left|right|up|down)", r"(?:look|pan|tilt) (?P<way>left|right|up|down)",
                 r"camera (?P<way>left|right|up|down)")
+PHOTO_WORD = r"(?:photo|picture|pic|shot|image|snap|selfie)"
+PHOTOS_WORD = r"(?:photos|pictures|pics|images|shots|snaps|camera roll|photo album|gallery)"
+SHOW_WORD = r"(?:show|open|see|view|bring up|pull up|look at|browse|go through|look through|find)(?: me)?"
+PHOTO_LAST = _rx(SHOW_WORD + r" (?:my |the )?(?:last|latest|newest|most recent) " + PHOTO_WORD +
+                 r"(?: (?:i|you|we) took| taken| (?:i|you) just took)?",
+                 r"(?:my |the )?(?:last|latest|newest|most recent) " + PHOTO_WORD + r"(?: (?:i|you|we) took)?",
+                 r"what(?:'s| is| was) the (?:last|latest|newest) " + PHOTO_WORD + r" (?:i|you|we) took")
+PHOTOS_WHEN = _rx(SHOW_WORD + r" (?:my |the |all my |all the |all of my )?" + PHOTOS_WORD +
+                  r" (?:from|of|taken|i took|you took)(?: on)? (?P<when>today|yesterday|this week)",
+                  r"(?:my |the )?" + PHOTOS_WORD +
+                  r" (?:from|taken|i took)(?: on)? (?P<when>today|yesterday|this week)")
+SLIDESHOW = _rx(r"(?:start|play|show|begin|do|run|put on)(?: me)?(?: a| the| my)? slide ?show"
+                r"(?: of (?:my |the |all my )?" + PHOTOS_WORD + r")?",
+                r"slide ?show(?: of (?:my |the )?" + PHOTOS_WORD + r")?",
+                r"(?:show|play) (?:my |the |all my )?" + PHOTOS_WORD + r" (?:as a|in a) slide ?show")
+PHOTO_NEXT = _rx(r"(?:go to |show me |show )?(?:the )?next " + PHOTO_WORD)
+PHOTO_PREV = _rx(r"(?:go (?:back )?to |show me |show )?(?:the )?previous " + PHOTO_WORD,
+                 r"go back (?:a|one) " + PHOTO_WORD)
+# a game by its name, said as an app would be ("start shrek 2", "launch tetris"): the assistant looks for it
+LAUNCH = _rx(r"(?:start|launch|open|run|boot up|load up|fire up|load|boot)(?: up)?(?: the)?(?: game)? (?P<name>.+)")
 YES = _rx(r"(?:yes|yeah|yea|yep|yup|sure|ok|okay|do it|go ahead|please do|let's do it|sounds good|go for it|alright|"
           r"all right|yes do it|of course|absolutely|why not)(?: then)?")
 NO = _rx(r"(?:no|nope|nah|not now|not|no thanks|no thank you|cancel|never mind|nevermind|don't|forget it|maybe later)"
@@ -409,7 +433,9 @@ def remind_parts(rest, now=None):
 APPS = {   # what you might call each app: its name in the library
     "home screen": "Home", "tv": "TV", "television": "TV", "telly": "TV", "music": "Music", "songs": "Music",
     "radio": "Radio", "camera": "Camera", "cameras": "Camera", "photos": "Photos", "pictures": "Photos",
-    "pics": "Photos", "gallery": "Photos", "videos": "Videos", "movies": "Videos", "films": "Videos",
+    "pics": "Photos", "gallery": "Photos", "camera roll": "Photos", "photo album": "Photos", "photo albums": "Photos",
+    "photo gallery": "Photos", "photo library": "Photos", "images": "Photos", "videos": "Videos", "movies": "Videos",
+    "films": "Videos",
     "games": "Games", "weather": "Weather", "forecast": "Weather", "finance": "Finance", "stocks": "Finance",
     "crypto": "Finance", "markets": "Finance", "bot": "Bot", "chat": "Bot", "simulator": "Simulator",
     "sims": "Simulator", "files": "Files", "documents": "Files", "system": "System", "settings": "Settings",
@@ -557,6 +583,17 @@ def parse_plain(t, now=None):
     m = _first(CAM_STEER, t)
     if m:
         return Ask("cam_steer", t, way=m.group("way"), which=(m.groupdict().get("which") or "").strip())
+    if _first(SLIDESHOW, t):
+        return Ask("photo", t, which="slideshow")
+    m = _first(PHOTOS_WHEN, t)
+    if m:
+        return Ask("photo", t, which="when", when=m.group("when"))
+    if _first(PHOTO_LAST, t):
+        return Ask("photo", t, which="last")
+    if _first(PHOTO_NEXT, t):
+        return Ask("next", t, photo=True)
+    if _first(PHOTO_PREV, t):
+        return Ask("previous", t, photo=True)
     if _first(CHANNEL_NEXT, t):
         return Ask("next", t, channel=True)
     if _first(CHANNEL_PREV, t):

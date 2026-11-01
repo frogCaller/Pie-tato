@@ -255,12 +255,14 @@ level 3", "play some jazz", "turn off the kitchen lights" or "open the weather".
 speak up when they're due (or chime, if it has no voice), and a timer's time left shows beside the
 clock at the top of each app.
 
-It plays your games too: "play a game" starts one of yours at random, and "play mario" starts the one
-with that in its name. "Put on some cartoons", "watch a movie", "turn on a channel" or "watch the news"
-puts something on (a channel comes from your streams, or from Plex if you're signed in), and "next
-channel" changes it. "Rotate the camera" turns a camera's picture, and "turn the camera left" turns a
-camera that can move. Tell it you're bored and it suggests a game or some cartoons. "Check for
-updates", "restart" and "shut down" ask first, and say yes to go ahead.
+It plays your games too: "play a game" starts one of yours at random, and "play mario" (or "I want to
+play shrek two") starts the one with that in its name. "Put on some cartoons", "watch a movie", "turn on a
+channel" or "watch the news" puts something on (a channel comes from your streams, or from Plex if you're
+signed in), and "next channel" changes it. "Show my camera roll", "show my newest picture" and "start a
+slideshow" bring up your photos. "Rotate the camera" turns a camera's picture, and "turn the camera left"
+turns a camera that can move. Tell it you're bored and it suggests a game or some cartoons. "Check for
+updates", "restart" and "shut down" ask first, and say yes to go ahead. With Ollama set up, ask any way
+you like: the bot knows your games, music and streams by name, and starts what you asked for.
 
 Press left on the Bot for Today: your list, timers, reminders and notes. A adds to your list, X ticks
 a thing off, and SELECT twice takes it off. START starts a 25-minute focus timer, with a 5-minute

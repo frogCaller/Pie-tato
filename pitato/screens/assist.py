@@ -2,16 +2,19 @@
 once: its answer kept in the conversation, said out loud when it has a voice (not over music), and shown as a notice
 when its page isn't up. Timers, the focus timer and reminders speak up as they come due, wherever you are, and the
 next one to end shows in the status bar. The Bot's Today page: your list, reminders, timers and notes."""
+import difflib
+import os
 import random
 import re
 import threading
 import time
 
 from ..theme import ACCENT, BG, BODY, MUTED, ROW, TEXT
-from ..assist import best_match, BREAK_MINS, FOCUS_MINS, parse, say_clock, say_duration, say_list, words_of
+from ..assist import best_match, BREAK_MINS, FOCUS_MINS, LAUNCH, normal, parse, say_clock, say_duration, say_list, \
+    words_of
 from ..util import item
 from ..net import cam_key
-from ..library import LIBRARY, read_streams
+from ..library import LIBRARY, read_streams, SLIDESHOW_SECS
 from ..radio import RADIO_GENRES, rb_stations
 from ..weather import wx_words
 from ..games import bios_missing, built_for_other_pi, find_core, find_games, neogeo_unknown, plain_title, system
@@ -47,30 +50,79 @@ def radio_genre(w):
     return next((g for g in RADIO_GENRES if words and words <= set(words_of(" ".join([g[0]] + g[2])))), None)
 
 
-def said_game(games, what, whole=False):
-    """The game of yours named in what you said: each word said a word of its name ("mario": Super Mario World), or
-    run together, the start of it ("pacman": Pac-Man); whole: its name, all of it ("tetris"). The likeliest first: one
-    whose name starts so, then the shortest. None for none."""
-    small = ("the", "a", "an", "of", "game")
-    words = [x for x in fold(what).split() if x not in small]
-    if not words:
+NUMBER_WORDS = {"zero": "0", "one": "1", "two": "2", "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7",
+                "eight": "8", "nine": "9", "ten": "10", "eleven": "11", "twelve": "12", "thirteen": "13",
+                "fourteen": "14", "fifteen": "15", "sixteen": "16", "seventeen": "17", "eighteen": "18",
+                "nineteen": "19", "twenty": "20", "first": "1", "second": "2", "third": "3"}
+ROMAN = {"ii": "2", "iii": "3", "iv": "4", "vi": "6", "vii": "7", "viii": "8", "ix": "9", "xi": "11", "xii": "12",
+         "xiii": "13", "xiv": "14", "xv": "15", "xvi": "16"}   # (not i, v or x: Mega Man X isn't 10)
+SOUNDS_LIKE = {"2": ("to", "too"), "4": ("for", "fore"), "8": ("ate",), "1": ("won",)}   # (numbers, misheard)
+NAME_SMALL = ("the", "a", "an", "of", "and", "game", "my")
+NEAR = 0.8                  # a word said this like a name's (difflib's ratio, 4 letters or more): the same word
+
+
+def name_words(text):
+    """A name's words as they're matched: lower case, no accents or punctuation, numbers as numerals (two, II: 2),
+    without the little words."""
+    out = []
+    for w in fold(text).split():
+        w = NUMBER_WORDS.get(w) or ROMAN.get(w) or w
+        if w not in NAME_SMALL:
+            out.append(w)
+    return out
+
+
+def word_like(said, real):
+    """A word said, as a name's: the same, a number misheard ("to": 2), or spelled near enough ("schreck": shrek)."""
+    if said == real:
+        return True
+    if real.isdigit():
+        return said in SOUNDS_LIKE.get(real, ())
+    return (len(said) >= 4 and len(real) >= 4 and not said.isdigit()
+            and difflib.SequenceMatcher(None, said, real).ratio() >= NEAR)
+
+
+def name_fit(said, name, whole=False):
+    """How a name fits the words said: 0 (every word in it, or run together its start: "pacman"), 1 (near enough:
+    misheard, misspelled), or None. whole: all of the name said, no more."""
+    nw = name_words(name)
+    if not said or not nw:
         return None
-    joined = "".join(words)
+    joined, nj = "".join(said), "".join(nw)
+    if whole:
+        if said == nw or joined == nj:
+            return 0
+        return 1 if len(said) == len(nw) and all(word_like(s, n) for s, n in zip(said, nw)) else None
+    if all(s in nw for s in said) or (len(joined) >= 4 and nj.startswith(joined)):
+        return 0
+    return 1 if all(any(word_like(s, n) for n in nw) for s in said) else None
+
+
+def best_named(rows, what, names, whole=False):
+    """The row whose name (names(row): what it's called) fits what was said best: the closest, one whose name starts
+    with the first word said, the shortest. None for none."""
+    said = name_words(what)
     hits = []
-    for g in games:
-        for n in dict.fromkeys((fold(g.get("label") or ""), fold(plain_title(g["title"])), fold(g["title"]))):
-            nw = n.split()
-            if not nw:
-                continue
-            if whole:
-                ok = [x for x in nw if x not in small] == words or n.replace(" ", "") == joined
-            else:
-                ok = all(x in nw for x in words) or (len(joined) >= 4 and n.replace(" ", "").startswith(joined))
-            if ok:
-                hits.append(((not n.startswith(words[0]), len(nw), g["title"].lower()), g))
-                break
+    for k, r in enumerate(rows):
+        fits = [(f, n) for n in dict.fromkeys(x for x in names(r) if x) for f in (name_fit(said, n, whole),)
+                if f is not None]
+        if fits:
+            f, n = min(fits, key=lambda x: x[0])
+            nw = name_words(n)
+            hits.append(((f, not (nw and said and word_like(said[0], nw[0])), len(nw), k), r))
     hits.sort(key=lambda h: h[0])
     return hits[0][1] if hits else None
+
+
+def game_names(g):
+    return (g.get("label") or "", plain_title(g["title"]), g["title"])
+
+
+def said_game(games, what, whole=False):
+    """The game of yours named in what you said: each word said a word of its name ("mario": Super Mario World), or
+    run together, the start of it ("pacman": Pac-Man), numbers as you'd say them ("shrek two": Shrek 2), misheard or
+    near enough ("schreck to"); whole: its name, all of it ("tetris"). None for none."""
+    return best_named(games, what, game_names, whole)
 
 
 class AssistScreen:
@@ -78,7 +130,7 @@ class AssistScreen:
     def assist_heard(self, text):
         """text asked of the bot (said after its wake phrase, typed on its page, or sent from the web page): done here
         if it's something done here (True: its answer kept and said), else False (its model answers)."""
-        ask = parse(text, call=self.bot_calls())
+        ask = parse(text, call=self.bot_calls()) or self.launch_ask(text)
         if ask is None or (ask.kind in INFO and self.friend.ready()):
             return False
         asked = self.assist_asking()
@@ -101,6 +153,85 @@ class AssistScreen:
         self.dirty = True
         return True
 
+    # -- what its model asked for: "[[play Shrek 2]]" ------------------------------------------------------------
+    def friend_did(self, cmd, said):
+        """Its model asked for something to be done, in what it said back (on its thread): done on the main thread,
+        and its answer kept there (True)."""
+        self.soon(lambda: self.model_asked(cmd, said))
+        self.wake()
+        return True
+
+    def assist_state(self):
+        """What doing something changes: the game, what's playing, the app, the picture, a question asked."""
+        v = self.v or {}
+        return (id(self.game) if self.game is not None else None, id(self.proc) if self.proc else None,
+                id(self.queue), self.qi, self.tab, self.view, id(self.v), v.get("i"), v.get("slideshow"),
+                id(self.assist_pending) if self.assist_pending else None)
+
+    def model_asked(self, cmd, said):
+        """Its model's request, done as if you'd asked (but never yes or no for you, to a question of its own). What
+        it said with it is kept, unless what happened says more: a question, or why it couldn't."""
+        fr = self.friend
+        ask = parse(cmd, call=self.bot_calls()) or self.launch_ask(cmd)
+        if ask is None or ask.kind in ("yes", "no") or ask.kind in INFO:
+            text = said or cmd                         # (nothing to do after all: what it said, all of it)
+            fr.add("friend", text, "chat")
+            self.bot_replied(text)
+            return
+        before = self.assist_state()
+        self.assist_pending = None
+        try:
+            reply = self.assist_do(ask)
+        except Exception as ex:
+            print(f"the bot couldn't do what its model asked ({ask!r}): {ex!r}", flush=True)
+            reply = "That didn't work"
+        after = self.assist_state()
+        if reply is None:                              # (not found: named as its model wrote it)
+            name = ask.args.get("what") or ask.args.get("name") or ""
+            at = cmd.lower().find(name) if name else -1
+            reply = f"I couldn't find {cmd[at:at + len(name)] if at >= 0 else name}." if name else "I couldn't do that."
+        asked = self.assist_pending is not None
+        text = reply if asked or after == before or not said else said
+        if text:
+            fr.add("friend", text, "chat" if text == said else "done")
+            self.assist_tell(text, speak=asked or ask.kind not in QUIET)
+        self.friend_scroll = 0
+        self.dirty = True
+
+    def assist_library(self):
+        """What you have, by name, for its model (to ask for one: "[[play Shrek 2]]"): your games, music, streams
+        and photos."""
+        lines = []
+
+        def some(label, names, most):
+            names = list(dict.fromkeys(n for n in names if n))
+            if names:
+                more = f" (and {len(names) - most} more)" if len(names) > most else ""
+                lines.append(f"{label}: " + "; ".join(names[:most]) + more)
+        try:
+            some("Their games", [g["label"] for g in self.game_choices()], 40)
+            mi = self.music_tab()
+            if mi is not None:
+                if mi not in self.items:
+                    self.load_tab(mi)
+                songs = [it for it in self.tab_items(mi) if it.get("kind") == "audio"]
+                where = []
+                for it in songs:                           # (the folders in Music: artists and albums)
+                    rest = (it.get("src") or "").split("/Music/", 1)[-1]
+                    where.append(rest.split("/", 1)[0] if "/" in rest else "")
+                some("Their music, by folder", where, 30)
+                if len(songs) and not any(where):
+                    some("Their songs", [it.get("title") for it in songs], 30)
+            some("Their streams (TV channels)", [r["title"] for r in self.stream_rows()], 20)
+            pi = self.tab_index("photos")
+            if pi is not None:
+                n = len([it for it in self.tab_items(pi) if it.get("kind") == "image"])
+                if n:
+                    lines.append(f"Their photos: {n} pictures")
+        except Exception as ex:
+            print(f"the bot couldn't list what you have: {ex!r}", flush=True)
+        return lines
+
     def assist_tell(self, text, speak=True, secs=4):
         """An answer or a notice: on the screen (a notice, unless the Bot's page is up) and out loud (when it has a
         voice, and nothing's playing)."""
@@ -113,6 +244,13 @@ class AssistScreen:
         """A word of its style before what it did ("Okay.", "Aye!", "Very good.")."""
         words = self.friend.style()["ok"]
         return random.choice(words) + " " if words else ""
+
+    def launch_ask(self, text):
+        """"Start shrek 2", "launch tetris": one of your games, said as an app would be (or None)."""
+        m = next((m for m in (r.match(normal(text, self.bot_calls())) for r in LAUNCH) if m), None)
+        if m and said_game(self.game_choices(), m.group("name")) is not None:
+            return parse("play the game " + m.group("name"))
+        return None
 
     def bot_calls(self):
         """What you call it, before or after what you ask: its wake phrase and its name ("hey potato", "potato")."""
@@ -136,6 +274,8 @@ class AssistScreen:
             return self.assist_watch(a["what"])
         if k in ("update", "shutdown", "reboot"):
             return self.assist_power_ask(k, a.get("app"))
+        if k == "photo":
+            return self.assist_photo(a.get("which"), a.get("when") or "")
         if k == "cam_turn":
             return self.assist_cam_turn(a["step"], a["which"])
         if k == "cam_steer":
@@ -245,9 +385,9 @@ class AssistScreen:
         if k == "weather":
             return self.weather_words()
         if k == "help":
-            return ("I can play your music, the radio and your games, put on cartoons, a film or a channel, set "
-                    "timers and a focus timer, keep your list, notes and reminders, open apps, turn your lights on and "
-                    "off, turn the camera, and update, restart or shut down the Pi. Or we can just chat.")
+            return ("I can play your music, the radio and your games, put on cartoons, a film or a channel, show your "
+                    "photos, set timers and a focus timer, keep your list, notes and reminders, open apps, turn your "
+                    "lights on and off, turn the camera, and update, restart or shut down the Pi. Or we can just chat.")
         if k == "open":
             return self.assist_open(a["app"])
         if k == "home":
@@ -358,35 +498,31 @@ class AssistScreen:
                 self.play(streams, i)
                 return f"Here's {streams[i]['title']}."
             return self.watch_shelf(random.choice(["toons", "toons", "movies"]))
-        words = [x for x in w.split() if x not in WATCH_FILLER] or w.split()   # one by name: a stream, a Plex channel,
-        streams = self.stream_rows()                                       # a cartoon or a film, or a video of yours
-        hit = next((k for k, r in enumerate(streams) if all(x in fold(r["title"]) for x in words)), None)
+        name = " ".join(x for x in w.split() if x not in WATCH_FILLER) or w   # one by name: a stream, a Plex channel,
+        for rows in (self.stream_rows(), [channel_row(c) for c in self.live_fresh() or []]):   # a cartoon or a film,
+            hit = best_named(rows, name, lambda r: (r["title"],))                              # or a video of yours
+            if hit is not None:
+                self.play(rows, rows.index(hit))
+                return f"Here's {hit['title']}."
+        folders = [(pick, folder) for pick, (shelves, _, _) in SHELVES.items() for folder in shelves]
+        hit = best_named(folders, name, lambda f: (f[1],))
         if hit is not None:
-            self.play(streams, hit)
-            return f"Here's {streams[hit]['title']}."
-        chans = self.live_fresh() or []
-        rows = [channel_row(c) for c in chans]
-        hit = next((k for k, r in enumerate(rows) if all(x in fold(r["title"]) for x in words)), None)
+            return self.watch_shelf(*hit)
+        films = [(pick, folder, e[0]) for pick, (shelves, _, _) in SHELVES.items()
+                 for folder, entries in shelves.items() for e in entries]
+        hit = best_named(films, name, lambda f: (f[2],))
         if hit is not None:
-            self.play(rows, hit)
-            return f"Here's {rows[hit]['title']}."
-        for pick, (shelves, _, _) in SHELVES.items():
-            for folder, entries in shelves.items():
-                if all(x in fold(folder) for x in words):
-                    return self.watch_shelf(pick, folder)
-                t = next((e for e in entries if all(x in fold(e[0]) for x in words)), None)
-                if t is not None:
-                    return self.watch_shelf(pick, folder, t[0])
+            return self.watch_shelf(*hit)
         vi = next((k for k, t in enumerate(LIBRARY) if t.get("kind") == "video"), None)
         if vi is not None:                             # (one of your videos)
             if vi not in self.items:
                 self.load_tab(vi)
             vids = [it for it in self.tab_items(vi) if it.get("kind") == "video"]
-            hit = next((k for k, r in enumerate(vids) if all(x in fold(r["title"]) for x in words)), None)
+            hit = best_named(vids, name, lambda r: (r["title"],))
             if hit is not None:
-                self.play(vids, hit)
-                return f"Here's {vids[hit]['title']}."
-        return f"I couldn't find {what} to watch."
+                self.play(vids, vids.index(hit))
+                return f"Here's {hit['title']}."
+        return None if self.friend.ready() else f"I couldn't find {what} to watch."   # (its model: it knows yours)
 
     def watch_live(self, pick):
         """Plex's live channels of a kind (news, sports; "any": all of them), or your streams of it."""
@@ -464,6 +600,41 @@ class AssistScreen:
             return ""
         self.system_do(act)
         return ""
+
+    # -- your photos ------------------------------------------------------------------------------------------------
+    def assist_photo(self, which="last", when=""):
+        """Your newest picture (Photos, newest first), the ones from a day, or a slideshow of them, on the screen."""
+        pi = self.tab_index("photos")
+        if pi is None:
+            return None
+        self.load_tab(pi)                              # (one taken just now, too)
+        paths = [it["src"] for it in self.tab_items(pi) if it.get("kind") == "image"]
+        if not paths:
+            return "There are no pictures in Photos yet."
+        if which == "when":
+            day = time.localtime()
+            start = time.mktime((day.tm_year, day.tm_mon, day.tm_mday, 0, 0, 0, 0, 0, -1))
+            start -= {"yesterday": 86400, "this week": 86400 * day.tm_wday}.get(when, 0)
+            end = start + 86400 if when == "yesterday" else time.time() + 60
+
+            def taken(p):
+                try:
+                    return os.path.getmtime(p)
+                except OSError:
+                    return 0
+            paths = [p for p in paths if start <= taken(p) < end]
+            if not paths:
+                return f"There are no pictures from {when}."
+        self.web_tab("Photos")                         # (B goes back to your Photos)
+        self.open_photo(paths, 0)
+        if which == "slideshow":
+            self.v["slideshow"] = True
+            self.v["next_t"] = time.monotonic() + SLIDESHOW_SECS
+            return "Here's a slideshow of your pictures."
+        if which == "when":
+            n = len(paths)
+            return f"Here {'is your picture' if n == 1 else f'are your {n} pictures'} from {when}."
+        return "Here's your newest picture."
 
     # -- the camera: its picture turned, or it turned ---------------------------------------------------------------
     def cam_called(self, addr):
@@ -561,6 +732,10 @@ class AssistScreen:
             if self.voice.speaking:
                 self.voice.stop()
                 return ""
+            if self.view == "photo" and self.v.get("slideshow"):
+                self.v["slideshow"] = False            # (the slideshow, stopped where it is)
+                self.dirty = True
+                return ""
             if not self.proc:
                 return "Nothing's playing."
             if not self.paused:
@@ -576,6 +751,11 @@ class AssistScreen:
                 return "It's playing."
             return self.assist_play("music")
         if k in ("next", "previous"):
+            if self.view == "photo" and self.v.get("type") == "photo":
+                self.photo_step(1 if k == "next" else -1)
+                return ""
+            if a.get("photo"):
+                return 'There\'s no picture open. Say "show my newest picture".'
             if not self.proc:
                 return "Nothing's playing."
             self.skip(1 if k == "next" else -1)
@@ -641,13 +821,16 @@ class AssistScreen:
         station = self.station_like(w, radio)
         if station is not None:
             return station
+        if self.friend.ready() and not radio:
+            return None                                # (its model: it knows your games and music, by name)
         if radio or len(w.split()) <= 3 or set(words_of(w)) & set(MUSIC_WORDS):
             return f"I couldn't find {what} in your music."
         return None
 
     @staticmethod
     def music_like(songs, w):
-        """The songs whose names or folders have every word asked for ("so what", "miles davis", "jazz"), best first."""
+        """The songs whose names or folders have every word asked for ("so what", "miles davis", "jazz"), best first;
+        none: the ones near them (misheard: "miles davies"; numbers as words: "track two")."""
         want = [x for x in words_of(w) if x not in ("song", "songs", "music", "by", "album", "the", "some")]
         if not want:
             return []
@@ -657,6 +840,13 @@ class AssistScreen:
             where = set(words_of(it.get("src") or ""))
             if all(x in title or x in where for x in want):
                 scored.append((0 if all(x in title for x in want) else 1, k, it))
+        if not scored:                                 # (near enough)
+            said = [NUMBER_WORDS.get(x, x) for x in want]
+            for k, it in enumerate(songs):
+                title = name_words(it.get("title") or "")
+                where = name_words(re.sub(r"[/_.-]+", " ", it.get("src") or ""))
+                if all(any(word_like(x, n) for n in title + where) for x in said):
+                    scored.append((2 if all(any(word_like(x, n) for n in title) for x in said) else 3, k, it))
         scored.sort(key=lambda s: (s[0], s[1]))
         return [it for _, _, it in scored]
 

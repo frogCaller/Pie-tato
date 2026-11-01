@@ -108,6 +108,18 @@ FRIEND_BAD = ("cold", "wet", "grim", "dull", "miserable", "tired", "bad", "wrong
 FRIEND_SORRY = ("sorry", "afraid", "unfortunately", "sadly", "can't", "cannot", "don't know", "no idea")
 FRIEND_SLEEPY = ("sleep", "bed", "dream", "yawn", "goodnight", "good night", "nap")
 FRIEND_THINK = re.compile(r"<think>.*?</think>|<thinking>.*?</thinking>", re.S | re.I)
+FRIEND_DO = re.compile(r"\[\[\s*([^\[\]]{1,120}?)\s*\]\]")   # something it asks to be done: [[play Shrek 2]]
+
+
+def friend_command(text):
+    """Something its model asked to be done ("[[play Shrek 2]] Here it comes!": "play Shrek 2"), and the rest of what
+    it said, without it: ("", text) when it asked for nothing."""
+    m = FRIEND_DO.search(text or "")
+    if not m:
+        return "", text
+    rest = " ".join(FRIEND_DO.sub(" ", text).replace("[[", " ").replace("]]", " ").split())
+    cmd = re.sub(r"^([a-z' ]+?)\s*:\s*", r"\1 ", m.group(1).strip(), flags=re.I)   # ("play: Shrek 2")
+    return cmd.strip(" :"), rest
 
 
 def friend_face(text, kind="", busy=False):
@@ -373,6 +385,7 @@ class Friend:
         self.look = lambda text="": (None, "there's no camera")   # (a picture's bytes, whose) or (None, why not)
         self.snap = self.no_camera   # a picture taken: (where it's saved, its bytes, whose) or ValueError
         self.on_reply = lambda text: None
+        self.on_command = lambda cmd, text: False   # its model asked for something done: True when it's taken
         self.doing = ""              # what it's busy with: "Taking a picture…", "Looking…"
         self.vision = {}             # model -> it looked at a picture (True), or was shown one and couldn't (False)
         self.lock = threading.Lock()
@@ -621,9 +634,12 @@ class Friend:
                 prompt, images, seen = self.prompt(message, "anything" if topic == "sight" else topic, sent,
                                                    blind=True)
                 text = ollama_generate(self.server, model, self.system(), prompt)
-            self.add("friend", text, "chat" if message or sent else "remark",
+            cmd, text = friend_command(text)
+            if cmd and message and sent is None and self.on_command(cmd, text):
+                return                                 # (done, and said, by media mode)
+            self.add("friend", text or "Okay.", "chat" if message or sent else "remark",
                      pic=seen[0] if seen else None, seen=seen[1] if seen else None)
-            self.on_reply(text)
+            self.on_reply(text or "Okay.")
         except Exception as ex:
             self.add("friend", str(ex)[:200] or "That didn't work", "error")
         finally:

@@ -178,6 +178,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.friend.snap = self.friend_snap
         self.friend.on_change = self.friend_changed
         self.friend.on_reply = self.bot_replied
+        self.friend.on_command = self.friend_did     # (what its model asks for: "[[play Shrek 2]]")
         self.voice = Voice()
         self.voice.on_change = self.friend_changed
         self.voice.on_ready = self.voice_ready

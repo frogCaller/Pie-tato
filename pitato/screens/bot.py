@@ -27,14 +27,19 @@ BOT_MODES = ("today", "chat", "work")   # the Bot's pages, left to right: your d
 BOT_MODE_NAMES = {"today": "Today", "chat": "Chat", "work": "Work"}
 FACE_MOOD_SECS = 90             # the face shows how it felt about what it said for this long, then its everyday look
 FACE_SIZE = 112                 # the face, across
-FACE_CAN_DO = ("Things done for them right away, without you: timers and a focus timer (\"set a timer for 10 "
-               "minutes\"), reminders (\"remind me at 5 to call mom\"), their list (\"add milk to my list\"), notes, "
-               "music and the radio (\"play some jazz\"), their games (\"play a game\", \"play mario\"), something "
-               "to watch (\"put on cartoons\", \"turn on a channel\", \"next channel\"), opening apps, their lights, "
-               "turning the camera (\"rotate the camera\", \"turn the camera left\"), and updating, restarting or "
-               "shutting down the Pi (\"check for updates\", \"restart\", \"shut down\"). If they ask you for one of "
-               "these, it wasn't done: tell them to ask like that. If they're bored, suggest a game or something to "
-               "watch.")
+FACE_CAN_DO = ("You can do things for them. When they ask you to play one of their games, their music or the radio, "
+               "put something on to watch (a channel, cartoons, an old film), open an app, show their photos, or set a "
+               "timer or a reminder, start your reply with what they'd say to you for it, in double square brackets, "
+               "with the name exactly as it is in their lists above, then a few words of your own. For example: "
+               "\"[[play Tetris]] Here comes Tetris!\", \"[[put on cartoons]] Cartoons it is.\", \"[[show my newest "
+               "picture]] Here's your latest one.\" or \"[[set a timer for 10 minutes]] Ten minutes, starting now.\" "
+               "Do it only when they ask you to, not for something they just mention. These are the things you can do: "
+               "timers and a focus timer, reminders, their list (\"add milk to my list\"), notes, music and the radio "
+               "(\"play some jazz\"), their games (\"play a game\", \"play mario\"), something to watch (\"turn on a "
+               "channel\", \"next channel\"), their photos (\"show my camera roll\", \"start a slideshow\"), opening "
+               "apps, their lights, turning the camera (\"rotate the camera\", \"turn the camera left\"), and "
+               "updating, restarting or shutting down the Pi (\"check for updates\", \"restart\", \"shut down\"). "
+               "If they're bored, suggest a game or something to watch.")
 
 
 class BotScreen:
@@ -519,6 +524,7 @@ class BotScreen:
             song = self.meta.get("song") if self.kind == "radio" else ""
             lines.append(f"Playing now: {title}" + (f" ({song})" if song else ""))
         lines += self.assist.facts(h24=self.setting("clock") == "24-hour")
+        lines += self.assist_library()
         lines.append(FACE_CAN_DO)
         return lines
 
