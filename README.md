@@ -15,7 +15,7 @@ works on any Raspberry Pi with a TV or monitor on HDMI too, and on a regular PC 
 ## Install
 
 The easy way is an SD card image, for any 64-bit Pi (Zero 2 W, 3, 4, 5 or a Compute Module 4): from the
-[latest release](https://github.com/frogCaller/pietato/releases/latest), the one ending in
+[latest release](https://github.com/frogCaller/Pie-tato/releases/latest), the one ending in
 `gpi-case-2w.img.xz` for the GPi Case 2W, `gpi-case-2.img.xz` for the GPi Case 2 (a Compute Module 4 without
 eMMC starts from the card), or `hdmi.img.xz` for a TV or monitor. Write it to a microSD
 card (8 GB or more) with [Raspberry Pi Imager](https://www.raspberrypi.com/software/), under Use custom,
@@ -26,8 +26,8 @@ Pietato's Settings too). Without them, the user is `pi`, with no password until 
 Or set it up yourself, on Raspberry Pi OS Lite:
 
 ```
-git clone https://github.com/frogCaller/pietato.git
-cd pietato
+git clone https://github.com/frogCaller/Pie-tato.git
+cd Pie-tato
 sudo bash setup.sh
 ```
 
@@ -45,33 +45,26 @@ the game emulators), so leave the Pi on until it says All set.
 ### On a PC
 
 If you have a regular computer (Intel or AMD) with Ubuntu 24.04, Desktop or Server, you can run it there
-too and play with a USB or Bluetooth controller. Set it up the same way:
-
-```
-git clone https://github.com/frogCaller/pietato.git
-cd pietato
-sudo bash setup.sh
-```
-
+too and play with a USB or Bluetooth controller. Set it up the same way, with the commands above.
 It builds every game emulator (about half an hour), so leave the computer on until it says All set.
 After that, the computer starts in Pietato, like a console. If you have Ubuntu's desktop, open System,
 press SELECT for its list and pick Desktop to use it, then restart the computer to come back to Pietato.
 Settings > Resolution sets the screen's size at start-up. With Ubuntu's desktop installed, Bluetooth
 headphones only play sound on the desktop, so in Pietato use the computer's speakers, HDMI or a USB speaker.
 
-Keep the `pietato` folder where it is: your settings live in its `static` folder. To update, press
+Keep the Pietato folder where it is: your settings live in its `static` folder. To update, press
 Update software at the top of System's list (SELECT switches System between its dashboard and the list).
 When there's a new version, the dashboard says so, and A updates from there too. It runs `git pull`, and
 if that brings a new version, the Pi puts it in and restarts. Your settings stay as they are. If you
 set it up before it had Update software, or when it was called gpi-media, run `git pull` and
 `sudo bash setup.sh` once (from gpi-media, that moves everything across to the new name). If Update
 software ever says the folder has changes of its own when you haven't changed anything, run
-`git fetch` and `git reset --hard origin/main` in the `pietato` folder, then `sudo bash setup.sh --update`.
+`git fetch` and `git reset --hard origin/main` in the Pietato folder, then `sudo bash setup.sh --update`.
 
-If you need all of your computer for something else for a while, run `sudo bash stop.sh` in the `pietato`
+If you need all of your computer for something else for a while, run `sudo bash stop.sh` in the Pietato
 folder. Pietato stops and won't start with the computer (a PC starts in its desktop again) until
 `sudo bash start.sh` turns it back on. If you'd rather not keep it, `sudo bash uninstall.sh` takes it off.
-Your own files and the `pietato` folder stay, so delete the folder too if you don't need your settings.
+Your own files and the Pietato folder stay, so delete the folder too if you don't need your settings.
 
 It starts on a home screen of apps:
 
@@ -262,6 +255,13 @@ level 3", "play some jazz", "turn off the kitchen lights" or "open the weather".
 speak up when they're due (or chime, if it has no voice), and a timer's time left shows beside the
 clock at the top of each app.
 
+It plays your games too: "play a game" starts one of yours at random, and "play mario" starts the one
+with that in its name. "Put on some cartoons", "watch a movie", "turn on a channel" or "watch the news"
+puts something on (a channel comes from your streams, or from Plex if you're signed in), and "next
+channel" changes it. "Rotate the camera" turns a camera's picture, and "turn the camera left" turns a
+camera that can move. Tell it you're bored and it suggests a game or some cartoons. "Check for
+updates", "restart" and "shut down" ask first, and say yes to go ahead.
+
 Press left on the Bot for Today: your list, timers, reminders and notes. A adds to your list, X ticks
 a thing off, and SELECT twice takes it off. START starts a 25-minute focus timer, with a 5-minute
 break after it. Its face blinks, looks around, and shows when it's listening, thinking or talking.
@@ -308,10 +308,11 @@ best. Press SELECT to hear the last reply again, or Say it out loud on the web p
 
 If you plug a USB microphone into the Pi (one with a free USB port, so not in a GPi Case) or a PC, you
 can talk to it: say "hey potato" and what you want. It makes out what you say on the Pi itself with
-[Vosk](https://alphacephei.com/vosk/), which it downloads the first time you plug one in (about 45 MB), and
-it doesn't listen while it's talking or something's playing. You can change the wake phrase in Settings >
-Bot, or press X on the Bot page and Talk to it instead. Set Settings > Bot > Listens to Off to stop it, or
-to On to have it use a webcam's microphone or a PC's built-in one too.
+[Vosk](https://alphacephei.com/vosk/), which it downloads the first time you plug one in (about 45 MB). It
+listens while music plays or is paused, and turns the music down while you talk. It doesn't listen while
+it's talking, while you play a game, or while a video plays on a Pi Zero, 1, 2 or 3. You can change the
+wake phrase in Settings > Bot, or press X on the Bot page and Talk to it instead. Set Settings > Bot >
+Listens to Off to stop it, or to On to have it use a webcam's microphone or a PC's built-in one too.
 
 ## Bot at work
 

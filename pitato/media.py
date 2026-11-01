@@ -317,6 +317,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.settle_play = False     # ...played on before it was: not playing yet
         self.settle_ask = 0.0        # ...told again then
         self.pause_said = None       # (the player, "yes" or "no"): whether it said it's paused, last it was asked
+        self.ducked = False          # what's playing, quieter while you talk to the bot (bot.py's duck)
+        self.assist_pending = None   # a question the bot asked (shut down? a game?): yes does it (assist.py)
         self.set_sel = 0             # Settings: the row picked
         self.set_page = "root"       # Settings: "root", or one of its pages ("wifi", "friend"...)
         self.wx_menu, self.wx_sel = None, 0   # Weather's settings (START): None, "menu", or "location"
@@ -1243,6 +1245,11 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.items[self.tab_index("jellyfin")] = []
             self.toast("Signed out of Jellyfin")
             return
+        self.system_do(act)
+
+    def system_do(self, act):
+        """The Pi restarted ("reboot"), shut down ("poweroff"), or just media mode restarted ("restart"): System's rows,
+        or the bot asked to (and told yes)."""
         self.halting = time.monotonic() + HALT_WAIT       # nothing draws over it
         self.halt_note = {"reboot": "The Pi didn't restart", "poweroff": "The Pi didn't shut down",
                           "restart": "Media mode didn't restart"}[act]

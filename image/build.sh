@@ -12,7 +12,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT="${1:?Usage: sudo bash image/build.sh OUT_FOLDER [NAME]}"
 NAME="${2:-$(date +%Y-%m-%d)}"
-REPO="${PITATO_REPO:-${GITHUB_REPOSITORY:-frogCaller/pietato}}"
+REPO="${PITATO_REPO:-${GITHUB_REPOSITORY:-frogCaller/Pie-tato}}"
 COMMIT="${PITATO_COMMIT:-${GITHUB_SHA:-}}"
 OS_LIST="https://downloads.raspberrypi.com/os_list_imagingutility_v4.json"   # (Raspberry Pi Imager's own list)
 GROW=4G            # room to put Pietato in, taken back off at the end (Raspberry Pi OS grows it to fill the card when it

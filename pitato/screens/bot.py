@@ -10,7 +10,7 @@ from ..config import clean_name, edit_config
 from ..util import pictures_dir, save_picture
 from ..net import cam_address
 from ..screen import aplay_device
-from ..library import LIBRARY
+from ..library import LIBRARY, LISTEN_KINDS
 from ..weather import place_text, wx_words
 from ..stocks import money
 from ..voice import BOT_VOICES, voice_name, VOICE_SAMPLE, voices_here
@@ -29,8 +29,12 @@ FACE_MOOD_SECS = 90             # the face shows how it felt about what it said 
 FACE_SIZE = 112                 # the face, across
 FACE_CAN_DO = ("Things done for them right away, without you: timers and a focus timer (\"set a timer for 10 "
                "minutes\"), reminders (\"remind me at 5 to call mom\"), their list (\"add milk to my list\"), notes, "
-               "music and the radio (\"play some jazz\"), opening apps and their lights. If they ask you for one of "
-               "these, it wasn't done: tell them to ask like that.")
+               "music and the radio (\"play some jazz\"), their games (\"play a game\", \"play mario\"), something "
+               "to watch (\"put on cartoons\", \"turn on a channel\", \"next channel\"), opening apps, their lights, "
+               "turning the camera (\"rotate the camera\", \"turn the camera left\"), and updating, restarting or "
+               "shutting down the Pi (\"check for updates\", \"restart\", \"shut down\"). If they ask you for one of "
+               "these, it wasn't done: tell them to ask like that. If they're bored, suggest a game or something to "
+               "watch.")
 
 
 class BotScreen:
@@ -297,10 +301,23 @@ class BotScreen:
             self.toast(f"Say \"{self.bot_wake()}\" to talk to your bot", 4)
 
     def ears_busy(self):
-        """Not now: the bot (or your coding agent) is speaking, something's playing, or a game or a program has the
-        screen (it would hear that instead). (From the ears' thread.)"""
-        return (not self.active or self.voice.speaking or self.proc is not None or self.game is not None
-                or self.prog is not None or self.coder.talking())
+        """Not now: the bot (or your coding agent) is speaking, a game or a program has the screen (it would hear that
+        instead), or a video's playing on a slower Pi (a Zero, 1, 2 or 3: listening too, it would stutter). Music, the
+        radio, anything paused, and a video on a Pi 4 or 5: it listens, and what's playing goes quieter while you talk
+        to it. (From the ears' thread.)"""
+        return (not self.active or self.voice.speaking or self.game is not None or self.prog is not None
+                or self.coder.talking()
+                or (self.proc is not None and not self.paused and self.kind not in LISTEN_KINDS and self.pi_slow))
+
+    def duck(self, on):
+        """What's playing, quieter while you talk to the bot ("Listening…"), so it hears you; as it was after."""
+        if on and self.proc is not None and not self.paused and not self.muted and not self.ducked:
+            self.ducked = True
+            self.cmd(f"pausing_keep volume {max(1, self.volume // 4)} 1")
+        elif not on and self.ducked:
+            self.ducked = False
+            if self.proc is not None and not self.muted:
+                self.cmd(f"pausing_keep volume {self.volume} 1")
 
     def ears_heard(self, text):
         """You said something to the bot (from the ears' thread): the main loop passes it on."""
@@ -324,8 +341,12 @@ class BotScreen:
         e = self.ears
         now = (e.state, e.error if e.state == "error" else "", tuple(e.unknown))
         was, self.ears_seen = self.ears_seen, now
+        if now[0] != "listening" or not self.active:
+            self.duck(False)                           # (what's playing: back as it was)
         if now == was or not self.active:
             return
+        if now[0] == "listening":
+            self.duck(True)
         if now[0] == "listening" and was[0] != "listening":
             if not self.on_friend_page():             # (there, its face says so)
                 self.toast("Listening…", PATIENCE)
@@ -915,7 +936,7 @@ class BotScreen:
                      ("It chats through Ollama on another", F["small"], BODY),
                      ("computer on your network.", F["small"], BODY), ("", F["small"], MUTED),
                      ("It does what you ask without it: timers,", F["small"], BODY),
-                     ("your list and reminders, your music.", F["small"], BODY), ("", F["small"], MUTED),
+                     ("your list, music, games and TV.", F["small"], BODY), ("", F["small"], MUTED),
                      ("Press A to set it up.", F["small"], MUTED)]
             y = top + ph / 2 - 90
             for text, font, colour in lines:

@@ -176,8 +176,9 @@ TRAIL = re.compile(r"(?:\s+(?:please|thanks|thank you|for me|now|right now|ok|ok
 LIST = r"(?:(?:my|the|our)\s+)?(?:(?:to ?do|to-do|todo|task|tasks|shopping|grocery|groceries)\s+)?list"
 
 
-def normal(text):
-    """What was said, plain: lower case, no punctuation but what times need, the please and the hey taken off."""
+def normal(text, call=()):
+    """What was said, plain: lower case, no punctuation but what times need, the please and the hey taken off, and
+    what it's called before it ("potato, shut down": call is ("hey potato", "potato"))."""
     t = " ".join(str(text or "").lower().replace("’", "'").split())
     t = re.sub(r"\b([ap])\.? ?m\b\.?", r"\1m", t)             # (5 p.m., 5 p m: 5 pm)
     t = re.sub(r"[\"“”!?¿¡;,]+", " ", t)
@@ -186,6 +187,9 @@ def normal(text):
     for _ in range(3):
         t = FILLER.sub("", t)
         t = POLITE.sub("", t)
+        for c in call:
+            if c and t.startswith(c + " "):
+                t = t[len(c) + 1:]
     return TRAIL.sub("", t).strip()
 
 
@@ -267,7 +271,9 @@ REMINDERS = _rx(r"(?:what are|read|show|list|tell me|check)(?: me)?(?: all)? my 
 REMINDERS_STOP = _rx(r"(?:cancel|delete|remove|clear|forget)(?: all)?(?: of)?(?: my| the)? reminders?"
                      r"(?: (?:to|about|for) (?P<text>.+))?")
 PAUSE = _rx(r"(?:pause|stop|hold|halt)(?: the| this| that| it| all)?(?: music| song| track| radio| station| playing|"
-            r" sound| audio| it| that)?", r"(?:be quiet|shush|hush|silence)")
+            r" sound| audio| it| that)?", r"(?:be quiet|shush|hush|silence|shut up)",
+            r"(?:turn|switch|shut) off (?:the |this )?(?:music|song|radio|sound)",
+            r"(?:turn|switch|shut) (?:the |this )?(?:music|song|radio|sound) off")
 RESUME = _rx(r"(?:resume|unpause|continue|keep playing|carry on|play again|start again|keep going)(?: the| it)?"
              r"(?: music| song| track| radio| playing)?", r"play")
 NEXT = _rx(r"(?:next|skip)(?: the)?(?: song| track| one| this(?: song| one| track)?| it)?",
@@ -304,8 +310,50 @@ TIME = _rx(r"(?:what(?:'s| is) the time|what time is it|whats the time|time|what
 DATE = _rx(r"(?:what(?:'s| is) (?:the date|today's date|todays date|the day)|what day is (?:it|today)|what's today|"
            r"whats the date|what date is it)(?: today)?")
 WEATHER = _rx(r"(?:what's|what is|whats|how's|how is|hows) the weather(?: like)?(?: now| today| outside| right now)?",
-              r"weather")
+              r"weather", r"(?:check|look at|tell me|give me|read me)(?: the)? weather(?: forecast)?(?: for today)?")
 HELP = _rx(r"what can (?:you|i ask you to) do", r"what (?:can|could) i (?:ask|say)(?: you)?", r"help")
+# a game, something to watch, being bored, the Pi itself, the camera; and yes or no, to a question it asked
+GAME = _rx(r"(?:let's |let us |i want to |i'd like to |can we |can i |wanna )?play (?:a |an |some |another |any )?"
+           r"(?:random |video )?games?(?: of (?P<name>.+))?",
+           r"(?:start|open|launch|pick|choose|find)(?: me| us)? (?:a |an |some |another |any )?(?:random |video )?game"
+           r"(?: of (?P<name>.+))?",
+           r"play (?:the |a )?game (?:called |named )?(?P<name>.+)", r"play (?P<name>.+?) (?:the )?game")
+WATCH_WHAT = (r"(?:tv|the tv|television|some tv|a channel|any channel|a tv channel|channels|a show|some shows|"
+              r"something|something to watch|a cartoon|cartoons|some cartoons|toons|a movie|movies|some movies|"
+              r"a film|films|some films|an old movie|an old film|a classic film|the news|news|some news|sports|"
+              r"some sports)")
+WATCH = _rx(r"(?:i want to |i'd like to |let's |let us |can we |can i |could we )?watch "
+            r"(?!(?:out|it|this|that|me|us|them|him|her|yourself|your|over|for|as|how|what|where|who)\b)(?P<what>.+)",
+            r"(?:put on|turn on|switch on|show me|play|start|find me|pick|choose)(?: me| us)? (?:something on )?"
+            r"(?P<what>" + WATCH_WHAT + r")",
+            r"(?:put|turn|switch) (?P<what>(?:the )?(?:news|tv|cartoons|sports|a channel)) on")
+CHANNEL_NEXT = _rx(r"(?:next|change the|change|switch the|switch|another|a different|other|new) channel", r"channel up")
+CHANNEL_PREV = _rx(r"(?:previous|last|go back a|back a|the last) channel", r"channel down")
+BORED = _rx(r"(?:i'm|im|i am|i feel|i'm feeling|feeling|so|i'm so|i am so|i'm getting|getting|kinda|kind of)? ?bored"
+            r"(?: now| right now| out of my mind| stiff)?",
+            r"what (?:should|can|could) (?:i|we) do(?: now| today)?", r"entertain me", r"there's nothing to do",
+            r"nothing to do", r"i(?:'m| am) bored what (?:should|can) i do")
+UPDATE = _rx(r"(?:update|upgrade)(?: yourself| itself| your software| the software| pietato| potato| everything)?"
+             r"(?: now)?",
+             r"(?:check for|look for|get|install|are there any|is there an?|any|get the|install the|do the|do an?) "
+             r"(?:new )?(?:updates?|new version|newest version)(?: now)?")
+SHUTDOWN = _rx(r"(?:shut ?down|shut yourself down|shut down the pi|power off|power down|switch off|turn off|"
+               r"turn yourself off|turn the pi off|turn off the pi|switch yourself off|shut off)(?: now)?")
+REBOOT = _rx(r"(?:restart|reboot)(?: yourself| the pi| your pi| the computer)?(?: now)?",
+             r"(?:restart|reboot) (?P<app>media mode|pietato|potato|the app)(?: now)?")
+CAM_WAYS = (r"left|right|clockwise|counterclockwise|anticlockwise|counter clockwise|anti clockwise|upside down|"
+            r"around|back")
+CAM_TURN = _rx(r"(?:rotate|turn|flip) (?:the |my )?(?P<which>[a-z ]*?)camera(?:'s)? (?:picture|image|view)"
+               r"(?: (?P<way>" + CAM_WAYS + r"))?",
+               r"rotate (?:the |my )?(?P<which>[a-z ]*?)camera(?: (?P<way>" + CAM_WAYS + r"))?",
+               r"flip (?:the |my )?(?P<which>[a-z ]*?)camera(?: (?P<way>upside down|over|around))?")
+CAM_STEER = _rx(r"(?:turn|move|point|pan|tilt|swing|aim) (?:the |my )?(?P<which>[a-z ]*?)camera (?:to the )?"
+                r"(?P<way>left|right|up|down)", r"(?:look|pan|tilt) (?P<way>left|right|up|down)",
+                r"camera (?P<way>left|right|up|down)")
+YES = _rx(r"(?:yes|yeah|yea|yep|yup|sure|ok|okay|do it|go ahead|please do|let's do it|sounds good|go for it|alright|"
+          r"all right|yes do it|of course|absolutely|why not)(?: then)?")
+NO = _rx(r"(?:no|nope|nah|not now|not|no thanks|no thank you|cancel|never mind|nevermind|don't|forget it|maybe later)"
+         r"(?: then)?")
 
 
 def _first(rules, t):
@@ -383,11 +431,38 @@ def app_named(words):
     return APPS.get(w)
 
 
-def parse(text, now=None):
-    """What was asked, if it's something done here: an Ask, or None (it goes to the model)."""
-    t = normal(text)
+def parse(text, now=None, call=()):
+    """What was asked, if it's something done here: an Ask, or None (it goes to the model). call: what it's called
+    (its wake phrase, and its name: "hey potato", "potato"), taken off before what's asked, or after it ("shut down,
+    potato") when that's something done here."""
+    t = normal(text, call)
+    ask = parse_plain(t, now)
+    if ask is None:
+        c = next((c for c in call if c and t.endswith(" " + c)), None)
+        if c:
+            ask = parse_plain(normal(t[:-len(c) - 1]), now)
+    return ask
+
+
+def parse_plain(t, now=None):
+    """parse's work, on what was said made plain (normal's)."""
     if not t or len(t) > 160:
         return None
+    if _first(YES, t):
+        return Ask("yes", t)
+    if _first(NO, t):
+        return Ask("no", t)
+    if _first(BORED, t):
+        return Ask("bored", t)
+    if _first(WEATHER, t):
+        return Ask("weather", t)
+    if _first(UPDATE, t):
+        return Ask("update", t)
+    if _first(SHUTDOWN, t):
+        return Ask("shutdown", t)
+    m = _first(REBOOT, t)
+    if m:
+        return Ask("reboot", t, app=bool(m.groupdict().get("app")))
     m = _first(TIMER_STOP, t)
     if m:
         return Ask("timer_stop", t, label=(m.group("label") or "").strip())
@@ -471,6 +546,33 @@ def parse(text, now=None):
         on = m.group("onoff") == "on"
         which = (m.groupdict().get("which") or "").strip()
         return Ask("lights", t, on=on, which=re.sub(r"^(?:the|all the|all|my)\s+", "", which))
+    m = _first(CAM_TURN, t)
+    if m:
+        way = m.group("way") or ""
+        step = 180 if way in ("upside down", "around", "over") else -90 if way in (
+            "left", "counterclockwise", "anticlockwise", "counter clockwise", "anti clockwise") else 90
+        if way == "back":
+            step = 0
+        return Ask("cam_turn", t, step=step, which=(m.group("which") or "").strip())
+    m = _first(CAM_STEER, t)
+    if m:
+        return Ask("cam_steer", t, way=m.group("way"), which=(m.groupdict().get("which") or "").strip())
+    if _first(CHANNEL_NEXT, t):
+        return Ask("next", t, channel=True)
+    if _first(CHANNEL_PREV, t):
+        return Ask("previous", t, channel=True)
+    m = _first(GAME, t)
+    if m:
+        name = (m.groupdict().get("name") or "").strip()
+        if app_named(name) == "Snake":
+            return Ask("open", t, app="Snake")
+        return Ask("game", t, name=name)
+    m = _first(WATCH, t)
+    if m:
+        what = re.sub(r"^(?:some|a|an|the)\s+", "", m.group("what").strip())
+        if app_named(what) not in (None, "TV", "News", "Cartoons", "Sports", "Free Movies", "Videos"):
+            return Ask("open", t, app=app_named(what))    # ("watch the camera": the Camera tab)
+        return Ask("watch", t, what=what)
     if _first(PLAY_ALL, t):
         return Ask("play", t, what="my music")
     for kind, rules in (("time", TIME), ("date", DATE), ("weather", WEATHER), ("help", HELP),

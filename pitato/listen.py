@@ -48,6 +48,7 @@ WAKE = "hey potato"
 WAKE_MOST = 40                    # characters of a wake phrase
 LISTENS = ("auto", "on", "off")   # Settings > Bot > Listens: while a microphone's plugged in (as it comes), always, never
 PATIENCE = 8.0                    # seconds after the wake phrase it waits for what you say
+LISTEN_MOST = 12.0                # ...and listens at most (music on and on: what it made out by then is what's said)
 QUIET_AFTER = 0.7                 # seconds it stays deaf after the bot stops speaking (its voice, still in the room)
 RETRY = 5.0                       # seconds between tries when there's no microphone, or it stopped
 QUICK_STOP = 30.0                 # ...stopped this soon after it started (another program has the microphone, say):
@@ -213,7 +214,7 @@ def stop_proc(proc):
 class Ears:
     """Listening (Settings > Bot > Listens): hear.py makes out what the microphone hears, a line at a time; the wake
     phrase, then what's said after it, goes to on_heard (from its thread). wake_now(): what's said next, without the
-    phrase. Deaf while is_busy() (the bot speaking, something playing). It starts again by itself when it stops (a
+    phrase. Deaf while is_busy() (the bot speaking, a game on). It starts again by itself when it stops (a
     microphone unplugged and plugged in again), and waits for one when there's none."""
 
     def __init__(self):
@@ -367,6 +368,7 @@ class Ears:
         """hear.py's lines, till it stops (why: its error, or "" when it said none) or listening's turned off."""
         out = proc.stdout.fileno()
         buf, deaf, armed, why = b"", None, 0.0, ""
+        began = 0.0                                   # when it started listening for what you say (LISTEN_MOST)
         while gen == self.gen:
             busy = self.busy_now()
             if busy != deaf:
@@ -374,16 +376,27 @@ class Ears:
                     break
                 deaf = busy
                 if armed:
-                    armed = time.monotonic()          # (what you say next still goes to the bot)
+                    armed = began = time.monotonic()  # (what you say next still goes to the bot)
             if self.poked and not deaf and self.state in ("waiting", "listening"):
                 self.poked = False
                 self.tell(proc, "reset")
-                armed = time.monotonic()
+                armed = began = time.monotonic()
                 self.heard = ""
                 self.set(gen, "listening")
+            if not armed:
+                began = 0.0
+            elif not began:
+                began = time.monotonic()
             if armed and not deaf and time.monotonic() - armed > PATIENCE:
                 armed = 0.0                           # (nothing followed the wake phrase)
                 self.set(gen, "waiting")
+            elif armed and not deaf and time.monotonic() - began > LISTEN_MOST:
+                text, armed = self.heard, 0.0         # (music on and on: what it made out, as it was)
+                self.tell(proc, "reset")
+                if meaningful(text):
+                    self.deliver(gen, text)
+                else:
+                    self.set(gen, "waiting")
             ready, _, _ = select.select([out], [], [], 0.1)
             if not ready:
                 continue
