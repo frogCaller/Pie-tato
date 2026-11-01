@@ -26,8 +26,8 @@ Pietato's Settings too). Without them, the user is `pi`, with no password until 
 Or set it up yourself, on Raspberry Pi OS Lite:
 
 ```
-git clone https://github.com/frogCaller/pietato.git
-cd pietato
+git clone https://github.com/frogCaller/Pie-tato.git
+cd Pie-tato
 sudo bash setup.sh
 ```
 
@@ -48,8 +48,8 @@ If you have a regular computer (Intel or AMD) with Ubuntu 24.04, Desktop or Serv
 too and play with a USB or Bluetooth controller. Set it up the same way:
 
 ```
-git clone https://github.com/frogCaller/pietato.git
-cd pietato
+git clone https://github.com/frogCaller/Pie-tato.git
+cd Pie-tato
 sudo bash setup.sh
 ```
 
