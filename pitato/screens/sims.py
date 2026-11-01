@@ -7,12 +7,14 @@ from ..library import LIBRARY
 from ..sims import (
     ForestFire, Life, RockPaperScissors, RPS_COLOUR, RPS_TEAMS, SIM_BOX, sim_clock,
     SIM_FLOOR, SIM_FULL, SIM_IN, SIM_PANEL)
-from ..clock import Clock, CLOCK_LOOKS
+from ..clock import Clock
 from ..mandelbrot import Mandelbrot
 from ..snake import Snake
 
 
 SIMS = {s.key: s for s in (Clock, RockPaperScissors, Life, ForestFire, Mandelbrot, Snake)}
+CLOCK_KEYS = {"a": "look", "up": "colour", "down": "colour", "left": "background", "right": "background",
+              "x": "seconds", "y": "date"}       # the Clock's buttons: the option each changes
 
 
 class SimScreen:
@@ -110,9 +112,9 @@ class SimScreen:
         self.dirty = True
 
     def press_sim(self, name, repeat):
-        """A sim: A pauses (Rock Paper Scissors: starts, pauses, plays again; the Clock: its other look), X pokes
-        it, Y starts it again, SELECT is full screen, START has its options, B goes back to the list. In Rock Paper
-        Scissors, left and right pick a winner (until the first capture)."""
+        """A sim: A pauses (Rock Paper Scissors: starts, pauses, plays again), X pokes it, Y starts it again, SELECT
+        is full screen, START has its options, B goes back to the list. In Rock Paper Scissors, left and right pick a
+        winner (until the first capture). The Clock: press_clock."""
         s = self.sim_game()
         if self.sim_opts is not None:
             return self.press_sim_opts(s, name, repeat)
@@ -126,12 +128,9 @@ class SimScreen:
                 self.press_snake(s, name)
             self.dirty = True
             return None
-        if s.key == "clock" and name in ("a", "x", "y"):
-            if name == "a" and not repeat:                 # A: the other look (kept, as START's card keeps it)
-                look = CLOCK_LOOKS[(CLOCK_LOOKS.index(s.values["look"]) + 1) % len(CLOCK_LOOKS)]
-                self.set_setting("sim_clock_look", look)
-                s.configure({"look": look})
-                self.dirty = True
+        if s.key == "clock" and name in CLOCK_KEYS:
+            if not repeat:
+                self.press_clock(s, name)
             return None
         if repeat:
             return None
@@ -165,6 +164,19 @@ class SimScreen:
             return None
         self.dirty = True
         return None
+
+    def press_clock(self, s, name):
+        """The Clock: A its other look, up and down its colour, left and right its background, X its seconds on or
+        off, Y the date. Each kept, as START's card keeps it, and said (but its look: that's plain to see)."""
+        key = CLOCK_KEYS[name]
+        label, ways = next((label, list(ways)) for k, label, ways, _ in s.options if k == key)
+        cur = s.values.get(key)
+        new = ways[((ways.index(cur) if cur in ways else 0) + (-1 if name in ("up", "left") else 1)) % len(ways)]
+        self.set_setting(f"sim_clock_{key}", new)
+        s.configure({key: new})
+        if key != "look":
+            self.toast(f"{label}: {new}", 2)
+        self.dirty = True
 
     def press_mandel(self, s, name, repeat):
         """The Mandelbrot Set: exploring, the d-pad moves round it and A zooms in, Y out, for as long as
@@ -562,13 +574,15 @@ class SimScreen:
                 self.sim_head = ((self.status_sig, ACCENT, self.tab_off), img.crop((0, 0, fb.w, self.HEADER + 1)))
                 self.sim_head_taps = self.taps_cut(mark)
             self.tap_again(getattr(self, "sim_head_taps", None))
-            key = (self.sim_head[0], hints, bare)
+            key = (self.sim_head[0], hints, bare, s.backdrop)
             if key != self.sim_base[0]:
                 img, d = self.canvas()
                 img.paste(self.sim_head[1], (0, 0))
                 img.paste(self.sim_feet[hints], (0, fb.h - self.FOOTER))
-                if not bare:                           # (the Clock: on the page itself)
+                if not bare:                           # (the Clock: on the page itself, on its background)
                     d.rounded_rectangle(self.sim_layout()[0], radius=10, fill=SIM_FLOOR, outline=LINE)
+                elif s.backdrop != BG:                 # (between the tabs and the buttons)
+                    d.rectangle((0, self.HEADER + 1, fb.w, fb.h - self.FOOTER - 1), fill=s.backdrop)
                 self.sim_base = (key, img, [] if bare else self.sim_corners(img))
             if s.key == "rps":
                 sig = ("rps", s.phase, s.pick, s.is_open(), tuple(s.calls), s.round, ACCENT)   # drawn at once

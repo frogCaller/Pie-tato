@@ -1,8 +1,11 @@
 """The bot's face: two big eyes and a little mouth, drawn as shapes (sharp at any size), that blink, glance about,
-and show what it's doing (listening, thinking, talking) and how it feels (happy, sorry, curious, sleepy, cool).
+and show what it's doing (listening, thinking, talking) and how it feels (happy, sorry, curious, sleepy, cool). In
+the colour you pick, on the background you pick, with eyelashes if you like (Settings > Bot).
 face_state() says how it looks at a moment; draw_face() draws it; face_wait() says when it next changes, so the
 screen is only drawn again when it does (a blink, a glance), not all the time."""
 import math
+
+from .theme import BG, co_mix, ROW
 
 LOOKS = ("idle", "happy", "sad", "cool", "curious", "sleepy", "thinking", "listening", "talking", "alert")
 MOODS = {   # the bot's moods (bot.py's friend_face) as looks
@@ -15,6 +18,21 @@ SLEEPY_FPS = 5             # ...and while it dozes (its eyes and its z's drift s
 STILL = ("thinking", "listening", "talking", "alert")   # (looks whose eyes don't glance about)
 LISTEN_GAP = 0.05          # listening: its sound's arcs start this far (of its size) past the eye's edge
 THINK_DOTS = 0.5           # thinking: its dots this far (of its size) above its middle, a gap above its eyes
+LASH_WIDE = 0.032          # an eyelash: a short stroke this wide (of its size) where it leaves the eye...
+LASH_TIP = 0.5             # ...narrowing to this much of that at its end, rounded off there
+LASHES = ((38, 0.06), (60, 0.065), (82, 0.06))   # three on each eye's top outer corner: where (degrees round from
+                           # straight up), and how long (of its size); each pointing a little further out than that
+
+# Its colours (Settings > Bot > Face colour, Background): up and down, on just its face, go from one to the next
+FACE_COLOURS = (("White", (236, 239, 243)), ("Sky", (128, 196, 255)), ("Aqua", (94, 224, 222)),
+                ("Mint", (120, 230, 168)), ("Lime", (196, 236, 110)), ("Lemon", (255, 226, 102)),
+                ("Peach", (255, 178, 128)), ("Coral", (255, 128, 112)), ("Pink", (255, 140, 196)),
+                ("Lilac", (196, 164, 255)))
+FACE_BACKS = (("Matching", None), ("Dark", None),   # Matching: a deep shade of its colour (white's: Dark); Dark: the
+              ("Black", ((0, 0, 0), (22, 22, 24))),   # menus' own. The rest: (the screen behind it, its card)
+              ("Navy", ((14, 24, 50), (26, 40, 74))), ("Plum", ((40, 18, 46), (60, 32, 68))),
+              ("Forest", ((12, 36, 28), (24, 54, 44))), ("Wine", ((48, 14, 26), (70, 26, 42))))
+FACE_TINT = (0.16, 0.2)    # Matching: this much of its colour in the screen's dark, and in its card's
 
 
 def _hash(n):
@@ -116,9 +134,63 @@ def _mix(a, b, k):
     return tuple(int(x + (y - x) * k) for x, y in zip(a, b))
 
 
-def draw_face(d, cx, cy, size, look, t, colour, back, font=None):
+def face_colours(colour, back):
+    """(its face's colour, the screen behind it, its card's: the chat page's) for a face colour and a background,
+    by their names (one that isn't: the first)."""
+    face = dict(FACE_COLOURS).get(colour, FACE_COLOURS[0][1])
+    fixed = dict(FACE_BACKS).get(back, FACE_BACKS[0][1]) if back in dict(FACE_BACKS) else None
+    if fixed:
+        return face, fixed[0], fixed[1]
+    if back in (None, "", "Matching") and face != FACE_COLOURS[0][1]:
+        return face, co_mix(BG, face, FACE_TINT[0]), co_mix(ROW, face, FACE_TINT[1])
+    return face, BG, ROW
+
+
+def _lash(d, x, y, ux, uy, length, wide, colour):
+    """An eyelash: a short stroke from (x, y) out along (ux, uy), wide across where it leaves the eye, narrowing
+    toward its end, and rounded off there (no wider than the stroke itself)."""
+    px, py = -uy, ux                                   # (square to it)
+    tip = wide * LASH_TIP
+    ex, ey = x + ux * (length - tip / 2), y + uy * (length - tip / 2)   # (where the rounding begins)
+    pts = [(x + px * wide / 2, y + py * wide / 2), (ex + px * tip / 2, ey + py * tip / 2)]
+    a0 = math.atan2(py, px)
+    for k in range(1, 8):                              # (round over its end: half a circle, its own width)
+        a = a0 - math.pi * k / 8
+        pts.append((ex + math.cos(a) * tip / 2, ey + math.sin(a) * tip / 2))
+    pts += [(ex - px * tip / 2, ey - py * tip / 2), (x - px * wide / 2, y - py * wide / 2)]
+    d.polygon(pts, fill=colour)
+
+
+def _corner_lashes(d, box, r, side, size, colour, down=False):
+    """Eyelashes on the top outer corner of box (x0, y0, x1, y1: an eye, or a lens), its corners r round, side -1 for
+    the left eye, 1 the right: three short strokes standing out from its edge. down: on its bottom outer corner
+    instead, pointing down (shut eyes', asleep)."""
+    x0, y0, x1, y1 = box
+    r = max(0.5, min(r, (x1 - x0) / 2, (y1 - y0) / 2))
+    up = 1 if down else -1                             # (which way is up, for this corner)
+    ccx, ccy = (x1 - r if side > 0 else x0 + r), (y1 - r if down else y0 + r)
+    wide = max(1.0, size * LASH_WIDE)
+    for at, long in LASHES:
+        a, b = math.radians(at), math.radians(at + 6)
+        bx, by = ccx + side * math.sin(a) * (r - wide * 0.3), ccy + up * math.cos(a) * (r - wide * 0.3)
+        _lash(d, bx, by, side * math.sin(b), up * math.cos(b), size * long, wide, colour)
+
+
+def _slant_lashes(d, ax, ay, bx, by, side, size, colour):
+    """Eyelashes on the outer end of a sorry eye's slanted top (from (ax, ay), its inner end, to (bx, by), its outer
+    one): standing out from it, the outermost a little further out."""
+    dx, dy = bx - ax, by - ay
+    n = math.hypot(dx, dy) or 1.0
+    base = math.atan2(abs(dy) / n, abs(dx) / n)        # (square to it, up and outward: degrees out from straight up)
+    wide = max(1.0, size * LASH_WIDE)
+    for (at, long), t, turn in zip(LASHES, (0.55, 0.74, 0.93), (0, 14, 28)):
+        b = base + math.radians(turn)
+        _lash(d, ax + dx * t, ay + dy * t, side * math.sin(b), -math.cos(b), size * long, wide, colour)
+
+
+def draw_face(d, cx, cy, size, look, t, colour, back, font=None, lashes=False):
     """The face, size across, its middle at cx, cy, in colour on back (what's behind it: its eyes' shapes are cut
-    with it). font: for a sleepy face's z's."""
+    with it). font: for a sleepy face's z's. lashes: eyelashes on its eyes (on its glasses, when it wears them)."""
     look = look if look in LOOKS else "idle"
     opened, (gx, gy), mouth, grow = face_state(look, t)
     ew, eh = size * 0.25 * grow, size * 0.36 * grow                 # an eye
@@ -151,6 +223,11 @@ def draw_face(d, cx, cy, size, look, t, colour, back, font=None):
             gr = w * 0.13
             d.ellipse((ex - w * 0.22 - gr, ey - hh * 0.24 - gr, ex - w * 0.22 + gr, ey - hh * 0.24 + gr), fill=soft
                       if colour == back else _mix(colour, (255, 255, 255), 0.6))
+        if lashes and look == "sad" and opened > 0.5:  # (along its slanted top)
+            _slant_lashes(d, ex - side * w * 0.3, ey - h * 0.62 + h * 0.6 * 0.26, ex + side * w * 0.5,
+                          ey - h * 0.62 + h * 0.6 * 0.9, side, size, colour)
+        elif lashes:
+            _corner_lashes(d, box, r, side, size, colour, down=look == "sleepy")
     if look == "cool":                                 # the glasses: a bar, two lenses, a shine
         lw, lh = size * 0.36, size * 0.26
         y0 = ey - lh / 2
@@ -161,6 +238,8 @@ def draw_face(d, cx, cy, size, look, t, colour, back, font=None):
             d.rounded_rectangle((lx - lw / 2, y0, lx + lw / 2, y0 + lh), radius=size * 0.08, fill=colour)
             d.line((lx - lw * 0.28, y0 + lh * 0.3, lx - lw * 0.08, y0 + lh * 0.12), fill=back, width=max(1, round(
                 size * 0.02)))
+            if lashes:                                 # (over its glasses, at their outer corners)
+                _corner_lashes(d, (lx - lw / 2, y0, lx + lw / 2, y0 + lh), size * 0.08, side, size, colour)
     # the mouth
     my, mw = cy + size * 0.27 + oy * 0.5, size * 0.17
     mx = cx + ox * 0.6

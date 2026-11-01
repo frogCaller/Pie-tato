@@ -30,7 +30,7 @@ from .nearby import PEER_KEEP, PEER_SAYS, PieInk
 from .voice import Voice
 from .listen import Ears, LISTEN_TRIES
 from .term import Terminal
-from .bot import Friend, FRIEND_PAGES
+from .bot import Friend
 from .assist import Assist
 from .coder import AgentPrompts, Coder, CODER_FPS
 from .crypto import Crypto
@@ -259,6 +259,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.friend_opened_at = 0.0
         self.friend_jitter = 1.0     # its remarks come not quite on the dot
         self.friend_more = None      # the Bot page's X menu, when open: {"sel": n}
+        self.bot_settings = False    # the Bot's settings, on the Bot itself (X > Settings): Settings > Bot's pages
         self.friend_pics = {}        # a picture's id -> (it, its rounded corners) as the Bot page shows it
         self.friend_work_shown = None    # what the chat said about your coding agent, last it was drawn
         self.assist = Assist()       # what you ask the bot to do: your list, reminders, timers (screens/assist.py)
@@ -708,6 +709,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.picking = None                            # (picking a picture: not any more)
         self.friend_more = None
         self.coder_help = False
+        self.bot_settings_close()
         self.games_q = None                            # (finding a game: not any more)
         self.sim_close()
         vis = self.visible_tabs()
@@ -1483,8 +1485,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.rest_tick(now)                            # (the screen dark, to save the battery, or awake again)
         if self.voice.error and self.voice.error != self.voice_told:
             self.voice_told = self.voice.error
-            if self.on_friend_page() or (self.view == "list" and self.tab_type() == "settings"
-                                         and self.set_page in FRIEND_PAGES):
+            if self.on_friend_page() or self.on_bot_settings():
                 self.toast(self.voice.error, 5)
         elif not self.voice.error:
             self.voice_told = ""

@@ -15,6 +15,7 @@ from ..util import IMAGE_EXTS
 from ..voice import BOT_VOICES, VOICE_MB, voices_here
 from ..listen import LISTENS, WAKE_MOST, mics
 from ..bot import FRIEND_CHATTER, FRIEND_STYLES
+from ..face import FACE_BACKS, FACE_COLOURS
 from ..crypto import CRYPTO_LINE, CRYPTO_MOST
 from ..stocks import STOCKS_LINE, STOCKS_MOST, SYMBOL
 from ..net import cam_address
@@ -257,7 +258,15 @@ class WebSettingsScreen:
                   "value": "on" if self.bot_face_only() else "off", "choices": ["on", "off"],
                   "names": {"on": "Yes", "off": "No"},
                   "note": "Its chat page shows only its face, big, in the middle of the screen. It still talks and "
-                          "listens."},
+                          "listens. Up and down on it change its colour."},
+                 {"key": "f_colour", "label": "Face colour", "kind": "choice", "value": self.bot_colour(),
+                  "choices": [n for n, _ in FACE_COLOURS]},
+                 {"key": "f_back", "label": "Background", "kind": "choice", "value": self.bot_back(),
+                  "choices": [n for n, _ in FACE_BACKS],
+                  "note": "Matching is a deep shade of its face's colour."},
+                 {"key": "f_lashes", "label": "Eyelashes", "kind": "choice",
+                  "value": "on" if self.bot_lashes() else "off", "choices": ["on", "off"],
+                  "names": {"on": "Yes", "off": "No"}},
                  choice("coder_sound", "Sounds at work", ["On", "Off"],
                         value="Off" if self.setting("coder_sound") == "Off" else "On")]
         sec("bot", "Bot", rows, "It talks through Ollama on another computer on your network.")
@@ -620,6 +629,21 @@ class WebSettingsScreen:
         if value not in ("on", "off"):
             return {"error": "That isn't one of its choices"}
         return {"ok": True} if self.friend_set(face_only=value) else {"error": "Couldn't save static/bot.txt"}
+
+    def web_set_f_colour(self, value, cmd):
+        if value not in dict(FACE_COLOURS):
+            return {"error": "That isn't one of its choices"}
+        return {"ok": True} if self.friend_set(colour=value) else {"error": "Couldn't save static/bot.txt"}
+
+    def web_set_f_back(self, value, cmd):
+        if value not in dict(FACE_BACKS):
+            return {"error": "That isn't one of its choices"}
+        return {"ok": True} if self.friend_set(background=value) else {"error": "Couldn't save static/bot.txt"}
+
+    def web_set_f_lashes(self, value, cmd):
+        if value not in ("on", "off"):
+            return {"error": "That isn't one of its choices"}
+        return {"ok": True} if self.friend_set(lashes=value) else {"error": "Couldn't save static/bot.txt"}
 
     def web_set_f_listen(self, value, cmd):
         if value not in LISTENS:

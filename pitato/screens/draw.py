@@ -614,8 +614,9 @@ class DrawScreen:
             return self.render_grid()
         if ttype == "camera":
             return self.render_cameras() if self.cam_list else self.render_camera()
-        if ttype == "friend":
-            return self.render_coder() if self.bot_mode() == "work" else self.render_friend()
+        if ttype == "friend":                          # (its settings: on it, X > Settings)
+            return self.render_settings() if self.bot_settings else \
+                self.render_coder() if self.bot_mode() == "work" else self.render_friend()
         if ttype == "sim":
             return self.render_sim()
         if ttype == "games":

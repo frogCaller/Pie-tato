@@ -83,6 +83,7 @@ class HomeScreen:
         self.picking = None
         self.friend_more = None
         self.coder_help = False
+        self.bot_settings = False
         self.sim_close()
         self.set_page = "root"
         self.wx_menu = None

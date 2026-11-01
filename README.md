@@ -86,8 +86,8 @@ It starts on a home screen of apps:
   through Ollama on another computer. It sees through your camera and takes pictures, and talks out loud if
   you give it a voice. At work, it acts out what your coding agent is doing, rings a bell when it's done,
   and sends it prompts you type
-- **Simulator**: a Clock with the time and the date (A switches between a dial and big figures, and START has
-  its seconds and colours), Rock Paper Scissors (pick a winner before the first capture), Game of Life, Forest Fire
+- **Simulator**: a Clock with the time and the date (A switches between a dial and big figures, ▲▼ change
+  its colour, ◀▶ its background, X turns its seconds on or off and Y the date), Rock Paper Scissors (pick a winner before the first capture), Game of Life, Forest Fire
   and the Mandelbrot set, which takes you on dives (or press the d-pad to explore it, A to zoom in and
   Y to zoom out). Press SELECT to watch one full screen. It can also start cmatrix, hollywood, nyancat,
   cacafire and htop without a keyboard: in cmatrix, ◀▶ change its colour and ▲▼ its speed; in htop, ▲▼ move
@@ -291,7 +291,11 @@ break after it. Its face blinks, looks around, and shows when it's listening, th
 Settings > Bot > How it talks gives it a personality: Friendly, Big brother, Butler, Pirate, Coach, Robot
 or Calm. Settings > Bot > Just its face shows only its face, big, in the middle of the screen, with no
 words. It still talks, and with a microphone it listens: press A and talk to it. Without one, A
-opens the keyboard.
+opens the keyboard. Press up or down there to change its colour. Its background follows the colour,
+or you can pick one in Settings > Bot > Background, and Eyelashes gives it lashes.
+
+Its settings are on the Bot too: press X, then Settings (or START), and B brings you back to it.
+They're also in Settings > Bot.
 
 If you run [Ollama](https://ollama.com) on a computer on your network, set its address and a
 model in Settings > Bot, or on the web page. On that computer Ollama has to listen on the
@@ -388,7 +392,7 @@ Settings writes most of them for you.
 | `streams.txt`, `radio.txt` | your own streams and stations, `Name \| URL` per line |
 | `finance.txt` | `stocks =` the stocks to show (tickers, as on Yahoo Finance) and `coins =` the coins (CoinGecko ids). Y on the Finance tab adds and removes them |
 | `camera.txt` | `camera =` an address per line, a name after it if you like |
-| `bot.txt` | `server =`, `model =`, `style =`, `voice =`, `listen =`, `wake =` and `face_only =` (Settings > Bot writes these) |
+| `bot.txt` | `server =`, `model =`, `style =`, `voice =`, `listen =`, `wake =`, `face_only =`, `colour =`, `background =` and `lashes =` (Settings > Bot writes these) |
 | `homeassistant.txt` | `url =` and `token =` (a long-lived access token): Settings > Home writes them, on the Pi or the web page. Your TVs and lights are found by themselves, and `tv =` and `lights =` pick which ones show |
 | `pihole.txt` | `address =` and `password =`: the Pi-hole page writes them when you sign in there |
 | `jellyfin.txt` | `server =` if your Jellyfin server isn't found by itself, and `user =` and `password =` if you'd rather not use Quick Connect |

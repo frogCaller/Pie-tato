@@ -1,11 +1,12 @@
 """The Simulator's Clock: the time and the date in the middle of the screen, on a dial (Analogue) or in big figures
-(Digital)."""
+(Digital), in the colour and on the background you pick (up and down, left and right), with or without its seconds (X)
+and the date (Y)."""
 import math
 import time
 
 from .sims import Sim
 from .fine import detail
-from .theme import BG, BODY, FONT_THIN, FONT_UI, FONT_UI_BOLD, MUTED, TEXT
+from .theme import BG, BODY, co_mix, FONT_THIN, FONT_UI, FONT_UI_BOLD, MUTED, TEXT
 
 
 # ---- the Clock --------------------------------------------------------------------------------------------
@@ -16,7 +17,11 @@ from .theme import BG, BODY, FONT_THIN, FONT_UI, FONT_UI_BOLD, MUTED, TEXT
 # pictures too, so a frame is mostly pasting.
 CLOCK_LOOKS = ("Analogue", "Digital")
 CLOCK_COLOURS = (("Blue", (96, 170, 228)), ("Teal", (64, 200, 184)), ("Green", (116, 204, 128)),
-                 ("Purple", (166, 138, 236)), ("Pink", (236, 128, 176)), ("White", (236, 239, 243)))
+                 ("Gold", (230, 190, 80)), ("Orange", (240, 150, 84)), ("Red", (236, 104, 104)),
+                 ("Pink", (236, 128, 176)), ("Purple", (166, 138, 236)), ("White", (236, 239, 243)))
+CLOCK_BACKS = ("Dark", "Black", "Colour")   # what's behind it: the page's own dark, black, or a deep shade of its
+                                            # colour
+CLOCK_TINT = 0.14                     # ...that much of its colour in the dark
 CLOCK_MARGIN = 8                      # px between the clock and the edges of its room
 CLOCK_FULL = 0.84                     # full screen: the dial this much of the screen's height across (or its width, if
                                       # that's less), a little way in from its edges
@@ -61,16 +66,18 @@ def capsule(a, ax, ay, bx, by, r, colour):
 
 class Clock(Sim):
     """The time and the date, in the middle of its room: a dial with three hands (Analogue) or big figures
-    (Digital). A switches between them; START has the look, the seconds and the colour."""
+    (Digital). A switches between them, up and down change its colour, left and right its background, X turns its
+    seconds on or off, Y the date; START has them all."""
     key = "clock"
-    blurb = "The time and the date. A switches between the dial and the figures."
+    blurb = "The time and the date, on a dial or in big figures. Every button changes something."
     poke_label = None
     options = (("look", "Look", CLOCK_LOOKS, "Analogue"),
                ("seconds", "Seconds", ("On", "Off"), "On"),
-               ("colour", "Colour", tuple(n for n, _ in CLOCK_COLOURS), "Blue"))
+               ("date", "Date", ("On", "Off"), "On"),
+               ("colour", "Colour", tuple(n for n, _ in CLOCK_COLOURS), "Blue"),
+               ("background", "Background", CLOCK_BACKS, "Dark"))
     bare = True                         # on the page itself: no box, and nothing beside it
     paced = True                        # its picture changes as each second begins (frame_in), not frame by frame
-    backdrop = BG                       # what's behind it (full screen too)
 
     def __init__(self, w, h, rng=None, values=None):
         super().__init__(w, h, rng, values)
@@ -90,8 +97,27 @@ class Clock(Sim):
         return every - wall % every + 0.004
 
     def hints(self):
-        return [("A", "Analogue" if self.values.get("look") == "Digital" else "Digital"),
-                ("SELECT", "Full screen"), ("START", "Options")]
+        """Its buttons, along the bottom (on a screen wider than the GPi Case's, SELECT's and START's too)."""
+        out = [("A", "Analogue" if self.values.get("look") == "Digital" else "Digital"), ("▲▼", "Colour"),
+               ("◀▶", "Background"), ("X", "Seconds"), ("Y", "Date")]
+        return out + [("SELECT", "Full screen"), ("START", "More")] if self.w >= 800 else out
+
+    @property
+    def backdrop(self):
+        """What's behind it (full screen too): the page's own dark, black, or a deep shade of its colour."""
+        back = self.values.get("background")
+        if back == "Black":
+            return (0, 0, 0)
+        if back == "Colour":
+            return co_mix(BG, self.colour(), CLOCK_TINT)
+        return BG
+
+    def dial_colours(self):
+        """The dial's face and its edge: a shade lighter than what's behind it."""
+        back = self.backdrop
+        if back == BG:
+            return FACE, FACE_EDGE
+        return co_mix(back, TEXT, 0.05), co_mix(back, TEXT, 0.11)
 
     def colour(self):
         """The colour picked: the second hand and its disc, or the colon and the seconds."""
@@ -100,6 +126,9 @@ class Clock(Sim):
 
     def seconds(self):
         return self.values.get("seconds") != "Off"
+
+    def date_on(self):
+        return self.values.get("date") != "Off"
 
     def draw(self, img, x0, y0, now=None):
         s = detail(img)
@@ -169,7 +198,8 @@ class Clock(Sim):
         c, k = S / 2, SUPER
         big = Image.new("RGB", (S * k, S * k), self.backdrop)
         d = ImageDraw.Draw(big)
-        d.ellipse(((c - R) * k, (c - R) * k, (c + R) * k, (c + R) * k), fill=FACE, outline=FACE_EDGE,
+        face, edge = self.dial_colours()
+        d.ellipse(((c - R) * k, (c - R) * k, (c + R) * k, (c + R) * k), fill=face, outline=edge,
                   width=max(1, round(k * 0.8)))
         at, size, colour = MINUTE_DOT
         for m in range(60):
@@ -196,17 +226,18 @@ class Clock(Sim):
         return big.reduce(k)
 
     def dial_with_date(self, R, t):
-        """The dial with the date on it: a float32 picture (kept: drawn again for a new day)."""
+        """The dial with the date on it (unless it's off): a float32 picture (kept: drawn again for a new day)."""
         import numpy as np
         from .fine import ImageDraw
-        text = self.date_short(t)
+        text = self.date_short(t) if self.date_on() else ""
         key = (R, text, self.backdrop)
         got = self.dials.get(key)
         if got is None:
             pic = self.keep(("dial", R, self.backdrop), lambda: self.dial(R)).copy()
             c = pic.width / 2
-            ImageDraw.Draw(pic).text((c, c + DATE[0] * R), text, font=self.font(FONT_UI, max(9, round(DATE[1] * R))),
-                                     fill=BODY, anchor="mm")
+            if text:
+                ImageDraw.Draw(pic).text((c, c + DATE[0] * R), text,
+                                         font=self.font(FONT_UI, max(9, round(DATE[1] * R))), fill=BODY, anchor="mm")
             if len(self.dials) >= 3:
                 self.dials.clear()
             got = self.dials[key] = np.asarray(pic, np.float32)
@@ -252,7 +283,7 @@ class Clock(Sim):
 
     def draw_digital(self, img, x0, y0, t):
         """The time in big thin figures in the middle of the room (the colon in the colour picked), AM or PM and the
-        seconds beside it, the date under it."""
+        seconds beside it, the date under it (unless it's off)."""
         size = self.digital_size()
         colour, secs = self.colour(), self.seconds()
         hours = f"{t.tm_hour:02d}" if self.hours24 else str(t.tm_hour % 12 or 12)
@@ -266,9 +297,9 @@ class Clock(Sim):
         side = max(sec_w, self.words(ampm, FONT_UI_BOLD, label)[0].width if ampm else 0)
         total = time_w + (size * SIDE[0] + side if side else 0)
         cap = size * 0.73                              # (how tall the figures stand, above their baseline)
-        date = f"{time.strftime('%A, %B', t)} {t.tm_mday}"
+        date = f"{time.strftime('%A, %B', t)} {t.tm_mday}" if self.date_on() else ""
         date_size = max(10, round(size * UNDER[1]))
-        block = cap + size * UNDER[0] + date_size
+        block = cap + (size * UNDER[0] + date_size if date else 0)
         x = x0 + (self.w - total) / 2
         base = y0 + (self.h - block) / 2 + cap
         for i, (p, colour_of) in enumerate(zip(parts, (TEXT, colour, TEXT))):
@@ -278,6 +309,8 @@ class Clock(Sim):
             self.paste_words(img, ampm, FONT_UI_BOLD, label, MUTED, x, base - cap + label * 0.73)
         if secs:
             self.paste_words(img, f"{t.tm_sec:02d}", FONT_THIN, small, colour, x, base)
+        if not date:
+            return
         pic, down = self.words(date, FONT_UI, date_size)
         img.paste(BODY, (int(round(x0 + (self.w - pic.width) / 2)), int(round(base + size * UNDER[0] + date_size * 0.73
                                                                                - down + 1))), pic)

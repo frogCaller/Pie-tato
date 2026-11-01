@@ -14,6 +14,7 @@ from ..weather import find_me, geocode, place_text
 from ..voice import BOT_VOICES, VOICE_MB, voices_here
 from ..listen import mics
 from ..bot import FRIEND_CHATTER, FRIEND_PAGES, FRIEND_STYLES
+from ..face import face_colours, FACE_BACKS, FACE_COLOURS
 from ..inputs import HALT_WAIT
 
 RES_KEEP = 20          # Settings > Resolution: seconds to keep a new size, or the Pi goes back (it may show nothing)
@@ -53,7 +54,10 @@ class SettingsScreen:
             listen = self.listen_rows(found)
             rows += [r for r in (("f_listen", "Listens for you", ["Auto", "On", "Off"]), ("f_wake", "Wake phrase", None),
                                  ("f_mic", "Microphone", ["Auto"] + [c["name"] for c in found])) if r[0] in listen]
-            rows.append(("f_face", "Just its face", ["On", "Off"]))
+            rows += [("f_face", "Just its face", ["On", "Off"]),
+                     ("f_colour", "Face colour", [n for n, _ in FACE_COLOURS]),
+                     ("f_back", "Background", [n for n, _ in FACE_BACKS]),
+                     ("f_lashes", "Eyelashes", ["On", "Off"])]
             return rows
         if self.set_page == "f_voices":
             ours = [i for i, _, _ in BOT_VOICES]
@@ -487,7 +491,8 @@ class SettingsScreen:
         rows = self.settings_rows()
         sel = self.set_sel % len(rows)
         crumb = {"wifi": "Settings  ›  WiFi",
-                 "friend": "Settings  ›  Bot", "f_models": "Bot  ›  Model", "f_voices": "Bot  ›  Voice",
+                 "friend": "Bot  ›  Settings" if self.bot_settings else "Settings  ›  Bot",
+                 "f_models": "Bot  ›  Model", "f_voices": "Bot  ›  Voice",
                  "resolution": "Settings  ›  Resolution"}.get(self.set_page, "Settings")
         d.text((20, self.LIST_TOP + 10), crumb, font=F["small"], fill=MUTED, anchor="lm")
         boot = boot_resolution() if self.set_page == "resolution" else None
@@ -570,10 +575,15 @@ class SettingsScreen:
                     x1 -= 22
                 shown = self.fit(d, value, F["row"], 250)
                 d.text((x1, mid), shown, font=F["row"], fill=ACCENT if on else MUTED, anchor="rm")
+                x0 = x1 - d.textlength(shown, font=F["row"])
                 if extra and on:
-                    d.text((x1 - d.textlength(shown, font=F["row"]) - 10, mid), "◀", font=F["small"],
-                           fill=ACCENT, anchor="rm")
-                    self.tap_arrows(y, y + rh, x1 - d.textlength(shown, font=F["row"]) - 10, W - 28)
+                    d.text((x0 - 10, mid), "◀", font=F["small"], fill=ACCENT, anchor="rm")
+                    self.tap_arrows(y, y + rh, x0 - 10, W - 28)
+                    x0 -= 28
+                if key in ("f_colour", "f_back"):          # (the colour itself, beside its name)
+                    face, page, _ = face_colours(self.bot_colour(), self.bot_back())
+                    d.ellipse((x0 - 30, mid - 9, x0 - 12, mid + 9), fill=face if key == "f_colour" else page,
+                              outline=LINE)
                 continue
             d.text((30, mid), label, font=F["row"], fill=TEXT if on else BODY, anchor="lm")
             value = ((self.current_ssid() or "Not connected") if key == "wifi" else
@@ -615,7 +625,8 @@ class SettingsScreen:
             hints += [("X", "Scan"), ("B", "Back")]
         elif self.set_page == "friend":
             k = rows[sel][0]
-            hints = ([("◀▶", "Change")] if k in ("f_style", "f_chatter", "f_speak", "f_listen", "f_mic", "f_face")
+            hints = ([("◀▶", "Change")] if k in ("f_style", "f_chatter", "f_speak", "f_listen", "f_mic", "f_face",
+                                                 "f_colour", "f_back", "f_lashes")
                      else [("A", "Choose")] if k in ("f_model", "f_voice") else [("A", "Type")])
             hints += [("X", "Check"), ("B", "Back")]
         elif self.set_page == "f_voices":
