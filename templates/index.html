@@ -159,15 +159,56 @@
   .typer .ty-go { height: 42px; padding: 0 18px; border: 0; border-radius: 12px; font-weight: 650; background: var(--accent); color: var(--on-accent); }
   .typer .ty-no { height: 42px; padding: 0 12px; border: 0; border-radius: 12px; background: none; color: var(--muted); font-weight: 600; }
   .typer .ty-no:hover { color: var(--text); background: var(--hover); }
-  /* Play here: on this phone or computer, where the Pi's screen was */
-  .modes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-  .chip {
-    display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 14px 0 11px; border-radius: 999px;
-    border: 1px solid var(--line-2); background: none; color: var(--body); font-size: 14px; font-weight: 600; white-space: nowrap;
+  /* the Pi's terminal, where its screen's picture is: its letters as the console has them, sharp at any size */
+  .tv.term-on img { visibility: hidden; }
+  .term { position: absolute; inset: 0; display: grid; background: #000; color: #aaa; }
+  .term-scr { display: flex; min-width: 0; min-height: 0; padding: 6px; overflow: auto; outline: none; cursor: text; scrollbar-width: thin; }
+  .term-lines { margin: auto; flex: none; }   /* (in the middle; wider than the box, a small phone's: from its left, scrolled) */
+  .term-scr:focus-visible { box-shadow: 0 0 0 2px rgba(var(--accent-rgb), .55) inset; }
+  .term-lines {
+    white-space: pre; font-family: ui-monospace, "DejaVu Sans Mono", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    font-variant-ligatures: none; font-kerning: none; line-height: var(--tlh, 1.2); user-select: text;
   }
-  .chip:hover { color: var(--text); background: var(--hover); }
-  .chip[aria-pressed="true"] { border-color: transparent; background: rgba(var(--accent-rgb), .18); color: var(--accent); }
-  .secure-note { margin: 10px 4px 0; font-size: 13.5px; color: var(--body); }
+  .term-lines > div { height: var(--trow); }
+  .tcur { background: #aaa; color: #000; }
+  .term-scr:focus .tcur { animation: tblink 1.06s steps(1) infinite; }
+  @keyframes tblink { 50% { background: transparent; color: inherit; } }
+  @media (prefers-reduced-motion: reduce) { .term-scr:focus .tcur { animation: none; } }
+  .term-lock {
+    align-self: center; justify-self: center; display: grid; gap: 10px; width: min(380px, calc(100% - 32px)); padding: 18px 0;
+    text-align: center; color: #e8e8ee; font-size: 14px;
+  }
+  .term-lock b { font-size: 17px; }
+  .term-lock > span { color: #b8b6c0; }
+  .term-pw { display: flex; gap: 8px; }
+  .term-pw input {
+    flex: 1; min-width: 0; height: 42px; padding: 0 14px; border-radius: 12px; border: 1px solid #3a3742;
+    background: #16141a; color: #f0eff4; font-size: 16px; outline: none;
+  }
+  .term-pw input:focus { border-color: var(--accent); }
+  .term-pw .ty-go { height: 42px; padding: 0 18px; border: 0; border-radius: 12px; font-weight: 650; background: var(--accent); color: var(--on-accent); }
+  .term-secure { justify-self: center; display: inline-flex; align-items: center; height: 42px; padding: 0 20px; border-radius: 12px;
+    font-weight: 650; text-decoration: none; background: var(--accent); color: var(--on-accent); }
+  .term-note { font-size: 12.5px; }
+  .term-lock .linkbtn { justify-self: center; font-size: 13.5px; }
+  .term-bar { margin-top: 12px; display: grid; gap: 10px; }
+  .term-line { display: flex; gap: 8px; }
+  .term-line input {
+    flex: 1; min-width: 0; height: 42px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line-3);
+    background: var(--room); font: 16px ui-monospace, "DejaVu Sans Mono", Menlo, Consolas, monospace; outline: none;
+  }
+  .term-line input:focus { border-color: var(--accent); }
+  .term-line .ty-go { height: 42px; padding: 0 18px; border: 0; border-radius: 12px; font-weight: 650; background: var(--accent); color: var(--on-accent); }
+  .term-keys { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .tk {
+    height: 34px; padding: 0 12px; border: 0; border-radius: 10px; background: var(--key); box-shadow: var(--key-edge);
+    color: var(--text); font-size: 13.5px; font-weight: 600; touch-action: manipulation;
+  }
+  .tk.sq { width: 38px; padding: 0; }
+  .tk:hover { filter: brightness(1.08); }
+  .term-bar .tv-tip { margin-top: 0; }
+  /* Play here: on this phone or computer, where the Pi's screen was */
+  .secure-note { margin: 6px 0 0; font-size: 13.5px; color: var(--body); }
   .stage.here-on > .tv-wrap, .stage.here-on > .tv-bar { display: none; }
   .here-box { position: relative; aspect-ratio: 16 / 9; border-radius: 14px; overflow: hidden; background: #000; }
   .here-box.game { aspect-ratio: 4 / 3; }
@@ -294,6 +335,26 @@
   .pads li.none { color: var(--muted); font-size: 13.5px; }
   .pads li .swap { flex: none; font-size: 13px; }
   .pads li .swap:disabled { color: var(--faint); text-decoration: none; }
+  /* this phone or computer's own part: Play here, Sound here and Mic here, each a switch */
+  .here-set .pads-h { margin-bottom: 4px; }
+  .tg {
+    display: flex; align-items: center; gap: 12px; width: calc(100% + 16px); margin: 0 -8px; padding: 8px;
+    border: 0; border-radius: 12px; background: none; color: var(--text); text-align: left; touch-action: manipulation;
+  }
+  .tg:hover { background: var(--hover); }
+  .tg-ic { display: grid; place-items: center; flex: none; width: 34px; height: 34px; border-radius: 10px; background: var(--key); box-shadow: var(--key-edge); color: var(--muted); }
+  .tg[aria-pressed="true"] .tg-ic { background: rgba(var(--accent-rgb), .16); box-shadow: none; color: var(--accent); }
+  .tg-t { flex: 1; min-width: 0; display: grid; gap: 1px; }
+  .tg-t b { font-size: 14.5px; font-weight: 600; }
+  .tg-t small { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sw { position: relative; flex: none; width: 36px; height: 21px; border-radius: 999px; background: var(--line-3); transition: background-color .15s; }
+  .sw::after {
+    content: ""; position: absolute; left: 3px; top: 3px; width: 15px; height: 15px; border-radius: 50%;
+    background: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, .3); transition: transform .15s;
+  }
+  .tg[aria-pressed="true"] .sw { background: var(--accent); }
+  .tg[aria-pressed="true"] .sw::after { transform: translateX(15px); background: var(--on-accent); }
+  @media (prefers-reduced-motion: reduce) { .sw, .sw::after { transition: none; } }
   .learn { margin-top: 10px; padding: 11px 13px; border-radius: 12px; background: rgba(var(--accent-rgb), .12); font-size: 14px; }
   .learn b { font-weight: 700; margin-right: 6px; }
   .learn small { display: block; margin-top: 2px; color: var(--muted); font-size: 13px; }
@@ -822,7 +883,6 @@
     .set-row { grid-template-columns: minmax(0, 1fr); gap: 10px; }
     .set-c, .swatches, .set-ask { justify-content: flex-start; }
   }
-  @media (max-width: 440px) { .modes { gap: 6px; } .chip { gap: 5px; padding: 0 10px 0 8px; font-size: 13.5px; } }
   @media (max-width: 420px) { .gamepad { --k: .88; } }
   @media (max-width: 380px) { .tb { padding: 0 13px 0 10px; } }
   @media (max-width: 374px) {                      /* (a small phone: Remote's icon alone, so the row fits) */
@@ -862,6 +922,20 @@
           <div class="tv" id="tv">
             <img id="shot" alt="" draggable="false">
             <div class="tv-msg" id="tvMsg" hidden></div>
+            <div class="term" id="term" hidden>
+              <div class="term-scr" id="termScr" tabindex="0" role="textbox" aria-multiline="true" aria-label="The Pi's terminal" hidden><div class="term-lines" id="termLines"></div></div>
+              <form class="term-lock" id="termLock" hidden autocomplete="off">
+                <b>The Pi's terminal</b>
+                <span id="termWhy">Type the password you sign in to the Pi with, and use its terminal here.</span>
+                <div class="term-pw" id="termPwRow">
+                  <input type="password" id="termPw" autocomplete="current-password" placeholder="Your Pi password" aria-label="Your Pi password">
+                  <button type="submit" class="ty-go" id="termGo">Open</button>
+                </div>
+                <a class="term-secure" id="termSecure" href="#" hidden>Open the secure page</a>
+                <span class="term-note" id="termPlain" hidden>The first time, your browser warns you about it, as the Pi made its own certificate: go on to the page from there.</span>
+                <button type="button" class="linkbtn" id="termToMedia">Open media mode instead</button>
+              </form>
+            </div>
           </div>
         </div>
         <div class="tv-bar">
@@ -881,14 +955,6 @@
           </div>
         </div>
       </div>
-      <div class="modes" id="modes">
-        <button class="chip" type="button" id="playHere" aria-pressed="false"><span class="ic-device"></span>Play here</button>
-        <button class="chip" type="button" id="soundHere" aria-pressed="false"><span class="ic-speaker"></span>Sound here</button>
-        <button class="chip" type="button" id="micHere" aria-pressed="false"><span class="ic-mic"></span>Mic here</button>
-      </div>
-      <p class="secure-note" id="secureNote" hidden>Your browser only lets a page use your microphone over a secure
-        connection. <a id="secureLink" href="#">Open the secure page</a>. The first time, your browser warns you about
-        it, as the Pi made its own certificate: go on to the page from there.</p>
       <form class="typer" id="typer" hidden autocomplete="off">
         <label for="typeIn" id="typeLabel">Type here</label>
         <div class="typer-row">
@@ -898,6 +964,24 @@
         </div>
       </form>
       <p class="tv-tip" id="tvTip" hidden>Tap something on the screen to open it. Swipe, or scroll, to move along.</p>
+      <div class="term-bar" id="termBar" hidden>
+        <form class="term-line" id="termLine" autocomplete="off" hidden>
+          <input id="termIn" type="text" placeholder="Type, then Enter" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send" aria-label="Type into the Pi's terminal">
+          <button class="ty-go" type="submit">Enter</button>
+        </form>
+        <div class="term-keys" role="group" aria-label="Keys for the terminal">
+          <button type="button" class="tk" data-k="esc">Esc</button>
+          <button type="button" class="tk" data-k="tab">Tab</button>
+          <button type="button" class="tk" data-k="ctrlc" title="Stops what's running">Ctrl+C</button>
+          <button type="button" class="tk sq" data-k="up" aria-label="Up">&#8593;</button>
+          <button type="button" class="tk sq" data-k="down" aria-label="Down">&#8595;</button>
+          <button type="button" class="tk sq" data-k="left" aria-label="Left">&#8592;</button>
+          <button type="button" class="tk sq" data-k="right" aria-label="Right">&#8594;</button>
+          <span class="tb-gap"></span>
+          <button type="button" class="linkbtn" id="termLockBtn" title="Asks for your Pi password again here">Lock</button>
+        </div>
+        <p class="tv-tip" id="termTip">Click the terminal and type: it goes to the Pi as you type. Ctrl+V pastes.</p>
+      </div>
       <div class="player" id="player" hidden>
         <div class="p-head">
           <div class="p-text"><b id="pTitle"></b><span id="pSub"></span></div>
@@ -953,6 +1037,27 @@
           <button type="button" data-mode="terminal" aria-pressed="false">Terminal</button>
         </div>
         <p class="kbd-hint">Your keyboard works too: arrows, Enter, Esc</p>
+      </div>
+      <div class="pads here-set" id="modes">
+        <div class="pads-h"><h2 id="hereTitle">On this computer</h2></div>
+        <button class="tg" type="button" id="playHere" aria-pressed="false">
+          <span class="tg-ic"><span class="ic-device"></span></span>
+          <span class="tg-t"><b>Play here</b><small>What you pick plays here, not on the Pi</small></span>
+          <i class="sw" aria-hidden="true"></i>
+        </button>
+        <button class="tg" type="button" id="soundHere" aria-pressed="false">
+          <span class="tg-ic"><span class="ic-speaker"></span></span>
+          <span class="tg-t"><b>Sound here</b><small>The Pi's sound plays here</small></span>
+          <i class="sw" aria-hidden="true"></i>
+        </button>
+        <button class="tg" type="button" id="micHere" aria-pressed="false">
+          <span class="tg-ic"><span class="ic-mic"></span></span>
+          <span class="tg-t"><b>Mic here</b><small id="micHereSub">The Bot hears you through this computer</small></span>
+          <i class="sw" aria-hidden="true"></i>
+        </button>
+        <p class="secure-note" id="secureNote" hidden>Your browser only lets a page use your microphone over a secure
+          connection. <a id="secureLink" href="#">Open the secure page</a>. The first time, your browser warns you about
+          it, as the Pi made its own certificate: go on to the page from there.</p>
       </div>
       <div class="pads">
         <div class="pads-h">
@@ -1328,7 +1433,8 @@ async function nextPicture() {
   while (screenShown() && SCR.state && SCR.state.mode === "media") {
     let r = null;
     try {
-      r = await fetch("/api/pi/screen?after=" + (SCR.frame ?? -1) + "&wait=15", { cache: "no-store" });
+      const w = Math.round(($("#tv").clientWidth || 0) * (window.devicePixelRatio || 1));   // (how big it's shown here:
+      r = await fetch("/api/pi/screen?after=" + (SCR.frame ?? -1) + "&wait=15&w=" + w, { cache: "no-store" });   // big, it's sent sharp)
     } catch (e) { await sleep(2500); continue; }
     if (!r.ok) {                                          // (the terminal, or the Pi isn't answering)
       if (r.status === 403) SCR.frame = null;
@@ -1408,16 +1514,13 @@ function drawState(st) {
   $('.tb[data-b="b"]').disabled = !media;
   drawTyper(media ? st.kb : null);
   const m = $("#tvMsg");
-  if (media) { m.hidden = true; m.dataset.for = ""; }
+  m.hidden = true;
+  if (media) m.dataset.for = "";
   else if (m.dataset.for !== "terminal") {
-    m.textContent = "";
-    const b = button("", "Open media mode");
-    b.onclick = () => setMode("media");
-    m.append(el("b", "", "The Pi is showing its terminal"),
-      el("span", "", "The terminal isn't shown here, and the remote works in media mode."), b);
-    m.hidden = false; m.dataset.for = "terminal";
+    m.dataset.for = "terminal";
     SCR.frame = null;                                     // a fresh picture when media mode is back
   }
+  termShow(!media);                                       // (the Pi's terminal, here: once it has your Pi password)
   $("#remoteCard").classList.toggle("off", !media);
   drawPlayer(st);
   drawPads(st.controllers || [], st.learning);
@@ -1427,6 +1530,7 @@ function drawOffline() {
   $("#dot").className = "dot off";
   $("#status").textContent = "Not answering";
   document.body.classList.add("tv-dark");
+  termShow(false);
   const m = $("#tvMsg");
   m.dataset.for = "offline";
   m.textContent = "";
@@ -1638,6 +1742,218 @@ $("#typer").addEventListener("submit", (e) => { e.preventDefault(); sendTyped(tr
 $("#typeIn").addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); $("#typeNo").click(); } });
 $("#typeNo").onclick = () => { clearTimeout(TY.timer); $("#typeIn").blur(); press("b"); };
 
+// ---- the Pi's terminal, here, where its screen's picture is: once you've typed your Pi password (the one you sign in
+// with), the Pi gives this page a key for it. Its letters and colours as the console has them, drawn here (sharp at any
+// size), each look sent once it's changed (just the rows that did); what you type goes to it as if typed on the Pi.
+const TERM = { on: false, key: null, v: null, rows: 0, cols: 0, cursor: [0, 0], lines: [], watching: false,
+               out: "", sending: false, cw: 0, curRow: -1 };
+const TERM_COLOURS = ["#000000", "#0000aa", "#00aa00", "#00aaaa", "#aa0000", "#aa00aa", "#aa5500", "#aaaaaa",
+                      "#555555", "#5555ff", "#55ff55", "#55ffff", "#ff5555", "#ff55ff", "#ffff55", "#ffffff"];   // (the console's)
+try { TERM.key = sessionStorage.getItem("termKey") || null; } catch (e) {}
+function termKeep(key) {
+  TERM.key = key;
+  try { if (key) sessionStorage.setItem("termKey", key); else sessionStorage.removeItem("termKey"); } catch (e) {}
+}
+function termShow(on) {
+  TERM.on = on;
+  $("#term").hidden = !on;
+  $("#tv").classList.toggle("term-on", on);
+  $("#tvTip").hidden = on || store.get("taps", 0) >= 3;    // (taps are media mode's)
+  if (!on) { $("#termBar").hidden = true; return; }
+  if (!TERM.key) return termLocked();
+  $("#termLock").hidden = true;
+  $("#termScr").hidden = false;
+  $("#termBar").hidden = false;
+  $("#termLine").hidden = !PHONE;
+  $("#termTip").hidden = PHONE;
+  termWatch();
+}
+function termLocked(why, insecure) {                     // (insecure: the Pi says this page isn't the secure one)
+  termKeep(null);
+  TERM.v = null;
+  $("#termScr").hidden = true;
+  $("#termBar").hidden = true;
+  $("#termLock").hidden = false;
+  const plain = insecure || (!window.isSecureContext && !["localhost", "127.0.0.1", "[::1]"].includes(location.hostname));
+  $("#termWhy").textContent = plain ? "It opens on the Pi's secure page only, so your password, and what you type, "
+    + "never cross your WiFi as they are." : why || "Type the password you sign in to the Pi with, and use its terminal here.";
+  $("#termPwRow").hidden = plain;
+  $("#termSecure").hidden = $("#termPlain").hidden = !plain;
+  if (plain) $("#termSecure").href = "https://" + location.hostname + ":5443/" + location.hash;
+}
+$("#termLock").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const pw = $("#termPw"), go = $("#termGo");
+  if (!pw.value) { pw.focus(); return; }
+  go.disabled = true;
+  try {
+    const out = await pi("term", { do: "unlock", password: pw.value });
+    pw.value = "";
+    termKeep(out.key);
+    termShow(TERM.on);
+    $("#termScr").focus({ preventScroll: true });
+  } catch (err) {
+    if (err.kind === "insecure") { pw.value = ""; termLocked(null, true); return; }
+    $("#termWhy").textContent = err.message;
+    pw.select();
+  } finally { go.disabled = false; }
+});
+$("#termToMedia").onclick = () => setMode("media");
+$("#termLockBtn").onclick = () => {
+  const key = TERM.key;
+  termLocked();
+  if (key) pi("term", { do: "lock", key }).catch(() => {});
+};
+async function termWatch() {                              // (one at a time: each look waits till the console changes)
+  if (TERM.watching) return;
+  TERM.watching = true;
+  try {
+    while (TERM.on && TERM.key && !document.hidden) {
+      let out;
+      try {
+        out = await pi("term", { do: "look", key: TERM.key, after: TERM.v, wait: 15 });
+      } catch (err) {
+        if (err.kind === "locked" || err.kind === "insecure") { termLocked(null, err.kind === "insecure"); break; }
+        if (err.kind === "media") { kick(0); break; }    // (the Pi's in media mode now: its picture instead)
+        await sleep(2500);
+        continue;
+      }
+      termTake(out);
+    }
+  } finally { TERM.watching = false; }
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden && TERM.on) termWatch(); });
+function termTake(out) {
+  const fresh = out.rows !== TERM.rows || out.cols !== TERM.cols || !out.changed;
+  if (out.changed && fresh) { TERM.v = null; return; }   // (a look of another size: all of it, next time)
+  const rows = new Set(fresh ? [] : Object.keys(out.changed).map(Number));
+  if (fresh) TERM.lines = out.lines || [];
+  else for (const [r, runs] of Object.entries(out.changed)) TERM.lines[+r] = runs;
+  if (TERM.curRow >= 0) rows.add(TERM.curRow);            // (where the cursor was, and where it is)
+  rows.add(out.cursor[1]);
+  Object.assign(TERM, { v: out.v, rows: out.rows, cols: out.cols, cursor: out.cursor });
+  termDraw(fresh ? null : rows);
+}
+function termRow(r) {
+  const row = document.createElement("div");
+  const [cx, cy] = TERM.cursor, cur = r === cy ? cx : -1;
+  let col = 0;
+  const put = (text, fg, bg) => {
+    if (!text) return;
+    if (fg === 7 && !bg) { row.append(text); return; }
+    const s = document.createElement("span");
+    s.textContent = text;
+    if (fg !== 7) s.style.color = TERM_COLOURS[fg] || "";
+    if (bg) s.style.background = TERM_COLOURS[bg] || "";
+    row.append(s);
+  };
+  for (const [text, fg, bg] of TERM.lines[r] || []) {
+    const ch = [...text];
+    if (cur >= col && cur < col + ch.length) {
+      const k = cur - col;
+      put(ch.slice(0, k).join(""), fg, bg);
+      row.append(el("span", "tcur", ch[k]));
+      put(ch.slice(k + 1).join(""), fg, bg);
+    } else put(text, fg, bg);
+    col += ch.length;
+  }
+  if (cur >= col) row.append(" ".repeat(cur - col), el("span", "tcur", " "));
+  if (!row.childNodes.length) row.append(" ");
+  return row;
+}
+function termDraw(rows) {
+  const box = $("#termLines");
+  if (!rows || box.childElementCount !== TERM.rows) {
+    box.textContent = "";
+    for (let r = 0; r < TERM.rows; r++) box.append(termRow(r));
+  } else {
+    for (const r of rows) if (r >= 0 && r < TERM.rows) box.children[r].replaceWith(termRow(r));
+  }
+  TERM.curRow = TERM.cursor[1];
+  termFit();
+}
+function termFit() {                                      // its letters as big as the box lets them be, every column in
+  const box = $("#tv").getBoundingClientRect(), lines = $("#termLines");
+  if (!TERM.cols || !TERM.rows || !box.width) return;
+  if (!TERM.cw) {                                         // (a letter's width, for each pixel of its size)
+    const t = el("span", "", "M".repeat(40));
+    t.style.cssText = "position:absolute;visibility:hidden;font-size:100px;white-space:pre";
+    lines.append(t);
+    const w = t.getBoundingClientRect().width;
+    t.remove();
+    if (!w) return;
+    TERM.cw = w / 4000;
+  }
+  const size = Math.max(8, Math.min((box.width - 18) / (TERM.cols * TERM.cw), (box.height - 18) / (TERM.rows * 1.2)));
+  lines.style.fontSize = size.toFixed(2) + "px";
+  lines.style.setProperty("--trow", (size * 1.2).toFixed(2) + "px");
+  lines.style.width = Math.ceil(TERM.cols * TERM.cw * size) + "px";   // (all its columns: it doesn't move as rows fill)
+}
+window.addEventListener("resize", () => { if (TERM.on && TERM.key) termFit(); });
+document.addEventListener("fullscreenchange", () => { if (TERM.on && TERM.key) setTimeout(termFit, 50); });
+const TERM_KEYS = {
+  Enter: "\r", Backspace: "\x7f", Tab: "\t", Escape: "\x1b", ArrowUp: "\x1b[A", ArrowDown: "\x1b[B",
+  ArrowRight: "\x1b[C", ArrowLeft: "\x1b[D", Home: "\x1b[1~", Insert: "\x1b[2~", Delete: "\x1b[3~", End: "\x1b[4~",
+  PageUp: "\x1b[5~", PageDown: "\x1b[6~", F1: "\x1b[[A", F2: "\x1b[[B", F3: "\x1b[[C", F4: "\x1b[[D", F5: "\x1b[[E",
+  F6: "\x1b[17~", F7: "\x1b[18~", F8: "\x1b[19~", F9: "\x1b[20~", F10: "\x1b[21~", F11: "\x1b[23~", F12: "\x1b[24~",
+};   // (what each key sends on the Pi's own console)
+const TERM_BUTTONS = { esc: "\x1b", tab: "\t", ctrlc: "\x03", up: "\x1b[A", down: "\x1b[B", left: "\x1b[D", right: "\x1b[C" };
+function termKeyText(e) {
+  if (e.isComposing || e.metaKey) return null;           // (the computer's own: Cmd+C, Cmd+V)
+  const k = e.key;
+  if (e.ctrlKey && !e.altKey) {
+    if ((k === "c" || k === "C") && String(getSelection())) return null;    // (copying what's picked)
+    if (k === "v" || k === "V") return null;                                 // (pasting: the paste comes)
+    if (k === " ") return "\x00";
+    if (k.length === 1) {
+      const c = k.toUpperCase().charCodeAt(0);
+      return c >= 64 && c <= 95 ? String.fromCharCode(c - 64) : null;        // (Ctrl+A to Z, [ \ ] ^ _)
+    }
+  }
+  const alt = e.altKey && !e.ctrlKey ? "\x1b" : "";
+  if (TERM_KEYS[k]) return alt + TERM_KEYS[k];
+  return [...k].length === 1 ? alt + k : null;
+}
+function termSend(text) {                                 // (in order, what's typed meanwhile sent together)
+  TERM.out += text;
+  if (TERM.sending || !TERM.key) return;
+  TERM.sending = true;
+  (async () => {
+    while (TERM.out && TERM.key) {
+      const t = TERM.out.slice(0, 4000);
+      TERM.out = TERM.out.slice(t.length);
+      try { await pi("term", { do: "type", key: TERM.key, text: t }); }
+      catch (err) {
+        TERM.out = "";
+        if (err.kind === "locked") termLocked(); else toast(err.message);
+      }
+    }
+    TERM.sending = false;
+  })();
+}
+$("#termScr").addEventListener("keydown", (e) => {
+  const t = termKeyText(e);
+  if (t === null) return;
+  e.preventDefault();
+  termSend(t);
+});
+$("#termScr").addEventListener("paste", (e) => {
+  const t = (e.clipboardData && e.clipboardData.getData("text")) || "";
+  e.preventDefault();
+  if (t) termSend(t.replace(/\r?\n/g, "\r"));
+});
+$("#termScr").addEventListener("pointerdown", () => { if (!String(getSelection())) $("#termScr").focus({ preventScroll: true }); });
+$("#termLine").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const inp = $("#termIn");
+  termSend(inp.value + "\r");
+  inp.value = "";
+});
+for (const b of $$(".tk")) {
+  b.addEventListener("mousedown", (e) => e.preventDefault());      // (the terminal keeps the keyboard)
+  b.onclick = () => termSend(TERM_BUTTONS[b.dataset.k] || "");
+}
+
 // the remote: always beside the screen on a wide window (a computer's); on a narrow one (a phone's), under it when
 // it's wanted
 const WIDE = matchMedia("(min-width: 1100px)");
@@ -1675,6 +1991,8 @@ drawFull();
 // Play here: what you pick plays on this phone or computer instead, where the Pi's screen was: a video or a song in the
 // browser's own player, a game in EmulatorJS (its save goes back to the Pi). What a browser can't play stays on the Pi.
 const PHONE = matchMedia("(pointer: coarse)").matches;
+$("#hereTitle").textContent = "On this " + (PHONE ? "phone" : "computer");
+$("#micHereSub").textContent = "The Bot hears you through this " + (PHONE ? "phone" : "computer");
 function drawHereChip() {
   const b = $("#playHere");
   b.setAttribute("aria-pressed", String(HERE.on));

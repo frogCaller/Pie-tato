@@ -111,7 +111,7 @@ def serve_control(media, control, port=CONTROL_PORT, key=None):
                 if u.path == "/state":
                     return self.reply(200, media.web_state())
                 if u.path == "/screen":                # (after=: the picture the web page has: wait for the next)
-                    shot = media.web_shot(q.get("after"), q.get("wait") or 0)
+                    shot = media.web_shot(q.get("after"), q.get("wait") or 0, q.get("w"))
                     if not shot:
                         return self.reply(403, {"error": "The terminal stays on the Pi's screen"})
                     return self.reply(200, shot[0], shot[1], extra={"X-Pitato-Frame": str(shot[2])})
@@ -238,6 +238,12 @@ def serve_control(media, control, port=CONTROL_PORT, key=None):
                 except Exception as ex:
                     print(f"coder: {ex!r}", flush=True)
                     return self.reply(500, {"ok": False, "error": "Something went wrong on the Pi"})
+            if cmd["cmd"] == "term":                   # the Pi's terminal on the page: here too (a look waits a while)
+                try:
+                    return self.reply(200, media.web_term(cmd))
+                except Exception as ex:
+                    print(f"terminal: {type(ex).__name__}", flush=True)   # (never what it was sent: a password)
+                    return self.reply(500, {"error": "Something went wrong on the Pi"})
             self.reply(200, control.ask(cmd))
 
     try:

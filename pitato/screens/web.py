@@ -2,6 +2,7 @@
 import io
 import math
 import os
+import pwd
 import re
 import time
 import urllib.parse
@@ -9,7 +10,9 @@ import urllib.parse
 from ..config import clean_name, home_dir
 from ..util import classify, IMAGE_EXTS, item, title_of
 from ..net import cam_address, cam_host, cam_is_local, cam_key
-from ..screen import grab_screen, screen_size, slow_pi, web_sound, WEB_SOUND
+from ..fine import detail
+from ..screen import fine_scale, grab_screen, screen_size, slow_pi, web_sound, WEB_SOUND
+from ..term import console_vt
 from ..radio import RADIO_GENRES, RADIO_STATIONS, RADIO_TTL, rb_stations
 from ..tv import CLASSIC, FILM_BADGES, FILMS, live_pick, TOON_BADGES
 from ..library import LIBRARY, LISTEN_KINDS, read_streams, SCREEN_KINDS, VOLUME_STEP
@@ -38,6 +41,13 @@ WEB_HOLD = 15.0              # seconds Sound here and Mic here stay on after web
 FRAME_WAIT = 20.0            # seconds the web page's request for the next picture waits for one, at most
 VIDEO_LOOK = (2.0, 4.0)      # ...while a video plays (no pictures drawn: a look at the screen), seconds between looks
                              # (a Pi Zero's: longer)
+WEB_FINE_AT = 1.25           # a web page showing the screen this many times as wide as the menus are drawn, or more
+                             # (in its own pixels: a computer's big window, a phone's sharp screen), is sent them drawn
+                             # finely
+WEB_FINE_FOR = 45.0          # ...and they're drawn finely for it (where they aren't for the screen itself) while a page
+                             # has asked for that in the last this many seconds
+WEB_FINE_GAP = 0.1           # seconds between finely drawn pictures for the page, at least (each takes longer to make)
+WEB_FINE_JPEG = 90           # ...sent as JPEGs this good, every colour at every pixel (quick to make, and sharp)
 
 
 class WebScreen:
@@ -121,19 +131,44 @@ class WebScreen:
             return None
         return {"title": kb.get("title", ""), "text": kb.get("text", ""), "limit": kb.get("limit", 60)}
 
-    def web_screen(self, after=None, wait=0.0):
-        """(bytes, type): the menus exactly as drawn, or a snapshot of the real screen while a
-        video plays. Never the terminal: that stays on the Pi. after: the picture the web page has already (its
-        number): this waits for the next (wait: seconds, at most)."""
-        shot = self.web_shot(after, wait)
+    def web_screen(self, after=None, wait=0.0, want=None):
+        """(bytes, type): the menus exactly as drawn, or a snapshot of the real screen while a video plays. Never the
+        terminal: that's web_term's, once the page has your Pi password. after: the picture the web page has already
+        (its number): this waits for the next (wait: seconds, at most). want: how wide the page shows it, in its
+        pixels."""
+        shot = self.web_shot(after, wait, want)
         return shot and shot[:2]
 
-    def web_shot(self, after=None, wait=0.0):
+    def web_wants(self, want):
+        """How wide the web page asking shows the screen, in its own pixels (0: it didn't say), noted with when: while
+        one shows it big, the menus are drawn finely for it (web_fine)."""
+        try:
+            want = max(0, min(int(float(want or 0)), 16384))
+        except (TypeError, ValueError, OverflowError):
+            want = 0
+        if want:
+            self.web_want = (want, time.monotonic())
+        return want
+
+    def web_fine(self):
+        """How finely the menus are drawn for the web page's sake (fine.py): twice as finely while a page shows the
+        screen big (in the last WEB_FINE_FOR seconds), where the screen itself doesn't have them so already (the GPi
+        Case 2's, a 720p TV) and this machine draws that many pixels quickly (not a Pi Zero, 1, 2 or 3); else 1."""
+        want = getattr(self, "web_want", None)
+        fb = self.fb
+        if fb is None or not want or time.monotonic() - want[1] > WEB_FINE_FOR or want[0] < fb.w * WEB_FINE_AT:
+            return 1
+        return 2 if fine_scale(2, fb.w, fb.h) == 2 else 1
+
+    def web_shot(self, after=None, wait=0.0, want=None):
         """(bytes, type, the number of the menus' last picture): web_screen's, and which picture it is (a video's: a
-        look at the screen as it is, a JPEG, with the number of the menus' last picture still)."""
+        look at the screen as it is, a JPEG, with the number of the menus' last picture still). Drawn finely (a 1080p
+        TV's, the menus at twice their size, or the web page's own: web_fine) and shown big on the page, as finely as
+        they're drawn, a JPEG; else as they are, a PNG."""
         self.web_watched = time.monotonic()           # (someone's watching the screen on the web page: it doesn't
         if self.resting:                               # rest, and wakes if it was)
             self.stir()
+        want = self.web_wants(want)
         if after is not None:
             self.web_frame_wait(after, wait)
         fb = self.fb
@@ -141,12 +176,23 @@ class WebScreen:
             return None
         frame = getattr(fb, "frames", 0) if fb is not None else 0
         if self.active and fb is not None and not self.proc_owns_screen() and getattr(fb, "last", None):
-            key = ("menus", frame)
+            fine = detail(fb.last) > 1 and want >= fb.w * WEB_FINE_AT
+            key = ("menus", frame, fine)
             if self.shot[0] == key:
                 return self.shot[1], self.shot[2], frame
             buf = io.BytesIO()
-            fb.last.save(buf, "PNG", compress_level=1)    # quick to make on a Pi Zero
-            out = (buf.getvalue(), "image/png")
+            if fine:                                   # (not too often: they take longer to make)
+                time.sleep(max(0.0, getattr(self, "web_fine_at", 0.0) + WEB_FINE_GAP - time.monotonic()))
+                self.web_fine_at = time.monotonic()
+                last = fb.last                         # (the latest, as it is now)
+                frame = getattr(fb, "frames", 0)
+                key = ("menus", frame, detail(last) > 1)
+                pic = last.pic if detail(last) > 1 else last
+                pic.convert("RGB").save(buf, "JPEG", quality=WEB_FINE_JPEG, subsampling=0)
+                out = (buf.getvalue(), "image/jpeg")
+            else:
+                fb.last.save(buf, "PNG", compress_level=1)    # quick to make on a Pi Zero
+                out = (buf.getvalue(), "image/png")
         else:
             key = None
             img = grab_screen(640)
@@ -175,6 +221,44 @@ class WebScreen:
             if self.proc_owns_screen() and time.monotonic() - start >= VIDEO_LOOK[1 if slow_pi() else 0]:
                 return
             time.sleep(0.03)
+
+    # -- the Pi's terminal on the web page (term.py): once it's been given your Pi password ----------------------
+    def term_user(self):
+        """Who the terminal is signed in as (it signs you in by itself at start-up): whoever has the home folder."""
+        try:
+            return pwd.getpwuid(os.stat(home_dir()).st_uid).pw_name
+        except (OSError, KeyError):
+            return ""
+
+    def term_vt(self):
+        """The terminal's console: the one in front, or the one media mode went back to."""
+        vt = console_vt()
+        if vt is None:
+            try:
+                vt = int(str(self.prev_vt).strip())
+            except (TypeError, ValueError):
+                vt = 1
+        return vt
+
+    def web_term(self, cmd):
+        """(The control server's thread.) The terminal, for the web page: do "unlock" (your Pi password: a key for
+        the page), "look" (the console, once it's changed from the look the page has: after), "type" (into it) or
+        "lock" (the page's key given back). The terminal's there while media mode isn't: in media mode, it says so."""
+        do = cmd.get("do")
+        if do == "unlock":                             # (from: the address the page is at, as webui.py saw it)
+            return self.term.unlock(self.term_user(), str(cmd.get("password") or ""), cmd.get("from"))
+        if do == "lock":
+            self.term.forget(cmd.get("key"))
+            return {"ok": True}
+        if not self.term.check(cmd.get("key")):
+            return {"error": "Type your Pi password to use its terminal here", "kind": "locked"}
+        if self.active:
+            return {"error": "The Pi is showing media mode", "kind": "media"}
+        if do == "look":
+            return self.term.look(self.term_vt(), cmd.get("after"), cmd.get("wait"), still=lambda: not self.active)
+        if do == "type":
+            return self.term.type(self.term_vt(), cmd.get("text"))
+        return {"error": "Bad request"}
 
     # -- the web page's copy of the screen: tapped, swiped, scrolled, and typed under ----------------------------
     def web_touch(self, cmd):

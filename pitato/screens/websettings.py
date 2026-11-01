@@ -253,6 +253,11 @@ class WebSettingsScreen:
                          "names": dict([("", "Auto")] + [(c["id"], c["name"]) for c in found])})
         rows += [{"key": "bot_mode", "label": "Its page", "kind": "choice", "value": self.bot_mode(),
                   "choices": ["chat", "work"], "names": {"chat": "Chat", "work": "At work (your coding agent)"}},
+                 {"key": "f_face", "label": "Just its face", "kind": "choice",
+                  "value": "on" if self.bot_face_only() else "off", "choices": ["on", "off"],
+                  "names": {"on": "Yes", "off": "No"},
+                  "note": "Its chat page shows only its face, big, in the middle of the screen. It still talks and "
+                          "listens."},
                  choice("coder_sound", "Sounds at work", ["On", "Off"],
                         value="Off" if self.setting("coder_sound") == "Off" else "On")]
         sec("bot", "Bot", rows, "It talks through Ollama on another computer on your network.")
@@ -610,6 +615,11 @@ class WebSettingsScreen:
         if value == "off":
             self.voice.stop()
         return {"ok": True}
+
+    def web_set_f_face(self, value, cmd):
+        if value not in ("on", "off"):
+            return {"error": "That isn't one of its choices"}
+        return {"ok": True} if self.friend_set(face_only=value) else {"error": "Couldn't save static/bot.txt"}
 
     def web_set_f_listen(self, value, cmd):
         if value not in LISTENS:

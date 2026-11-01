@@ -104,9 +104,11 @@ CONTROL_KEY = "/run/pitato/control-key"       # ...and the key it asks for (made
 PI_GET = {"state", "screen", "catalog", "channels", "radio", "icon", "cameras", "camframe", "friend", "friendpic",
           "computers", "bluetooth", "settings", "places"}
 PI_POST = {"press", "open", "play", "show", "player", "learn", "mode", "reset_pads", "pad_swap", "camera", "friend",
-           "computer", "bluetooth", "settings", "tap", "swipe", "scroll", "type"}
-PI_ARGS = ("what", "genre", "q", "name", "size", "addr", "id", "after", "wait")
+           "computer", "bluetooth", "settings", "tap", "swipe", "scroll", "type", "term"}
+PI_ARGS = ("what", "genre", "q", "name", "size", "addr", "id", "after", "wait", "w")
 FRAME_WAIT = 20                                 # seconds the page's request for the screen's next picture waits, at most
+PI_BODY_MOST = 1 << 20                          # bytes a request for media mode can be, at most (all it takes itself)
+SCRIPTABLE = {"text/html", "application/xhtml+xml", "image/svg+xml", "text/xml", "application/xml", "text/xsl"}
 CODER = ("rest", "typing", "reading", "thinking", "talking", "done", "hello", "attention", "error",
          "shrug", "wake", "sleep")                     # the Bot's poses at work
 CODER_SAY_AS = ("talking", "typing", "reading", "thinking", "rest")   # the poses it says a clip in
@@ -304,6 +306,16 @@ def coder_path():
     return request.path == "/coder" or request.path.startswith("/coder/")
 
 
+def loopback(addr):
+    """The address asking is this Pi's own."""
+    try:
+        ip = ipaddress.ip_address(addr or "")
+    except ValueError:
+        return False
+    ip = getattr(ip, "ipv4_mapped", None) or ip
+    return ip.is_loopback
+
+
 def on_my_network(addr):
     """The address asking is this Pi's own, or on your network (a private, link-local or loopback address)."""
     try:
@@ -350,6 +362,19 @@ def check_password():
 @app.after_request
 def no_sniff(resp):
     resp.headers["X-Content-Type-Options"] = "nosniff"
+    return resp
+
+
+@app.after_request
+def no_frames(resp):
+    """Another site can't show this page in a frame of its own (to have you click, or type, in it unseen). And a file
+    of yours that could run a script (a web page, an SVG), opened here on its own, runs none."""
+    resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    if "Content-Security-Policy" not in resp.headers:          # (Play here's game has its own, as strict)
+        policy = "frame-ancestors 'self'"
+        if request.path.startswith("/api/home/") and resp.mimetype in SCRIPTABLE:
+            policy = "sandbox; " + policy
+        resp.headers["Content-Security-Policy"] = policy
     return resp
 
 
@@ -904,9 +929,15 @@ def pi_post(what):
         abort(404)
     if not request.is_json:                         # JSON only: another site's form can't post here
         abort(415)
+    if request.content_length is None or request.content_length > PI_BODY_MOST:   # (no more than media mode takes)
+        return jsonify(error="That's too much to send"), 413
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify(error="Bad request"), 400
+    if what == "term":                              # the Pi's terminal: on the secure page only, so your password, and
+        if not (request.is_secure or loopback(request.remote_addr)):   # what you type, never cross your WiFi as they
+            return jsonify(error="Open the secure page to use the Pi's terminal", kind="insecure"), 403   # are
+        data = dict(data, **{"from": request.remote_addr or ""})   # (where it's from: wrong passwords counted by it)
     if what == "show":                              # a file from the Files list: where it really is
         if data.get("folder") == "computers":
             bad = open_computer(clean_parts(data.get("path", "")))

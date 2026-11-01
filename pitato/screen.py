@@ -1026,10 +1026,14 @@ class Framebuffer:
             self.put(self.pack(pic), self.ox + x0, self.oy + y0, x1 - x0, y1 - y0)
         elif rep > 1:
             self.put_repeated(self.pack(pic), x0, y0, x1 - x0, y1 - y0, rep)
-        else:                                          # (not a whole number of times: scaled, the whole of it)
-            whole = self.last.pic if box is not None and detail(self.last) == s else pic
-            self.put(self.pack(whole.resize((self.tw, self.th), Image.BILINEAR)), self.ox, self.oy, self.tw,
-                     self.th)
+        else:                                          # (not a whole number of times: scaled, the whole of it; drawn
+            whole = self.last.pic if box is not None and detail(self.last) == s else pic   # finer than the screen has
+            k = whole.width // self.tw if self.tw and whole.width % self.tw == 0 else 0   # pixels for, for the web
+            if k > 1 and whole.height == self.th * k:                                     # page: each of the
+                small = whole.reduce(k)                                                   # screen's, theirs averaged)
+            else:
+                small = whole.resize((self.tw, self.th), Image.BILINEAR)
+            self.put(self.pack(small), self.ox, self.oy, self.tw, self.th)
 
     def put_repeated(self, packed, x, y, w, h, k=None):
         """Packed pixels (w x h of them, from x, y in the menus, or in a picture of them drawn finely), each repeated k

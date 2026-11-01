@@ -29,6 +29,7 @@ from .cameras import CAM_BEACON, CAM_SHOT_SHOW, Camera
 from .nearby import PEER_KEEP, PEER_SAYS, PieInk
 from .voice import Voice
 from .listen import Ears, LISTEN_TRIES
+from .term import Terminal
 from .bot import Friend, FRIEND_PAGES
 from .assist import Assist
 from .coder import AgentPrompts, Coder, CODER_FPS
@@ -186,6 +187,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.voice_arrived = None    # ...and here (for the main loop to use)
         self.voice_told = ""         # the last of the voice's troubles shown
         self.ears = Ears()           # its ears: a microphone (Settings > Bot > Listens)
+        self.term = Terminal()       # the Pi's terminal on the web page (term.py): its keys, and the console's looks
         self.ears.is_busy = self.ears_busy
         self.ears.on_heard = self.ears_heard
         self.ears.on_change = self.ears_changed
@@ -397,6 +399,9 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.chrome_menu = None      # ...its menu (HOME), on Pietato's screen: {"sel", "confirm"}
         self.chrome_url = None       # ...where it opens, the first time (its buttons shown first)
         self.shot = (None, b"", "")  # the last picture of the screen sent to the web page
+        self.web_want = None         # ...how wide a page showed it (in its pixels), and when (web_wants)
+        self.web_fine_at = 0.0       # ...when a finely drawn one was last made for it
+        self.fine_look = 0.0         # when the main loop next looks at how finely to draw (a page showing it big)
         self.web_radio_cache = {}   # Radio Browser lists the web page asked for
         self.web_icons = {}
         self.web_guard = False      # the web page is at the controls: your home folder only
@@ -802,8 +807,9 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
                 or self.prog is not None or self.chromium_shown())
 
     def fine_scale(self):
-        """The menus drawn as finely as the screen has pixels for (fine.py: 2 on a 4K TV, 1 on the GPi Case)."""
-        s = getattr(self.fb, "s", 1) if self.fb is not None else 1
+        """The menus drawn as finely as the screen has pixels for (fine.py: 2 on a 4K TV, 1 on the GPi Case), or as a
+        web page showing the screen big wants them (web_fine: twice, where this machine draws that quickly)."""
+        s = max(getattr(self.fb, "s", 1), self.web_fine()) if self.fb is not None else 1
         if s != drawing_scale():                       # pictures kept at the other scale: made again
             set_drawing_scale(s)
             self.forget_drawn()
@@ -1382,6 +1388,11 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.chromium_tick(now)
         if self.web_mic_until or self.web_mic_was:     # (a web page's microphone: come, or gone)
             self.web_mic_tick()
+        if self.active and self.fb is not None and now >= self.fine_look:   # (a web page showing the screen big, or
+            self.fine_look = now + 1.0                                       # not any more: drawn more or less finely)
+            if max(getattr(self.fb, "s", 1), self.web_fine()) != drawing_scale():
+                self.fine_scale()
+                self.dirty = True
         if self.pihole_done is not None:
             self.pihole_tick()
         if (self.sys_history.tick(now) and self.active and self.view == "list" and self.tab_type() == "system"

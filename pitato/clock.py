@@ -18,6 +18,8 @@ CLOCK_LOOKS = ("Analogue", "Digital")
 CLOCK_COLOURS = (("Blue", (96, 170, 228)), ("Teal", (64, 200, 184)), ("Green", (116, 204, 128)),
                  ("Purple", (166, 138, 236)), ("Pink", (236, 128, 176)), ("White", (236, 239, 243)))
 CLOCK_MARGIN = 8                      # px between the clock and the edges of its room
+CLOCK_FULL = 0.84                     # full screen: the dial this much of the screen's height across (or its width, if
+                                      # that's less), a little way in from its edges
 SUPER = 4                             # the dial is drawn this many times bigger, then shrunk
 
 # the dial, in parts of its radius
@@ -73,6 +75,7 @@ class Clock(Sim):
     def __init__(self, w, h, rng=None, values=None):
         super().__init__(w, h, rng, values)
         self.hours24 = False            # Settings > Clock is 24-hour (media mode says: pitato/screens/sims.py)
+        self.full = False               # ...the whole screen is its room (Full screen): its dial a little smaller in it
         self.fine = 1                   # the picture's pixels to each of the menus' while it's drawn (fine.py)
         self.dials = {}                 # (radius, date, backdrop) -> the dial with its date (a float32 picture)
         self.masks = {}                 # fonts, and words and figures as pictures: (what, how big...) -> it
@@ -146,6 +149,10 @@ class Clock(Sim):
 
     # -- the dial -------------------------------------------------------------------------------------------
     def radius(self):
+        """The dial's radius: as big as its room (its middle's) lets it be, a few pixels in from its edges; full screen,
+        a little smaller, so it isn't right up against the screen's own edges."""
+        if self.full:
+            return max(24.0 * self.fine, min(self.w, self.h) / 2 * CLOCK_FULL)
         return max(24.0 * self.fine, min(self.w, self.h) / 2 - CLOCK_MARGIN * self.fine)
 
     @staticmethod

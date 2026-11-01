@@ -88,6 +88,7 @@ class SimScreen:
             s.refit(w, h)
         if kind is Clock:
             s.hours24 = self.setting("clock") == "24-hour"     # (Settings > Clock)
+            s.full = self.sim_full()                           # (full screen: its dial a little smaller)
         return s
 
     def sim_set_full(self, on):

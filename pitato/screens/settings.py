@@ -53,6 +53,7 @@ class SettingsScreen:
             listen = self.listen_rows(found)
             rows += [r for r in (("f_listen", "Listens for you", ["Auto", "On", "Off"]), ("f_wake", "Wake phrase", None),
                                  ("f_mic", "Microphone", ["Auto"] + [c["name"] for c in found])) if r[0] in listen]
+            rows.append(("f_face", "Just its face", ["On", "Off"]))
             return rows
         if self.set_page == "f_voices":
             ours = [i for i, _, _ in BOT_VOICES]
@@ -614,8 +615,8 @@ class SettingsScreen:
             hints += [("X", "Scan"), ("B", "Back")]
         elif self.set_page == "friend":
             k = rows[sel][0]
-            hints = ([("◀▶", "Change")] if k in ("f_style", "f_chatter", "f_speak", "f_listen", "f_mic") else
-                     [("A", "Choose")] if k in ("f_model", "f_voice") else [("A", "Type")])
+            hints = ([("◀▶", "Change")] if k in ("f_style", "f_chatter", "f_speak", "f_listen", "f_mic", "f_face")
+                     else [("A", "Choose")] if k in ("f_model", "f_voice") else [("A", "Type")])
             hints += [("X", "Check"), ("B", "Back")]
         elif self.set_page == "f_voices":
             k, _, vid = rows[sel]

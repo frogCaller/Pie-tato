@@ -14,6 +14,7 @@ BUSY_FPS = 12              # frames a second while it's talking, thinking or lis
 SLEEPY_FPS = 5             # ...and while it dozes (its eyes and its z's drift slowly)
 STILL = ("thinking", "listening", "talking", "alert")   # (looks whose eyes don't glance about)
 LISTEN_GAP = 0.05          # listening: its sound's arcs start this far (of its size) past the eye's edge
+THINK_DOTS = 0.5           # thinking: its dots this far (of its size) above its middle, a gap above its eyes
 
 
 def _hash(n):
@@ -184,12 +185,12 @@ def draw_face(d, cx, cy, size, look, t, colour, back, font=None):
     else:                                              # idle, listening: a little smile
         d.arc((mx - mw * 0.7, my - mw * 0.9, mx + mw * 0.7, my + mw * 0.35), 25, 155, fill=colour, width=line)
     # what goes with it
-    if look == "thinking":                             # three dots, one after another
+    if look == "thinking":                             # three dots, one after another, well clear of its eyes
         for k in range(3):
             on = int(t * 3) % 3 == k
             r = size * (0.032 if on else 0.024)
             x = cx + size * 0.36 + k * size * 0.1
-            y = cy - size * 0.36
+            y = cy - size * THINK_DOTS
             d.ellipse((x - r, y - r, x + r, y + r), fill=colour if on else soft)
     elif look == "listening":                          # sound coming in, from one side (a little way off the eye)
         for k in range(3):

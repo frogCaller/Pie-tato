@@ -143,7 +143,13 @@ it, and swipe or scroll to move along a list. Back and Home are under it, and th
 behind Remote. When the Pi has a box to type in, one comes up under the screen too, so you can type
 on your phone or computer. Further down, you can set up controllers and pair Bluetooth devices.
 
-Under the screen there are three more buttons:
+When the Pi is at its terminal instead of media mode, Screen on the secure page (below) shows the
+terminal. Type the password you sign in to the Pi with, and you can use it from there: click it and
+type, or on a phone, type in the box under it. Esc, Tab, Ctrl+C and the arrows are under it too, and
+Lock asks for the password again. Changing your Pi password locks it on every page. The plain page
+only links to the secure one, so your password and what you type never cross your WiFi as they are.
+
+Beside the screen (under it on a phone), On this computer (or On this phone) has three switches:
 
 - **Play here**: what you pick plays on your phone or computer instead of the Pi. That's your videos
   and music, cartoons, films and radio, and NES, SNES, Game Boy, GBA, Genesis, Master System, Game
@@ -283,7 +289,9 @@ Press left on the Bot for Today: your list, timers, reminders and notes. A adds 
 a thing off, and SELECT twice takes it off. START starts a 25-minute focus timer, with a 5-minute
 break after it. Its face blinks, looks around, and shows when it's listening, thinking or talking.
 Settings > Bot > How it talks gives it a personality: Friendly, Big brother, Butler, Pirate, Coach, Robot
-or Calm.
+or Calm. Settings > Bot > Just its face shows only its face, big, in the middle of the screen, with no
+words. It still talks, and with a microphone it listens: press A and talk to it. Without one, A
+opens the keyboard.
 
 If you run [Ollama](https://ollama.com) on a computer on your network, set its address and a
 model in Settings > Bot, or on the web page. On that computer Ollama has to listen on the
@@ -380,7 +388,7 @@ Settings writes most of them for you.
 | `streams.txt`, `radio.txt` | your own streams and stations, `Name \| URL` per line |
 | `finance.txt` | `stocks =` the stocks to show (tickers, as on Yahoo Finance) and `coins =` the coins (CoinGecko ids). Y on the Finance tab adds and removes them |
 | `camera.txt` | `camera =` an address per line, a name after it if you like |
-| `bot.txt` | `server =`, `model =`, `style =`, `voice =`, `listen =` and `wake =` (Settings > Bot writes these) |
+| `bot.txt` | `server =`, `model =`, `style =`, `voice =`, `listen =`, `wake =` and `face_only =` (Settings > Bot writes these) |
 | `homeassistant.txt` | `url =` and `token =` (a long-lived access token): Settings > Home writes them, on the Pi or the web page. Your TVs and lights are found by themselves, and `tv =` and `lights =` pick which ones show |
 | `pihole.txt` | `address =` and `password =`: the Pi-hole page writes them when you sign in there |
 | `jellyfin.txt` | `server =` if your Jellyfin server isn't found by itself, and `user =` and `password =` if you'd rather not use Quick Connect |

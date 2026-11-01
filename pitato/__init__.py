@@ -51,6 +51,7 @@
   emerald.py        ...Pokémon Emerald: from the game's memory too (emerald_maps.py: its maps' names)
   inputs.py         controllers, keys, the power switch
   control.py        the web page's requests
+  term.py           the Pi's terminal on the web page: its console as it is, typed into, after your Pi password
   media.py          media mode: class Media
   app.py            the main loop, and starting up
   screens/          media mode, a part for each app: its buttons and what it draws
