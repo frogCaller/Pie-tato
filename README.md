@@ -244,10 +244,10 @@ Web, in the Home tab, shows a page as its words, links and pictures, on any Pi. 
 work best, and a few are on its first page. Up and down go from link to link, A opens one, B goes back,
 Start searches or goes to an address, Y bookmarks the page, and Select shows just the article.
 
-On a Pi 4 or 5 or a PC, Web's first page opens Chromium too, for the sites that need it (setup.sh puts it in,
-about 300 MB). The stick or the d-pad moves the pointer, A clicks, B goes back, and L and R scroll. X types into
-the page and Start goes to an address, with Pietato's keyboard. Home opens its menu, for zoom, tabs, full
-screen, or closing it. A keyboard and a mouse work in it too. If it doesn't start,
+On a Pi 4 or 5 or a PC (in a GPi Case 2, in its dock), Web's first page opens Chromium too, for the sites that
+need it (setup.sh puts it in, about 300 MB). The stick or the d-pad moves the pointer, A clicks, B goes back, and
+L and R scroll. X types into the page and Start goes to an address, with Pietato's keyboard. Home opens its menu,
+for zoom, tabs, full screen, or closing it. A keyboard and a mouse work in it too. If it doesn't start,
 `journalctl -u pietato-chromium` says why.
 
 ## Other computers

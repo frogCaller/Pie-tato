@@ -10,6 +10,7 @@ import sys
 
 import numpy as np
 
+from .gpicase import case_kind
 from .screen import pi_model, slow_pi
 
 # EGL's numbers (egl.h, eglext.h)
@@ -60,12 +61,15 @@ class GPUError(Exception):
 
 
 def why_no_3d():
-    """Why there's no OpenGL ES 3, in words for the screen: an older Pi, or a Pi 4 or 5 with its 3D off."""
+    """Why there's no OpenGL ES 3, in words for the screen: an older Pi, or a Pi 4 or 5 with its 3D off. (In a GPi
+    Case 2, setup.sh's own overlay turns it on: KMS would leave the case's screen black.)"""
     model = pi_model()
     if "Raspberry Pi" not in model:
         return "There's no OpenGL ES 3 here for 3D games"
     if slow_pi():
         return NO_3D
+    if case_kind() == "2":
+        return "Turn on 3D in config.txt: dtoverlay=gpicase2-3d"
     return "Turn on 3D in config.txt: dtoverlay=vc4-kms-v3d"
 
 

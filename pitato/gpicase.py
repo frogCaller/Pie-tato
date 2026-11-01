@@ -68,12 +68,12 @@ def pin_level(pin=DOCK_PIN):
     return None
 
 
-def firmware_kms():
-    """True with fkms (the firmware's screen, which the GPi Case 2's own screen is), False with KMS (the TV), None
-    with neither found."""
+def node_on(name):
+    """Whether the device tree's node of this name (at the top, or in soc; with an address after an @ or not) is on:
+    True, False (its status says it's off), or None (there's none)."""
     for root, dirs, files in os.walk(DEVICE_TREE):
         for d in dirs:
-            if d.startswith("firmwarekms@"):
+            if d == name or d.startswith(name + "@"):
                 try:
                     with open(os.path.join(root, d, "status"), "rb") as f:
                         return f.read().rstrip(b"\x00").strip() in (b"okay", b"ok")
@@ -84,14 +84,24 @@ def firmware_kms():
     return None
 
 
+def firmware_kms():
+    """True with fkms (the firmware's screen, under KMS's names), False without it, None with no telling."""
+    return node_on("firmwarekms")
+
+
 def started_on_tv():
     """Where the picture is since the Pi started: on the TV (True), the case's screen (False), or no telling (None).
-    The case's screen is the firmware's (config.txt's [gpio18=0] part turns it on, with fkms)."""
+    The case's screen is the firmware's (config.txt's [gpio18=0] part turns it on): its own framebuffer, with no KMS
+    (or an older setup.sh's, with fkms); the TV's is KMS's, which turns both of those off."""
     m = re.search(r"enable_dpi_lcd=(\d+)", run_out(["vcgencmd", "get_config", "enable_dpi_lcd"]))
     if m:
         return m.group(1) == "0"
-    fkms = firmware_kms()
-    return None if fkms is None else not fkms
+    fkms, fb = firmware_kms(), node_on("fb")
+    if fkms or fb:
+        return False
+    if fkms is None and fb is None:
+        return None
+    return True
 
 
 class DockWatch:

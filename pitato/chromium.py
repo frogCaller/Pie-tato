@@ -4,6 +4,7 @@ guide starts it), and shown by switching to that console. While it's up the cont
 keys: two of media mode's own uinput devices (named as its others are, so it never takes them for yours), and a thread
 moving the pointer and turning the wheel while the sticks, the d-pad, L or R are held. The pointer goes where it's put
 (an absolute one, as a tablet's), so it moves as fast as it's told, whatever the mouse settings."""
+import glob
 import math
 import os
 import pwd
@@ -20,6 +21,7 @@ CHROMIUM_NAMES = ("chromium", "chromium-browser", "/snap/bin/chromium")   # (Ubu
 CHROMIUM_UNIT = "pietato-chromium"     # its systemd unit, while it's up
 CHROMIUM_VT = 8                        # its console (media mode's is 7)
 CHROMIUM_PAM = "pietato-chromium"      # setup.sh's PAM service for it: a session of your own, no password asked
+DRM_DIR = "/sys/class/drm"             # the graphics cards, and each one's screens
 CHROMIUM_FLAGS = ["--no-first-run", "--no-default-browser-check", "--noerrdialogs", "--disable-session-crashed-bubble",
                   "--hide-crash-restore-bubble", "--password-store=basic", "--start-maximized"]
 TRANSFORMS = {0: "normal", 90: "90", 180: "180", 270: "270"}   # the screen's turn, as wlr-randr says it (clockwise)
@@ -90,9 +92,17 @@ def chromium_path():
     return next((p for p in (shutil.which(n) for n in CHROMIUM_NAMES) if p), None)
 
 
+def kms_screen():
+    """The screen's KMS's (a card's screen in DRM_DIR: card1-HDMI-A-1, say), which cage needs. The GPi Case 2's own
+    screen is the firmware's, with none (in its dock, the TV is KMS's)."""
+    return bool(glob.glob(os.path.join(DRM_DIR, "card*-*")))
+
+
 def chromium_ready():
-    """A Pi 4 or 5 with Chromium and cage (what shows it on the screen, with no desktop)."""
-    return not slow_pi() and chromium_path() is not None and shutil.which("cage") is not None
+    """A Pi 4 or 5 (or a PC) with Chromium and cage (what shows it on the screen, with no desktop), on a screen cage
+    can show it on."""
+    return (not slow_pi() and chromium_path() is not None and shutil.which("cage") is not None
+            and kms_screen())
 
 
 def owner():

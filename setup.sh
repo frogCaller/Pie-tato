@@ -291,6 +291,10 @@ if grep -q '^# >>> gpi-case setup >>>' "$CONFIG" 2>/dev/null; then
     WAS=2w
   fi
 fi
+CASE2_HAND=no   # the GPi Case 2's screen set up by hand, as RetroFlag's patch sets it up (its timings in config.txt)
+if grep -qE '^[[:space:]]*hdmi_timings=640 0 41 40 41 480 0 18 9 18 ' "$CONFIG" 2>/dev/null; then
+  CASE2_HAND=yes
+fi
 BIG=no          # a Pi 4 or 5: N64, PSP, DS and Dreamcast games too (their emulators built here), and Chromium
 case "$MODEL" in
   *"Pi 4"*|*"Pi 5"*|*"Compute Module 4"*|*"Compute Module 5"*) BIG=yes ;;
@@ -307,6 +311,9 @@ if [ -z "$GPI" ] && [ "$UPDATE" = yes ]; then       # (as it was set up: the cas
 fi
 if [ -z "$GPI" ]; then
   if [ "$WAS" = 2 ]; then                          # (set up for it before: yes, unless you say otherwise)
+    read -r -p "Is this Pi in a RetroFlag GPi Case 2? [Y/n] " ans
+    if [[ "$ans" =~ ^[Nn] ]]; then GPI=no; else GPI=yes CASE=2; fi
+  elif [ "$CM4" = yes ] && [ "$CASE2_HAND" = yes ]; then   # (its screen set up by hand: yes, unless you say)
     read -r -p "Is this Pi in a RetroFlag GPi Case 2? [Y/n] " ans
     if [[ "$ans" =~ ^[Nn] ]]; then GPI=no; else GPI=yes CASE=2; fi
   elif [ "$CM4" = yes ]; then                      # (a CM4 is often on a board of its own, on HDMI: no, unless you say)
@@ -913,30 +920,25 @@ apt-get install -y --no-install-recommends libreoffice-core libreoffice-writer \
 
 # --------------------------------------------------------------------------
 if [ "$GPI" = yes ] && [ "$CASE" = 2 ]; then
-step "Building screen overlay (dpi24 without the dock and power switch pins)"
+step "Building screen overlays (dpi24 without the dock and power switch pins; the 3D chip on its own)"
 TMP="$(mktemp -d)"
 # the case's screen is RGB666 on GPIOs 0-9, 12-17 and 20-25 (dpi_output_format 0x16): 18 says it's in the dock
-# with the TV on, 26 and 27 are the power switch. On fb for the firmware's screen, on vc4 under fkms
+# with the TV on, 26 and 27 are the power switch. Its pins are set through the LEDs' node, as RetroFlag's own dpi24
+# overlay sets them (that node's there whatever draws the screen); RetroFlag's takes 26 and 27 as well, and then the
+# power switch can't shut the Pi down
 cat > "$TMP/gpicase2-dpi.dts" <<'EOF'
 /dts-v1/;
 /plugin/;
 / {
     compatible = "brcm,bcm2835";
     fragment@0 {
-        target = <&fb>;
+        target = <&leds>;
         __overlay__ {
             pinctrl-names = "default";
             pinctrl-0 = <&gpicase2_dpi_pins>;
         };
     };
     fragment@1 {
-        target = <&vc4>;
-        __overlay__ {
-            pinctrl-names = "default";
-            pinctrl-0 = <&gpicase2_dpi_pins>;
-        };
-    };
-    fragment@2 {
         target = <&gpio>;
         __overlay__ {
             gpicase2_dpi_pins: gpicase2_dpi_pins {
@@ -949,6 +951,22 @@ cat > "$TMP/gpicase2-dpi.dts" <<'EOF'
 };
 EOF
 dtc -@ -q -I dts -O dtb -o "$BOOT/overlays/gpicase2-dpi.dtbo" "$TMP/gpicase2-dpi.dts"
+# the 3D chip on its own, with the firmware drawing the case's screen (no KMS or fkms): N64, PSP and Dreamcast games
+# are drawn by it and read back onto the screen
+cat > "$TMP/gpicase2-3d.dts" <<'EOF'
+/dts-v1/;
+/plugin/;
+/ {
+    compatible = "brcm,bcm2711";
+    fragment@0 {
+        target = <&v3d>;
+        __overlay__ {
+            status = "okay";
+        };
+    };
+};
+EOF
+dtc -@ -q -I dts -O dtb -o "$BOOT/overlays/gpicase2-3d.dtbo" "$TMP/gpicase2-3d.dts"
 # in the dock, the TV taken as plugged in: KMS goes by the CM4's own HDMI hotplug line, which the dock may not pass on
 # (RetroFlag's settings force it too; hdmi_force_hotplug is the firmware's alone)
 cat > "$TMP/gpicase2-tv.dts" <<'EOF'
@@ -973,14 +991,16 @@ cp "$CONFIG" "$CONFIG.bak-$(date +%Y%m%d-%H%M%S)"
 
 # remove this script's old block
 sed -i '/^# >>> gpi-case setup >>>/,/^# <<< gpi-case setup <<</d' "$CONFIG"
-# remove settings added by hand earlier (RetroFlag's patch for the case, say), so nothing is duplicated: its screen
-# and fkms go in the part for the case's screen, KMS in the part for the TV
-sed -i -E '/^\s*dtoverlay=(dpi24|gpicase-dpi|gpicase2-dpi|gpicase2-tv|audremap|vc4-fkms-v3d)/d;
+# remove settings added by hand earlier (RetroFlag's patch for the case, or its dpi24 overlay by another name, say),
+# so nothing is duplicated and nothing takes the power switch's pins: the case's screen goes in its own part, KMS in
+# the TV's, and fkms nowhere
+sed -i -E '/^\s*dtoverlay=(dpi24|gpi2-dpi24|gpicase-dpi|gpicase2-dpi|gpicase2-3d|gpicase2-tv|audremap|vc4-fkms-v3d)/d;
            /^\s*(enable_dpi_lcd|display_default_lcd|dpi_group|dpi_mode|dpi_output_format|hdmi_timings|framebuffer_width|framebuffer_height)=/d;
            /^\s*dtoverlay=gpio-shutdown.*gpio_pin=26/d;
            /^\s*gpio=(27=op,dh|18=ip,pd)/d;
            /^\s*disable_audio_dither=/d;
            /^# GPi Case 2W screen/d;
+           /^# GPi Case 2 screen/d;
            /^# case speaker/d' "$CONFIG"
 sed -i -E 's/^\s*dtoverlay=vc4-kms-v3d/#dtoverlay=vc4-kms-v3d/' "$CONFIG"
 USB_ON=""       # the case's buttons and sound are on the CM4's USB, which needs turning on (Bookworm's config.txt does,
@@ -1006,10 +1026,10 @@ cat <<'EOF'
 gpio=27=op,dh
 dtoverlay=gpio-shutdown,gpio_pin=26,active_low=1,gpio_pull=up
 [gpio18=0]
-# the case's screen (RetroFlag's settings for it), the 3D chip on for N64 and PSP games (fkms), and the sound
-# through the case's own (USB) sound
-dtoverlay=vc4-fkms-v3d
+# the case's screen (RetroFlag's settings for it, drawn by the firmware alone, the way it shows on a CM4), the 3D
+# chip on its own for N64, PSP and Dreamcast games, and the sound through the case's own (USB) sound
 dtoverlay=gpicase2-dpi
+dtoverlay=gpicase2-3d
 enable_dpi_lcd=1
 display_default_lcd=1
 dpi_group=2
