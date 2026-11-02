@@ -1,6 +1,7 @@
 """The Games tab: Snake and your own games, with their pictures (Y finds them) and a box to find one by name
-(START); with more than a few, a folder for each console (and the ones played last, your favourites, all of them);
-a game while it plays (a process of its own draws it, pitato/emulator.py), and the menu HOME brings up over it."""
+(START); with more than a few, a folder for each console (and the ones played last, your favourites, all of them), a
+grid of their icons to pick from; a game while it plays (a process of its own draws it, pitato/emulator.py), and the
+menu HOME brings up over it."""
 import json
 import os
 import struct
@@ -13,6 +14,7 @@ from ..util import item
 from ..screen import aplay_device, screen_turn, sound_place
 from ..library import LIBRARY
 from ..snake import snake_card
+from ..consoles import draw_console
 from ..games import (ANALOG_SYSTEMS, art_path, ArtFinder, bios_missing, built_for_other_pi, find_core, find_games,
                      game_kind, GAME_PACKAGES, GAME_PLAYERS, GAME_SYSTEMS, GameRun, games_dir, has_resume,
                      neogeo_unknown, plain_title, playable, save_name, SAVES_FOLDER, system)
@@ -57,6 +59,9 @@ CHEEVO_PAGE = 5                     # ◀▶ in a game's list of achievements: t
 GAMES_FLAT = 12                     # this many games or fewer: one list of them all (more: a folder for each console)
 GAMES_RECENT = 20                   # the games played last, kept for Recently played
 GAME_FOLDERS = {"recent": ("Recently played", "LAST"), "fav": ("Favourites", "★"), "all": ("All games", "ALL")}
+GAMES_TILE = 96                     # the folders, as a grid: each one's icon (consoles.py) this big...
+GAMES_CELL = (152, 172)             # ...in a cell this wide (at least) and tall: its name and how many under it
+GAME_PANEL_ICON = 120               # a game with no picture of its own: its console's icon, beside the list
 
 
 def fold(text):
@@ -182,6 +187,98 @@ class GameScreen:
         if len(keys) > 1:
             folder("all", GAME_FOLDERS["all"][0], games_count(len(games)), GAME_FOLDERS["all"][1], games)
         return rows
+
+    # -- the folders, as a grid of icons to pick from ------------------------------------------------------------
+    def games_grid(self):
+        """The Games tab's top, with a folder for each console: a grid of their icons (not a list)."""
+        return (self.tab_type() == "games" and not getattr(self, "games_q", None)
+                and not getattr(self, "games_dir", None)
+                and any(it.get("kind") == "gamedir" for it in self.tab_items()))
+
+    def games_cols(self):
+        """The grid's columns: four on the GPi Case's screen, more on a wider one."""
+        w = self.fb.w if self.fb else 640
+        return max(4, (w - 32) // GAMES_CELL[0])
+
+    def games_grid_rows(self):
+        h = self.fb.h if self.fb else 480
+        return max(1, (h - self.FOOTER - self.LIST_TOP - 6) // GAMES_CELL[1])
+
+    def console_pic(self, key, label, size):
+        """A console's icon (consoles.py: a folder's too), size across, kept: as finely as the screen's drawn."""
+        s = scale()
+        k = ("console", key, label, size, s)
+        hit = self.game_pics.get(k)
+        if hit is None:
+            hit = made_fine(draw_console(key, label, size * s, fine=s), s)
+            if len(self.game_pics) >= GAME_PICS_KEPT:
+                self.game_pics.pop(next(iter(self.game_pics)))
+            self.game_pics[k] = hit
+        return hit
+
+    def games_tile(self, it):
+        """A tile in the grid: Snake's card, a console's icon (its short name on it), or a folder's (Recently played,
+        Favourites, All games: just its picture)."""
+        if it.get("kind") == "child":
+            return self.game_pic(it, "tile")
+        src = it.get("src", "")
+        if src.startswith("sys:"):
+            return self.console_pic(src[4:], it.get("icon", ""), GAMES_TILE)
+        return self.console_pic(src, "", GAMES_TILE)
+
+    def render_games_grid(self):
+        """The Games tab's top: a tile for Snake and each folder (the ones played last, your favourites, each
+        console's, all of them), its name and how many games under it, in a grid: the picked one lit. Up, down, left
+        and right go from one to the next; A opens it."""
+        F = self.fonts
+        W = self.fb.w
+        img, d = self.canvas()
+        self.header(img, d)
+        items = self.tab_items()
+        n = len(items)
+        sel = min(self.sels.get(self.tab, 0), max(n - 1, 0))
+        cols, rows = self.games_cols(), self.games_grid_rows()
+        top = self.tops.get(self.tab, 0)               # (in rows)
+        if sel // cols < top:
+            top = sel // cols
+        elif sel // cols >= top + rows:
+            top = sel // cols - rows + 1
+        total = (n + cols - 1) // cols
+        top = max(min(top, total - rows), 0)
+        self.tops[self.tab] = top
+        cw, ch = (W - 32) / cols, GAMES_CELL[1]
+        y_top = self.LIST_TOP + 6
+        for r in range(rows):
+            for c in range(cols):
+                i = (top + r) * cols + c
+                if i >= n:
+                    break
+                it = items[i]
+                x0, y0 = 16 + c * cw, y_top + r * ch
+                ix, iy = int(x0 + (cw - GAMES_TILE) / 2), int(y0 + 8)
+                if i == sel:                           # (picked: a ring round it, its name bright)
+                    d.rounded_rectangle((ix - 6, iy - 6, ix + GAMES_TILE + 5, iy + GAMES_TILE + 5), radius=27,
+                                        outline=ACCENT, width=3)
+                pic = self.games_tile(it)
+                if pic is not None:
+                    img.paste(pic, (ix, iy), pic)
+                font = F["small"]
+                name = self.fit(d, it.get("label") or it["title"], font, cw - 8)
+                d.text((x0 + cw / 2, iy + GAMES_TILE + 20), name, font=font, fill=TEXT if i == sel else BODY,
+                       anchor="mm")
+                d.text((x0 + cw / 2, iy + GAMES_TILE + 40), self.fit(d, it.get("sub", ""), F["label"], cw - 10),
+                       font=F["label"], fill=MUTED, anchor="mm")
+                self.tappable((x0, y0, x0 + cw, y0 + ch), "sel", "sels", self.tab, i)
+        if total > rows:                               # (where you are, when there are more)
+            t0, t1 = y_top + 6, y_top + rows * ch - 6
+            d.rounded_rectangle((W - 10, t0, W - 7, t1), radius=2, fill=LINE)
+            th = max((t1 - t0) * rows / total, 20)
+            ty = t0 + (t1 - t0 - th) * top / max(total - rows, 1)
+            d.rounded_rectangle((W - 10, ty, W - 7, ty + th), radius=2, fill=BODY)
+        f = self.art_finder
+        right = f"Finding pictures {f.done} of {f.total}" if f is not None and f.busy else None
+        self.footer(d, self.list_hints(), right=right)
+        self.fb.show(img)
 
     def games_dir_title(self, folder):
         if folder in GAME_FOLDERS:
@@ -475,7 +572,7 @@ class GameScreen:
         if src == "icon":
             if kind == "back":
                 return None
-            pic = made_fine(snake_card((GAME_THUMB if kind == "thumb" else 132) * s, fine=s), s)
+            pic = made_fine(snake_card({"thumb": GAME_THUMB, "tile": GAMES_TILE}.get(kind, 132) * s, fine=s), s)
         else:
             try:
                 art = Image.open(src)
@@ -500,7 +597,9 @@ class GameScreen:
 
     def render_games(self):
         """The Games tab: the list on the left, each game with its picture; the picked one's picture big on
-        the right, and softly behind it all."""
+        the right, and softly behind it all. (Its top, with a folder for each console: a grid of their icons.)"""
+        if self.games_grid():
+            return self.render_games_grid()
         F = self.fonts
         W = self.fb.w
         img, d = self.canvas()
@@ -554,11 +653,10 @@ class GameScreen:
                        fill=BODY if i == sel else MUTED, anchor="lm")
                 continue
             pic = self.game_pic(it, "thumb")
-            if pic is not None:
-                img.paste(pic, (int(tx + (GAME_THUMB - pic.width) / 2), int(mid - pic.height / 2)), pic)
-            else:
-                d.rounded_rectangle((tx, mid - 10, tx + GAME_THUMB, mid + 10), radius=5, outline=ACCENT, width=1)
-                d.text((tx + GAME_THUMB / 2, mid), it.get("icon", ""), font=F["badge"], fill=ACCENT, anchor="mm")
+            if pic is None:                            # (no picture of its own: its console's icon, or its folder's)
+                pic = self.console_pic(it.get("system") or (it["src"] if it["kind"] == "gamedir" else ""),
+                                       it.get("icon", "") if it.get("system") else "", GAME_THUMB)
+            img.paste(pic, (int(tx + (GAME_THUMB - pic.width) / 2), int(mid - pic.height / 2)), pic)
             tx += GAME_THUMB + 12
             font = F["row_b"] if i == sel else F["row"]
             name = it.get("label") or it["title"]
@@ -579,14 +677,16 @@ class GameScreen:
             if pic is not None:
                 img.paste(pic, (int(px0 + (GAME_PANEL_W - pic.width) / 2), py), pic)
                 py += pic.height + 14
-            else:
-                d.rounded_rectangle((px0, py, px0 + GAME_PANEL_W, py + 150), radius=12, fill=ROW)
-                d.text((px0 + GAME_PANEL_W / 2, py + (62 if cur["kind"] == "game" else 75)), cur.get("icon", ""),
-                       font=F["big"], fill=ACCENT, anchor="mm")
+            else:                                      # (no picture of its own: its console's icon, big)
+                d.rounded_rectangle((px0, py, px0 + GAME_PANEL_W, py + 168), radius=12, fill=ROW)
+                key = cur.get("system") or (cur["src"][4:] if str(cur["src"]).startswith("sys:") else cur["src"])
+                icon = self.console_pic(key, cur.get("icon", "") if cur.get("system") or
+                                        str(cur["src"]).startswith("sys:") else "", GAME_PANEL_ICON)
+                img.paste(icon, (int(px0 + (GAME_PANEL_W - GAME_PANEL_ICON) / 2), py + 12), icon)
                 if cur["kind"] == "game":
-                    d.text((px0 + GAME_PANEL_W / 2, py + 104), "No picture yet: Y finds one", font=F["small"],
+                    d.text((px0 + GAME_PANEL_W / 2, py + 150), "No picture yet: Y finds one", font=F["small"],
                            fill=MUTED, anchor="mm")
-                py += 150 + 14
+                py += 168 + 14
             if cur["kind"] == "game":
                 full = os.path.splitext(os.path.basename(cur["src"]))[0]
                 for line in self.wrap(d, full, F["small"], GAME_PANEL_W):

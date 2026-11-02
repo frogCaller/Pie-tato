@@ -13,9 +13,9 @@ from ..pihole import dns_guess
 from ..screen import boot_resolution
 from ..util import IMAGE_EXTS
 from ..voice import BOT_VOICES, VOICE_MB, voices_here
-from ..listen import LISTENS, WAKE_MOST, mics
+from ..listen import LISTENS, WAKE_MOST, mics, wake_for, wake_name
 from ..bot import FRIEND_CHATTER, FRIEND_STYLES
-from ..face import FACE_BACKS, FACE_COLOURS
+from ..face import FACE_BACKS, FACE_COLOURS, SHAPE_DEFAULTS, SHAPE_MOST
 from ..crypto import CRYPTO_LINE, CRYPTO_MOST
 from ..stocks import STOCKS_LINE, STOCKS_MOST, SYMBOL
 from ..net import cam_address
@@ -218,22 +218,7 @@ class WebSettingsScreen:
                  else "bad" if asking and fr.server else ""},
                 {"key": "f_model", "label": "Model", "kind": "choice", "value": fr.model, "choices": models, "list": True,
                  "empty": "Set the computer first" if not fr.server else "Asking for its models…"
-                 if asking.endswith("…") else "No models found"},
-                {"key": "f_name", "label": "What it calls you", "kind": "text", "value": fr.name,
-                 "placeholder": "Your name (optional)", "max": 40},
-                {"key": "f_style", "label": "How it talks", "kind": "choice", "value": fr.style()["key"],
-                 "choices": [k for k, *_ in FRIEND_STYLES], "names": {k: n for k, n, *_ in FRIEND_STYLES}},
-                {"key": "f_chatter", "label": "Says something by itself", "kind": "choice",
-                 "value": str(fr.chatter()), "choices": [v for _, v in chatter], "names": {v: t for t, v in chatter}}]
-        if self.voice.supported():
-            job = self.voice.job
-            rows += [{"key": "f_voice", "label": "Voice", "kind": "choice", "value": (job or {}).get("id")
-                      or self.bot_voice(), "choices": [i for i, _ in voices], "names": dict(voices),
-                      "status": self.voice.status() or "",
-                      "tone": "busy" if job else "bad" if self.voice.error else ""},
-                     {"key": "f_speak", "label": "Says its replies out loud", "kind": "choice",
-                      "value": "on" if self.bot_speaks() else "off", "choices": ["on", "off"],
-                      "names": {"on": "Yes", "off": "No"}}]
+                 if asking.endswith("…") else "No models found"}]
         found = mics()
         listen = self.listen_rows(found)
         if "f_listen" in listen:
@@ -258,18 +243,48 @@ class WebSettingsScreen:
                   "value": "on" if self.bot_face_only() else "off", "choices": ["on", "off"],
                   "names": {"on": "Yes", "off": "No"},
                   "note": "Its chat page shows only its face, big, in the middle of the screen. It still talks and "
-                          "listens. Up and down on it change its colour."},
-                 {"key": "f_colour", "label": "Face colour", "kind": "choice", "value": self.bot_colour(),
-                  "choices": [n for n, _ in FACE_COLOURS]},
-                 {"key": "f_back", "label": "Background", "kind": "choice", "value": self.bot_back(),
-                  "choices": [n for n, _ in FACE_BACKS],
-                  "note": "Matching is a deep shade of its face's colour."},
-                 {"key": "f_lashes", "label": "Eyelashes", "kind": "choice",
-                  "value": "on" if self.bot_lashes() else "off", "choices": ["on", "off"],
-                  "names": {"on": "Yes", "off": "No"}},
+                          "listens. SELECT on the Bot switches it on or off, and on its face up and down change its "
+                          "colour, left and right its background."},
                  choice("coder_sound", "Sounds at work", ["On", "Off"],
                         value="Off" if self.setting("coder_sound") == "Off" else "On")]
         sec("bot", "Bot", rows, "It talks through Ollama on another computer on your network.")
+
+        # the Bot's character: who it is, its look and its voice (on the Pi: X > Edit Character on the Bot)
+        steps = self.bot_steps()
+
+        def step(key, label, note=""):
+            return dict({"key": "f_" + key, "label": label, "kind": "range", "value": steps[key], "min": 0,
+                         "max": SHAPE_MOST, "start": SHAPE_DEFAULTS[key]}, **({"note": note} if note else {}))
+        rows = [{"key": "f_botname", "label": "Name", "kind": "text", "value": self.bot_name(), "placeholder": "Potato",
+                 "max": 24, "note": f"You call it by it: “{self.bot_wake()}”."},
+                {"key": "f_name", "label": "What it calls you", "kind": "text", "value": fr.name,
+                 "placeholder": "Your name (optional)", "max": 40},
+                step("eye_size", "Eye size"), step("eye_height", "Eye height"),
+                step("eye_corners", "Eye corners", "0 is square, 10 is round."),
+                step("eye_gap", "Space between its eyes"),
+                {"key": "f_lashes", "label": "Eyelashes", "kind": "choice",
+                 "value": "on" if self.bot_lashes() else "off", "choices": ["on", "off"],
+                 "names": {"on": "Yes", "off": "No"}},
+                step("mouth_size", "Mouth size"),
+                {"key": "f_colour", "label": "Face colour", "kind": "choice", "value": self.bot_colour(),
+                 "choices": [n for n, _ in FACE_COLOURS], "colours": {n: hex_of(c) for n, c in FACE_COLOURS}},
+                {"key": "f_back", "label": "Background", "kind": "choice", "value": self.bot_back(),
+                 "choices": [n for n, _ in FACE_BACKS], "colours": {n: hex_of(c) for n, c in FACE_BACKS}}]
+        if self.voice.supported():
+            job = self.voice.job
+            rows += [{"key": "f_voice", "label": "Voice", "kind": "choice", "value": (job or {}).get("id")
+                      or self.bot_voice(), "choices": [i for i, _ in voices], "names": dict(voices),
+                      "status": self.voice.status() or "",
+                      "tone": "busy" if job else "bad" if self.voice.error else ""},
+                     {"key": "f_speak", "label": "Says its replies out loud", "kind": "choice",
+                      "value": "on" if self.bot_speaks() else "off", "choices": ["on", "off"],
+                      "names": {"on": "Yes", "off": "No"}}]
+        rows += [{"key": "f_style", "label": "How it talks", "kind": "choice", "value": fr.style()["key"],
+                  "choices": [k for k, *_ in FRIEND_STYLES], "names": {k: n for k, n, *_ in FRIEND_STYLES}},
+                 {"key": "f_chatter", "label": "Says something by itself", "kind": "choice",
+                  "value": str(fr.chatter()), "choices": [v for _, v in chatter], "names": {v: t for t, v in chatter}}]
+        sec("character", "Bot's character", rows, "Who it is, how it looks and how it sounds. Its face on the Pi "
+                                                  "changes as you go.")
 
         # the games
         systems = self.games_systems()
@@ -639,6 +654,39 @@ class WebSettingsScreen:
         if value not in dict(FACE_BACKS):
             return {"error": "That isn't one of its choices"}
         return {"ok": True} if self.friend_set(background=value) else {"error": "Couldn't save static/bot.txt"}
+
+    def web_set_f_botname(self, value, cmd):
+        """Its name, from the web page: its wake phrase too."""
+        phrase = wake_for(clean_name(value, 24), self.bot_wake())
+        if not phrase:
+            return {"error": "A name of two letters or more, like Potato"}
+        return {"ok": True, "said": f"It's {wake_name(phrase)}"} if self.friend_set(wake=phrase) else \
+            {"error": "Couldn't save static/bot.txt"}
+
+    def web_shape(self, key, value):
+        """One of its Character's steps (0 to 10), from the web page."""
+        try:
+            v = int(value)
+        except (TypeError, ValueError):
+            v = -1
+        if not 0 <= v <= SHAPE_MOST or isinstance(value, bool):
+            return {"error": f"That isn't a number from 0 to {SHAPE_MOST}"}
+        return {"ok": True} if self.friend_set(**{key: v}) else {"error": "Couldn't save static/bot.txt"}
+
+    def web_set_f_eye_size(self, value, cmd):
+        return self.web_shape("eye_size", value)
+
+    def web_set_f_eye_height(self, value, cmd):
+        return self.web_shape("eye_height", value)
+
+    def web_set_f_eye_corners(self, value, cmd):
+        return self.web_shape("eye_corners", value)
+
+    def web_set_f_eye_gap(self, value, cmd):
+        return self.web_shape("eye_gap", value)
+
+    def web_set_f_mouth_size(self, value, cmd):
+        return self.web_shape("mouth_size", value)
 
     def web_set_f_lashes(self, value, cmd):
         if value not in ("on", "off"):

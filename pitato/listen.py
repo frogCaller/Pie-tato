@@ -181,6 +181,28 @@ def meaningful(text):
     return any(w not in FILLER for w, _ in tokens(text))
 
 
+GREETINGS = ("hey", "hi", "hello", "ok", "okay", "yo", "oi")   # (said before its name, in a wake phrase)
+
+
+def wake_name(phrase):
+    """The bot's name, from its wake phrase: the words after its greeting ("hey potato": Potato)."""
+    words = (phrase or "").split()
+    while len(words) > 1 and words[0] in GREETINGS:
+        words = words[1:]
+    return " ".join(w[:1].upper() + w[1:] for w in words)
+
+
+def wake_for(name, phrase):
+    """The wake phrase for a new name: the greeting it had ("hey", unless it had none), then the name. "": the name
+    won't do (too short)."""
+    words = (phrase or "").split()
+    greet = words[0] if len(words) > 1 and words[0] in GREETINGS else "hey"
+    named = " ".join(re.sub(r"[^a-z' ]", " ", (name or "").lower()).split())
+    if len(named.replace(" ", "").replace("'", "")) < 2:
+        return ""
+    return tidy_phrase(f"{greet} {named}")
+
+
 def tidy_phrase(text):
     """A wake phrase as typed, tidied: lower case words, or "" when it won't do."""
     words = re.sub(r"[^a-z' ]", " ", (text or "").lower()).split()

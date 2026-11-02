@@ -208,9 +208,9 @@ Put your games in the `Games` folder in your home folder. It has a folder for ea
 too, for the cartridge ones). They're played by mGBA, Nestopia, Snes9x, Genesis Plus GX, Beetle NeoPop,
 FinalBurn Neo, PCSX ReARMed, Mupen64Plus-Next, PPSSPP, melonDS, Flycast, and on a PC, LRPS2 and Dolphin.
 
-If you have more than a dozen games, the Games tab has a folder for each console, plus Recently played,
-Favourites and All games. In a folder, ◀ and ▶ jump by letter, and SELECT adds a game to your favourites
-(or takes it out). START searches all your games by name.
+If you have more than a dozen games, the Games tab shows an icon for each console to pick from, plus
+Recently played, Favourites and All games. In a folder, ◀ and ▶ jump by letter, and SELECT adds a game
+to your favourites (or takes it out). START searches all your games by name.
 
 In a game, Home opens its menu: save or load a state, start over, the players, the volume, the picture
 size, the AI player (see Bot below), or quit. For the picture, Fit keeps the game's shape, Sharp uses
@@ -281,21 +281,27 @@ play shrek two") starts the one with that in its name. "Put on some cartoons", "
 channel" or "watch the news" puts something on (a channel comes from your streams, or from Plex if you're
 signed in), and "next channel" changes it. "Show my camera roll", "show my newest picture" and "start a
 slideshow" bring up your photos. "Rotate the camera" turns a camera's picture, and "turn the camera left"
-turns a camera that can move. Tell it you're bored and it suggests a game or some cartoons. "Check for
-updates", "restart" and "shut down" ask first, and say yes to go ahead. With Ollama set up, ask any way
-you like: the bot knows your games, music and streams by name, and starts what you asked for.
+turns a camera that can move. Tell it you're bored and it suggests a game or some cartoons, and "show me
+something cool" puts on something from the Simulator, picked at random. "Check for updates", "restart" and
+"shut down" ask first, and say yes to go ahead. With Ollama set up, ask any way you like: the bot knows
+your games, music and streams by name, and starts what you asked for.
 
 Press left on the Bot for Today: your list, timers, reminders and notes. A adds to your list, X ticks
 a thing off, and SELECT twice takes it off. START starts a 25-minute focus timer, with a 5-minute
 break after it. Its face blinks, looks around, and shows when it's listening, thinking or talking.
-Settings > Bot > How it talks gives it a personality: Friendly, Big brother, Butler, Pirate, Coach, Robot
-or Calm. Settings > Bot > Just its face shows only its face, big, in the middle of the screen, with no
-words. It still talks, and with a microphone it listens: press A and talk to it. Without one, A
-opens the keyboard. Press up or down there to change its colour. Its background follows the colour,
-or you can pick one in Settings > Bot > Background, and Eyelashes gives it lashes.
+SELECT switches its chat page to just its face, big, in the middle of the screen, with no words, and
+back. It still talks, and with a microphone it listens: press A and talk to it. Without one, A opens
+the keyboard. On its face, up and down change its colour and left and right its background.
 
-Its settings are on the Bot too: press X, then Settings (or START), and B brings you back to it.
-They're also in Settings > Bot.
+Make it your own in its Character, like a game's character creator: X > Edit Character on the Bot, or
+first in its settings (START). Its name, its eyes (size, height, corners, spacing, eyelashes), its mouth,
+its colours and its voice are each a row: ◀▶ changes it and its face shows it at once, A types its name,
+L and R go through the parts, SELECT shows its other looks (happy, sorry, cool...), X makes up a look at
+random, and Y twice puts its look back as it started. Its name is what you call it ("hey potato" for
+Potato), and it knows it. How it talks gives it a personality: Friendly, Big brother, Butler, Pirate,
+Coach, Robot or Calm. Settings > Bot keeps the rest: the computer with Ollama, the model, and how it listens.
+
+START has its settings, right on the Bot, and B brings you back to it. They're also in Settings > Bot.
 
 If you run [Ollama](https://ollama.com) on a computer on your network, set its address and a
 model in Settings > Bot, or on the web page. On that computer Ollama has to listen on the
@@ -330,19 +336,19 @@ screen and works out what to aim for. What it works out goes in `Games/Saves`, i
 `.ai-notes.txt`, for next time. You can add your own tips there, under Tips, and change its Kind: line
 if it got the kind of game wrong. What it saw and picked goes there too, in a file ending in `.ai.log`.
 
-If you pick a voice in Settings > Bot > Voice, it says its replies out loud with
+If you pick a voice in its Character (Voice), it says its replies out loud with
 [Piper](https://github.com/rhasspy/piper), which runs on the Pi. The first time, the Pi
 downloads Piper (about 25 MB) and the voice (about 60 MB). The quick voices suit a Pi Zero
-best. Press SELECT to hear the last reply again, or Say it out loud on the web page.
+best. Press X and Say it again to hear the last reply again, or Say it out loud on the web page.
 
 If you plug a USB microphone into the Pi (one with a free USB port: in a GPi Case, only the GPi Case 2's
 dock has one) or a PC, you can talk to it: say "hey potato" and what you want. It makes out what you say on
 the Pi itself with [Vosk](https://alphacephei.com/vosk/), which it downloads the first time you plug one in
 (about 45 MB). It listens while music plays or is paused, and turns the music down while you talk. It
 doesn't listen while it's talking, while you play a game, or while a video plays on a Pi Zero, 1, 2 or 3.
-You can change the wake phrase in Settings > Bot, or press X on the Bot page and Talk to it instead. Set
-Settings > Bot > Listens to Off to stop it, or to On to have it use a webcam's microphone or a PC's built-in
-one too.
+Renaming it in its Character changes what you say, or set any wake phrase in Settings > Bot. Or press X
+on the Bot page and Talk to it instead. Set Settings > Bot > Listens to Off to stop it, or to On to have it
+use a webcam's microphone or a PC's built-in one too.
 
 ## Bot at work
 
@@ -392,7 +398,7 @@ Settings writes most of them for you.
 | `streams.txt`, `radio.txt` | your own streams and stations, `Name \| URL` per line |
 | `finance.txt` | `stocks =` the stocks to show (tickers, as on Yahoo Finance) and `coins =` the coins (CoinGecko ids). Y on the Finance tab adds and removes them |
 | `camera.txt` | `camera =` an address per line, a name after it if you like |
-| `bot.txt` | `server =`, `model =`, `style =`, `voice =`, `listen =`, `wake =`, `face_only =`, `colour =`, `background =` and `lashes =` (Settings > Bot writes these) |
+| `bot.txt` | `server =`, `model =`, `style =`, `voice =`, `listen =`, `wake =`, `face_only =`, `colour =`, `background =`, `lashes =`, and its shape from 0 to 10: `eye_size =`, `eye_height =`, `eye_corners =`, `eye_gap =`, `mouth_size =` (Settings > Bot and its Character write these) |
 | `homeassistant.txt` | `url =` and `token =` (a long-lived access token): Settings > Home writes them, on the Pi or the web page. Your TVs and lights are found by themselves, and `tv =` and `lights =` pick which ones show |
 | `pihole.txt` | `address =` and `password =`: the Pi-hole page writes them when you sign in there |
 | `jellyfin.txt` | `server =` if your Jellyfin server isn't found by itself, and `user =` and `password =` if you'd rather not use Quick Connect |
@@ -409,4 +415,5 @@ off, and System shows how far it's got and how busy the CPU is.
 ## License
 
 MIT, see [LICENSE](LICENSE). The fonts in `static/fonts` (Atkinson Hyperlegible Next and Inter) have their
-own license, `OFL.txt`.
+own license, `OFL.txt`. The console pictures in `pitato/icons/consoles` are RetroArch's, under CC BY 4.0:
+see `CREDITS.txt` there.

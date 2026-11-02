@@ -337,6 +337,10 @@ BORED = _rx(r"(?:i'm|im|i am|i feel|i'm feeling|feeling|so|i'm so|i am so|i'm ge
             r"(?: now| right now| out of my mind| stiff)?",
             r"what (?:should|can|could) (?:i|we) do(?: now| today)?", r"entertain me", r"there's nothing to do",
             r"nothing to do", r"i(?:'m| am) bored what (?:should|can) i do")
+COOL_WORD = r"(?: really| very| super)? (?:cool|neat|awesome|amazing|interesting|trippy|fun|pretty|fancy|wild|random)"
+COOL = _rx(r"(?:show|give|find|pick)(?: me| us)? (?:something|anything|some thing)" + COOL_WORD +
+           r"(?: to (?:look at|see|watch))?(?: on (?:the|your|my) screen)?",
+           r"(?:do|draw|put on)(?: me| us)? something" + COOL_WORD, r"(?:something|anything)" + COOL_WORD)
 UPDATE = _rx(r"(?:update|upgrade)(?: yourself| itself| your software| the software| pietato| potato| everything)?"
              r"(?: now)?",
              r"(?:check for|look for|get|install|are there any|is there an?|any|get the|install the|do the|do an?) "
@@ -480,6 +484,8 @@ def parse_plain(t, now=None):
         return Ask("no", t)
     if _first(BORED, t):
         return Ask("bored", t)
+    if _first(COOL, t):
+        return Ask("cool", t)
     if _first(WEATHER, t):
         return Ask("weather", t)
     if _first(UPDATE, t):

@@ -1,0 +1,28 @@
+The console pictures in this folder are RetroArch's: the icons of its XMB menu's Monochrome theme,
+by Jean-Baptiste "Bibalox" Bal and the RetroArch Team, from https://github.com/libretro/retroarch-assets
+(xmb/monochrome/png). They are licensed under the Creative Commons Attribution 4.0 International license
+(CC BY 4.0): https://creativecommons.org/licenses/by/4.0/
+
+Changes: each file is renamed for the console it's for, and Pietato draws it in a colour of its own, on a tile.
+
+  gb.png       Nintendo - Game Boy.png
+  gbc.png      Nintendo - Game Boy Color.png
+  gba.png      Nintendo - Game Boy Advance.png
+  nes.png      Nintendo - Nintendo Entertainment System.png
+  snes.png     Nintendo - Super Nintendo Entertainment System.png
+  genesis.png  Sega - Mega Drive - Genesis.png
+  sms.png      Sega - Master System - Mark III.png
+  gg.png       Sega - Game Gear.png
+  ngp.png      SNK - Neo Geo Pocket.png
+  ngpc.png     SNK - Neo Geo Pocket Color.png
+  neogeo.png   SNK - Neo Geo.png
+  n64.png      Nintendo - Nintendo 64.png
+  ps1.png      Sony - PlayStation.png
+  psp.png      Sony - PlayStation Portable.png
+  nds.png      Nintendo - Nintendo DS.png
+  dc.png       Sega - Dreamcast.png
+  ps2.png      Sony - PlayStation 2.png
+  gc.png       Nintendo - GameCube.png
+  wii.png      Nintendo - Wii.png
+
+The console names are their makers' trademarks, used only to say which console each picture is for.

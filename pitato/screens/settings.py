@@ -13,8 +13,8 @@ from ..home import wallpaper
 from ..weather import find_me, geocode, place_text
 from ..voice import BOT_VOICES, VOICE_MB, voices_here
 from ..listen import mics
-from ..bot import FRIEND_CHATTER, FRIEND_PAGES, FRIEND_STYLES
-from ..face import face_colours, FACE_BACKS, FACE_COLOURS
+from ..bot import FRIEND_PAGES
+from ..face import face_colours
 from ..inputs import HALT_WAIT
 
 RES_KEEP = 20          # Settings > Resolution: seconds to keep a new size, or the Pi goes back (it may show nothing)
@@ -45,19 +45,13 @@ class SettingsScreen:
                 rows.append(("other", "Other network…", "A hidden network, by name"))
             return rows
         if self.set_page == "friend":
-            rows = [("f_server", "Computer with Ollama", None), ("f_model", "Model", None),
-                    ("f_name", "What it calls you", None),
-                    ("f_style", "How it talks", [n for _, n, *_ in FRIEND_STYLES]),
-                    ("f_chatter", "Says something by itself", [t for t, _ in FRIEND_CHATTER]),
-                    ("f_voice", "Voice", None), ("f_speak", "Says its replies out loud", ["On", "Off"])]
+            rows = [("f_char", "Character", None), ("f_server", "Computer with Ollama", None),
+                    ("f_model", "Model", None)]
             found = mics()
             listen = self.listen_rows(found)
             rows += [r for r in (("f_listen", "Listens for you", ["Auto", "On", "Off"]), ("f_wake", "Wake phrase", None),
                                  ("f_mic", "Microphone", ["Auto"] + [c["name"] for c in found])) if r[0] in listen]
-            rows += [("f_face", "Just its face", ["On", "Off"]),
-                     ("f_colour", "Face colour", [n for n, _ in FACE_COLOURS]),
-                     ("f_back", "Background", [n for n, _ in FACE_BACKS]),
-                     ("f_lashes", "Eyelashes", ["On", "Off"])]
+            rows += [("f_face", "Just its face", ["On", "Off"])]
             return rows
         if self.set_page == "f_voices":
             ours = [i for i, _, _ in BOT_VOICES]
@@ -104,6 +98,8 @@ class SettingsScreen:
         return keys.index(key) if key in keys else 0
 
     def press_settings(self, name, repeat):
+        if self.set_page == "f_char":                  # (the Bot's Character: L R go through its parts)
+            return self.press_character(name, repeat)
         if name in ("l", "r"):
             return "pass"                              # tabs, as everywhere
         if self.set_page == "bluetooth":
@@ -143,8 +139,7 @@ class SettingsScreen:
             elif key == "homeassistant":
                 self.ha_open()
             elif key == "friend":
-                self.set_page, self.set_sel = "friend", 0
-                self.friend.load(self.friend_files())
+                self.friend_page()
                 if self.friend.server and self.friend.models_at != self.friend.server:
                     self.friend.fetch_models()
             elif key == "wallpaper" and self.setting("wallpaper") == "Picture":
@@ -484,6 +479,8 @@ class SettingsScreen:
     def render_settings(self):
         if self.set_page == "bluetooth":
             return self.render_bluetooth()
+        if self.set_page == "f_char":
+            return self.render_character()
         F = self.fonts
         img, d = self.canvas()
         W, H = self.fb.w, self.fb.h
@@ -581,8 +578,8 @@ class SettingsScreen:
                     self.tap_arrows(y, y + rh, x0 - 10, W - 28)
                     x0 -= 28
                 if key in ("f_colour", "f_back"):          # (the colour itself, beside its name)
-                    face, page, _ = face_colours(self.bot_colour(), self.bot_back())
-                    d.ellipse((x0 - 30, mid - 9, x0 - 12, mid + 9), fill=face if key == "f_colour" else page,
+                    face, back = face_colours(self.bot_colour(), self.bot_back())
+                    d.ellipse((x0 - 30, mid - 9, x0 - 12, mid + 9), fill=face if key == "f_colour" else back,
                               outline=LINE)
                 continue
             d.text((30, mid), label, font=F["row"], fill=TEXT if on else BODY, anchor="lm")
@@ -627,6 +624,7 @@ class SettingsScreen:
             k = rows[sel][0]
             hints = ([("◀▶", "Change")] if k in ("f_style", "f_chatter", "f_speak", "f_listen", "f_mic", "f_face",
                                                  "f_colour", "f_back", "f_lashes")
+                     else [("A", "Open")] if k == "f_char"
                      else [("A", "Choose")] if k in ("f_model", "f_voice") else [("A", "Type")])
             hints += [("X", "Check"), ("B", "Back")]
         elif self.set_page == "f_voices":

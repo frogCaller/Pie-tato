@@ -15,18 +15,21 @@ from ..weather import place_text, wx_words
 from ..stocks import money
 from ..voice import BOT_VOICES, voice_name, VOICE_SAMPLE, voices_here
 from ..listen import (LISTEN_AGAIN, LISTEN_MB, LISTEN_TRIES, LISTENS, MIC_LOOK, PATIENCE, WAKE, WAKE_MOST, WEB_MIC,
-                      have_vosk, mics, supported as listen_supported, tidy_phrase)
+                      have_vosk, mics, supported as listen_supported, tidy_phrase, wake_for, wake_name)
 from ..system import is_pc
 from ..bot import (
     Friend, FRIEND_BUBBLE, FRIEND_CHATTER, FRIEND_HEAD, FRIEND_HELLO_AFTER, FRIEND_KEEP, FRIEND_PAGES,
     FRIEND_PIC_ROOM, FRIEND_SIGHT, FRIEND_STYLES, FRIEND_TOPICS)
 from ..coder import CODER_BUSY, CODER_TITLES
-from ..face import draw_face, face_colours, face_wait, FACE_BACKS, FACE_COLOURS, MOODS
+from ..face import draw_face, face_colours, face_shape, face_wait, FACE_BACKS, FACE_COLOURS, MOODS, \
+    SHAPE_DEFAULTS, shape_step
 
 BOT_MODES = ("today", "chat", "work")   # the Bot's pages, left to right: your day, chatting, your coding agent at work
 BOT_MODE_NAMES = {"today": "Today", "chat": "Chat", "work": "Work"}
 FACE_MOOD_SECS = 90             # the face shows how it felt about what it said for this long, then its everyday look
-FACE_SIZE = 112                 # the face, across
+FACE_SIZE = 96                  # the face, across (on its chat page: in its panel, its background's colour)
+FACE_PANEL = (10, 48, 214, 16)  # ...that panel: in from its card's sides, down from its card's top (under its pages'
+                                # names), how tall at most, how round its corners
 FACE_ONLY_SIZE = (0.52, 0.66)   # Just its face: as wide as this much of the screen's width, or this much of its height
 FACE_ONLY_FPS = 8               # ...and on a Pi Zero, at most this many frames a second while it's busy (a big face)
 FRIEND_MENU = (320, 44)         # the Bot page's X menu: its width, and each of its rows' height
@@ -39,10 +42,11 @@ FACE_CAN_DO = ("You can do things for them. When they ask you to play one of the
                "Do it only when they ask you to, not for something they just mention. These are the things you can do: "
                "timers and a focus timer, reminders, their list (\"add milk to my list\"), notes, music and the radio "
                "(\"play some jazz\"), their games (\"play a game\", \"play mario\"), something to watch (\"turn on a "
-               "channel\", \"next channel\"), their photos (\"show my camera roll\", \"start a slideshow\"), opening "
-               "apps, their lights, turning the camera (\"rotate the camera\", \"turn the camera left\"), and "
-               "updating, restarting or shutting down the Pi (\"check for updates\", \"restart\", \"shut down\"). "
-               "If they're bored, suggest a game or something to watch.")
+               "channel\", \"next channel\"), their photos (\"show my camera roll\", \"start a slideshow\"), "
+               "something cool to look at (\"show me something cool\"), opening apps, their lights, turning the "
+               "camera (\"rotate the camera\", \"turn the camera left\"), and updating, restarting or shutting down "
+               "the Pi (\"check for updates\", \"restart\", \"shut down\"). If they're bored, suggest a game or "
+               "something to watch.")
 
 
 class BotScreen:
@@ -116,28 +120,42 @@ class BotScreen:
         return self.on_friend_page() and self.bot_face_only()
 
     def bot_colour(self):
-        """Settings > Bot > Face colour, by name (up and down, on just its face, go from one to the next)."""
+        """Its Character's face colour, by name (up and down, on just its face, go from one to the next)."""
         want = (self.friend.conf.get("colour") or "").strip().capitalize()
         return want if want in dict(FACE_COLOURS) else FACE_COLOURS[0][0]
 
     def bot_back(self):
-        """Settings > Bot > Background, by name: Matching (a deep shade of its colour), Dark (the menus' own), or one
-        of its own."""
+        """Its Character's background, by name: Dark (the menus' own) or another (left and right, on just its face,
+        go from one to the next)."""
         want = (self.friend.conf.get("background") or "").strip().capitalize()
         return want if want in dict(FACE_BACKS) else FACE_BACKS[0][0]
 
     def bot_lashes(self):
-        """Settings > Bot > Eyelashes."""
+        """Its Character's eyelashes."""
         return (self.friend.conf.get("lashes") or "off").strip().lower() in ("on", "yes", "1", "true")
 
     def bot_palette(self):
-        """Its colours: (its face's, the screen's behind just its face, its card's on its chat page)."""
+        """Its colours: (its face's, its background's), each picked on its own."""
         return face_colours(self.bot_colour(), self.bot_back())
+
+    def bot_steps(self):
+        """Its eyes' and mouth's shape (its Character): each step, 0 to 10, as bot.txt has them."""
+        conf = self.friend.conf
+        return {k: shape_step(conf.get(k), d) for k, d in SHAPE_DEFAULTS.items()}
+
+    def bot_shape(self):
+        """...as its face is drawn with it."""
+        return face_shape(self.bot_steps())
 
     def bot_colour_step(self, d):
         """Its face's next colour (d 1) or the one before (-1): kept in bot.txt."""
         names = [n for n, _ in FACE_COLOURS]
         self.friend_set(colour=names[(names.index(self.bot_colour()) + d) % len(names)])
+
+    def bot_back_step(self, d):
+        """Its next background (d 1) or the one before (-1): kept in bot.txt."""
+        names = [n for n, _ in FACE_BACKS]
+        self.friend_set(background=names[(names.index(self.bot_back()) + d) % len(names)])
 
     def friend_changed(self):
         """It said something, or started or stopped thinking (from its thread)."""
@@ -164,6 +182,31 @@ class BotScreen:
     def bot_speaks(self):
         """Its replies said out loud (when it has a voice)."""
         return (self.friend.conf.get("speak") or "on").strip().lower() not in ("off", "no", "0", "false")
+
+    def bot_speak_step(self):
+        """Its Character's Talks out loud, on or off (a voice first)."""
+        if not self.bot_voice():
+            self.toast("Pick a voice first", 3)
+            return
+        self.friend_set(speak="off" if self.bot_speaks() else "on")
+        if not self.bot_speaks():
+            self.voice.stop()
+
+    def bot_name(self):
+        """Its name (its Character's): its wake phrase's, after the greeting ("hey potato": Potato)."""
+        return wake_name(self.bot_wake())
+
+    def bot_name_typed(self, text):
+        """Its Character's Name, typed: its wake phrase too ("hey" and it), so you call it by it."""
+        if not text.strip():
+            return
+        phrase = wake_for(text, self.bot_wake())
+        if not phrase:
+            self.toast("A name of two letters or more, like Potato", 3)
+            return
+        if self.friend_set(wake=phrase):
+            self.toast(f"It's {self.bot_name()}. Say \"{phrase}\", then what you want" if self.ears.on
+                       else f"It's {self.bot_name()}", 3)
 
     def say_aloud(self, text=None):
         """A reply said out loud: the last one when none is given (not over something playing, which
@@ -624,12 +667,16 @@ class BotScreen:
         return path, data, self.camera.name_of(addr)
 
     def friend_options(self):
-        """The Bot page's X menu: (what it says, what it does)."""
+        """The Bot page's X menu: (what it says, what it does). (Its settings: START.)"""
         opts = [("Talk to it", "talk")] if self.ears.on and self.ears.state in ("waiting", "listening") else []
-        opts.append(("Send a picture from Photos", "send"))
+        if self.voice.speaking:
+            opts.append(("Stop talking", "hush"))
+        elif self.bot_voice() and any(x["who"] == "friend" for x in list(self.friend.log)):
+            opts.append(("Say it again", "speak"))
+        opts.append(("Send a photo", "send"))
         if self.friend_camera():
             opts.append(("Take a picture", "snap"))
-        opts.append(("Settings", "setup"))
+        opts.append(("Edit Character", "character"))
         opts.append(("Press A again to clear it" if self.confirm[0] == "friendclear" else "Clear the conversation",
                      "clear"))
         return opts
@@ -705,10 +752,16 @@ class BotScreen:
                             self.toast(self.ears.error or "It isn't listening yet", 3)
                     elif what == "send":
                         self.friend_pick()
+                    elif what == "character":
+                        self.char_open(from_menu=True)
                     elif what == "snap":
                         self.friend_send("Take a picture")
-                    elif what == "setup":
-                        self.friend_setup()
+                    elif what == "hush":
+                        self.voice.stop()
+                    elif what == "speak":
+                        ok, why = self.say_aloud()
+                        if not ok:
+                            self.toast(why, 3)
             elif name in ("b", "x") and not repeat:
                 self.friend_more = None
                 self.confirm = (None, 0.0)
@@ -722,17 +775,13 @@ class BotScreen:
             return None
         if repeat and name not in ("up", "down"):
             return None
-        if name == "start" or (name == "a" and not fr.ready()):
+        if name == "select":                           # just its face, or its chat page again
+            self.friend_set(face_only="off" if self.bot_face_only() else "on")
+            self.friend_scroll = 0
+        elif name == "start" or (name == "a" and not fr.ready()):
             self.friend_setup()
         elif not fr.ready():
             pass
-        elif name == "select":
-            if self.voice.speaking:
-                self.voice.stop()
-            else:
-                ok, why = self.say_aloud()
-                if not ok:
-                    self.toast(why, 3)
         elif name == "a":
             if fr.busy:
                 self.toast("Still thinking about the last one", 2)
@@ -755,10 +804,15 @@ class BotScreen:
 
     def press_bot(self, name, repeat):
         """The Bot: left and right go from one of its pages to the next (Today, Chat, Work; not while its menu or a
-        card is open); the rest is up to the one on screen. Its settings, while they're open on it: theirs."""
+        card is open; on just its face, they change its background); the rest is up to the one on screen. Its
+        settings, while they're open on it: theirs."""
         if self.bot_settings:
             return self.press_settings(name, repeat)
         mode = self.bot_mode()
+        if name in ("left", "right") and self.friend_more is None and mode == "chat" and self.bot_face_only():
+            if not repeat:
+                self.bot_back_step(-1 if name == "left" else 1)
+            return None
         if name in ("left", "right") and self.friend_more is None and not self.coder_help:
             i = BOT_MODES.index(mode) + (1 if name == "right" else -1)
             if not repeat and 0 <= i < len(BOT_MODES):
@@ -815,11 +869,20 @@ class BotScreen:
             self.tab = self.tab_index("settings")
             self.load_tab(self.tab)
         self.friend_more, self.confirm = None, (None, 0.0)
-        self.set_page, self.set_sel = "friend", 0
-        self.friend.load(self.friend_files())
+        self.friend_page()
         if self.friend.server and self.friend.models_at != self.friend.server:
             self.friend.fetch_models()
         self.dirty = True
+
+    def friend_page(self):
+        """Settings > Bot's page, opened: on what sets it up while it isn't (its computer, then its model); else on
+        its Character, first."""
+        self.set_page = "friend"
+        self.friend.load(self.friend_files())
+        fr = self.friend
+        want = "f_server" if not fr.server else "f_model" if not fr.ready() else "f_char"
+        keys = [r[0] for r in self.settings_rows()]
+        self.set_sel = keys.index(want) if want in keys else 0
 
     def friend_set(self, **updates):
         """Settings > Bot into bot.txt (which starts from friend.txt, its earlier name)."""
@@ -860,6 +923,8 @@ class BotScreen:
             return "On" if self.bot_speaks() else "Off"
         if key == "f_face":
             return "On" if self.bot_face_only() else "Off"
+        if key == "f_char":
+            return self.char_summary()
         if key == "f_colour":
             return self.bot_colour()
         if key == "f_back":
@@ -885,7 +950,11 @@ class BotScreen:
         if repeat:
             return None
         page = self.set_page
-        if name == "b":
+        if name == "b" and page == "f_voices" and getattr(self, "voices_from", None) == "f_char":
+            self.voices_from = None                        # (the voices, from its Character: back to it)
+            self.set_page = "f_char"
+            self.confirm = (None, 0.0)
+        elif name == "b":
             if page == "friend" and self.bot_settings:     # (on the Bot: back to it)
                 self.bot_settings_close()
             elif page == "friend":
@@ -904,6 +973,8 @@ class BotScreen:
             if name == "a" and key == "f_server":
                 self.open_keyboard("Computer with Ollama (its address)", fr.server, self.friend_set_server,
                                    row=0, limit=120, empty=True)
+            elif name == "a" and key == "f_char":
+                self.char_open()
             elif name == "a" and key == "f_name":
                 self.open_keyboard("What should it call you?", fr.name,
                                    lambda t: self.friend_set(name=t), limit=40, empty=True)
@@ -944,12 +1015,7 @@ class BotScreen:
             elif key == "f_mic" and name in ("left", "right", "a"):
                 self.listen_mic_step(-1 if name == "left" else 1)
             elif key == "f_speak" and name in ("left", "right", "a"):
-                if not self.bot_voice():
-                    self.toast("Pick a voice first", 3)
-                else:
-                    self.friend_set(speak="off" if self.bot_speaks() else "on")
-                    if not self.bot_speaks():
-                        self.voice.stop()
+                self.bot_speak_step()
             elif key == "f_face" and name in ("left", "right", "a"):
                 self.friend_set(face_only="off" if self.bot_face_only() else "on")
                 self.toast("Its chat page: just its face" if self.bot_face_only() else
@@ -965,7 +1031,9 @@ class BotScreen:
         elif name == "a" and key == "f_pick":
             self.friend_set(model=extra)
             self.toast(f"Using {extra}", 2)
-            self.set_page, self.set_sel = "friend", 1
+            self.set_page = "friend"
+            keys = [r[0] for r in self.settings_rows()]
+            self.set_sel = keys.index("f_model") if "f_model" in keys else 0
         self.dirty = True
         return None
 
@@ -991,14 +1059,15 @@ class BotScreen:
                 self.toast(f"Press X again to take {voice_name(extra)} off the Pi", 4)
 
     def draw_friend_menu(self, d, mx0, my0):
-        """The Bot page's X menu (Talk to it, Send a picture...), its top left at mx0, my0."""
+        """The Bot page's X menu (Talk to it, Send a photo...), its name over it, its top left at mx0, my0."""
         F = self.fonts
         opts = self.friend_options()
         sel = self.friend_more["sel"] % len(opts)
         mw, rh = FRIEND_MENU
         d.rounded_rectangle((mx0 - 2, my0 - 2, mx0 + mw + 2, my0 + 44 + len(opts) * rh + 12), radius=14, fill=LINE)
         d.rounded_rectangle((mx0, my0, mx0 + mw, my0 + 42 + len(opts) * rh + 10), radius=13, fill=BG)
-        d.text((mx0 + 20, my0 + 22), "Your bot", font=F["small"], fill=MUTED, anchor="lm")
+        d.text((mx0 + 20, my0 + 22), self.fit(d, self.bot_name() or "Your bot", F["small"], mw - 40), font=F["small"],
+               fill=MUTED, anchor="lm")
         for k, (label, what) in enumerate(opts):
             ry = my0 + 42 + k * rh
             if k == sel:
@@ -1017,9 +1086,9 @@ class BotScreen:
         """The Bot's chat page as just its face (Settings > Bot > Just its face): big, in the middle of the screen,
         on its background, and nothing else, no words. It shows what it's doing as ever (listening, thinking,
         talking) and talks and listens all the same; A talks to it (on the web page's copy of the screen, a tap on
-        its face does), up and down change its colour. Its X menu, while it's open, is there instead, with that
-        menu's buttons."""
-        _, page, _ = self.bot_palette()
+        its face does), up and down change its colour, left and right its background, SELECT goes back to its chat
+        page. Its X menu, while it's open, is there instead, with that menu's buttons."""
+        _, page = self.bot_palette()
         img, d = self.canvas(page)
         face_at = self.face_only_at()
         box = self.face_box(face_at)
@@ -1047,24 +1116,27 @@ class BotScreen:
         self.header(img, d)
         top, bottom = self.LIST_TOP + 4, H - self.FOOTER - 10
         today = self.bot_mode() == "today"
-        # its face, in a card on the left, in its colours
-        face, page, card = self.bot_palette()
+        # its face, in a card on the left: under its pages' names, in a panel of its own in its colours
+        face, back = self.bot_palette()
         cx0, cx1 = 16, 196
-        d.rounded_rectangle((cx0, top, cx1, bottom), radius=18, fill=card)
-        mid = (top + bottom) / 2 - 16
-        face_at = ((cx0 + cx1) / 2, mid - 10, FACE_SIZE)
-        self.draw_bot_face(d, face_at, back=card)
+        d.rounded_rectangle((cx0, top, cx1, bottom), radius=18, fill=ROW)
+        side, below, tall, round_ = FACE_PANEL
+        py0 = top + below
+        py1 = min(py0 + tall, bottom - 44)             # (room under it for what your coding agent's doing)
+        d.rounded_rectangle((cx0 + side, py0, cx1 - side, py1), radius=round_, fill=back)
+        face_at = ((cx0 + cx1) / 2, (py0 + py1) / 2 - FACE_SIZE * 0.2 - 4, FACE_SIZE)   # (its eyes to the word under
+                                                                                     # it: in the middle of it)
+        self.draw_bot_face(d, face_at, back=back)
         speaking = self.voice.speaking
         hearing = self.ears.state == "listening" and not fr.busy and not speaking
         now = time.localtime()
         status = (fr.doing or "Thinking…") if fr.busy else "Speaking…" if speaking else "Listening…" if hearing else \
             f"{time.strftime('%A', now)} {now.tm_mday}" if today else \
-            self.fit(d, fr.model, F["small"], cx1 - cx0 - 24) if fr.ready() else "Not set up"
+            self.fit(d, fr.model, F["small"], cx1 - cx0 - 2 * side - 20) if fr.ready() else "Not set up"
         lit = fr.busy or speaking or hearing
-        plain = card == ROW                            # (its own colours: as they are in the menus)
-        d.text(((cx0 + cx1) / 2, mid + 66), status, font=F["small"],
-               fill=(ACCENT if lit else MUTED) if plain else face if lit else co_mix(card, face, 0.55), anchor="mm")
-        self.bot_label(d, pill=None if plain else page)
+        d.text(((cx0 + cx1) / 2, face_at[1] + FACE_SIZE * 0.66), status, font=F["small"],
+               fill=face if lit else co_mix(back, face, 0.55), anchor="mm")
+        self.bot_label(d)
         work = self.friend_work_shown = self.bot_work_line()
         if work:                                      # (your coding agent: left or right shows it)
             d.text(((cx0 + cx1) / 2, bottom - 24), self.fit(d, work[0], F["small"], cx1 - cx0 - 20), font=F["small"],
@@ -1149,14 +1221,13 @@ class BotScreen:
                 hints.append(("Y", "Plan my day"))
             hints.append(("START", "Stop focus" if self.assist.focus() else "Focus"))
         elif fr.ready():
-            hints = [("◀▶", "Pages"), ("A", "Talk"), ("Y", "Say something"), ("X", "More")]
-            hints += [("SELECT", "Stop" if speaking else "Speak")] if self.bot_voice() else [("▲▼", "Scroll")]
+            hints = [("◀▶", "Pages"), ("A", "Talk"), ("X", "More"), ("SELECT", "Just its face"), ("START", "Settings")]
         else:
-            hints = [("◀▶", "Pages"), ("A", "Set up"), ("L R", "Tabs"), ("B", "Home")]
+            hints = [("◀▶", "Pages"), ("A", "Set up"), ("SELECT", "Just its face"), ("L R", "Tabs"), ("B", "Home")]
         self.footer(d, hints)
         self.fb.show(img)
         box = self.face_box(face_at)
-        self.face_shot = (img, box, getattr(self.fb, "frames", None), face_at, card)
+        self.face_shot = (img, box, getattr(self.fb, "frames", None), face_at, back)
 
     # -- its face ---------------------------------------------------------------------------------------------
     def face_look(self):
@@ -1187,10 +1258,10 @@ class BotScreen:
         its face), with its eyelashes if it has them."""
         x, y, size = face_at
         look = look or self.face_look()
-        face, _, card = self.bot_palette()
+        face, own = self.bot_palette()
         font = self.fonts["face"] if size >= 2 * FACE_SIZE else self.fonts["small"]   # (its z's, as big as it is)
-        draw_face(d, x, y, size, look, time.monotonic(), face, card if back is None else back, font=font,
-                  lashes=self.bot_lashes())
+        draw_face(d, x, y, size, look, time.monotonic(), face, own if back is None else back, font=font,
+                  lashes=self.bot_lashes(), shape=self.bot_shape())
 
     def render_face(self):
         """Just its face, a frame on (a blink, a glance, its mouth as it talks): the rest as the page was drawn. The
@@ -1203,17 +1274,19 @@ class BotScreen:
         img, box, _, face_at, back = shot
         d = ImageDraw.Draw(img)
         d.rectangle((box[0], box[1], box[2] - 1, box[3] - 1), fill=back)
-        self.draw_bot_face(d, face_at, back=back)
+        self.draw_bot_face(d, face_at, look=self.char_preview_look() if self.on_char_page() else None, back=back)
         fb.show_part(img, box)
         self.face_shot = (img, box, getattr(fb, "frames", None), face_at, back)
 
     def face_tick(self, now):
-        """The main loop: its face's next frame, when it's due (as it changes, not all the time)."""
-        if not self.on_face_page() or self.resting or now < self.face_next:
+        """The main loop: its face's next frame, when it's due (as it changes, not all the time): on the Bot, or on
+        its Character page."""
+        char = self.on_char_page()
+        if not (self.on_face_page() or char) or self.resting or now < self.face_next:
             return
         if self.friend_more is not None and self.on_face_only():   # (just its face, with its menu there instead)
             return
-        wait = face_wait(self.face_look(), now)
+        wait = face_wait(self.char_preview_look() if char else self.face_look(), now)
         if self.pi_slow and self.fb is not None and not getattr(self.fb, "same", True):
             wait = max(wait, 0.2)                      # (a Pi Zero on a TV: each frame scaled up costs it more)
         elif self.pi_slow and self.on_face_only():

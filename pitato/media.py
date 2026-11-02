@@ -66,6 +66,7 @@ from .screens.pihole import PiholeScreen
 from .screens.sysdash import SysDashScreen
 from .screens.camera import CameraScreen
 from .screens.bot import BotScreen
+from .screens.character import CharacterScreen
 from .screens.assist import AssistScreen
 from .screens.coder import CoderScreen
 from .screens.sims import SimScreen
@@ -90,7 +91,7 @@ UPDATE_STEP = 0.233            # seconds between the update screen's dots lighti
 
 
 class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, JellyfinScreen,
-            PhotoScreen, ReadingScreen, ChannelScreen, RadioScreen, FinanceScreen,
+            PhotoScreen, ReadingScreen, ChannelScreen, RadioScreen, FinanceScreen, CharacterScreen,
             RemoteScreen, LightsScreen, CameraScreen, BotScreen, AssistScreen, CoderScreen, SimScreen,
             SnakeScreen, GameScreen, SettingsScreen, BluetoothScreen, ControllerScreen, WeatherScreen, WebScreen,
             ComputersScreen, ProgScreen, PiholeScreen, SysDashScreen, SketchScreen, HaSettingsScreen,
@@ -327,6 +328,11 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.assist_pending = None   # a question the bot asked (shut down? a game?): yes does it (assist.py)
         self.set_sel = 0             # Settings: the row picked
         self.set_page = "root"       # Settings: "root", or one of its pages ("wifi", "friend"...)
+        self.char_sec = 1            # the Bot's Character: the part picked (Eyes: Name, Eyes, Mouth...), its row,
+        self.char_row = 0
+        self.char_look = "idle"      # ...how its face looks there (SELECT), where it was opened from ("menu":
+        self.char_from = "settings"  # the Bot's X menu, "settings": its settings)
+        self.voices_from = None      # Settings > Bot > Voice's list: "f_char" when the Character page opened it
         self.wx_menu, self.wx_sel = None, 0   # Weather's settings (START): None, "menu", or "location"
         self.ha_menu = None          # Home Assistant's settings, over the page they were opened on: {"sel"}
         self.soon_jobs = collections.deque()   # what another thread wants done on this one (soon: the next tick)
@@ -554,7 +560,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             return max(0.0, min(0.25, self.lofi_next - time.monotonic()))   # (the lofi art's next frame)
         if self.on_sim_page() and self.sim_opts is None:      # (its next frame; the Clock's: a second or so off)
             return max(0.0, min(0.25 if self.sim_paced() is not None else 0.05, self.sim_next - time.monotonic()))
-        if self.on_face_page():                        # (the bot's face: as it next changes)
+        if self.on_face_page() or self.on_char_page():   # (the bot's face: as it next changes)
             return max(0.0, min(0.25, self.face_next - time.monotonic()))
         return 0.1 if self.on_camera_page() or self.on_coder_page() else 0.25
 
@@ -1794,8 +1800,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         n = len(items)
         sel = self.sels.get(self.tab, 0)
         ttype = self.tab_type()
-        grid = ttype == "photos"
-        cols = self.grid_cols() if grid else 1
+        grid = ttype == "photos" or (ttype == "games" and self.games_grid())   # (the Games tab's folders: icons)
+        cols = (self.games_cols() if ttype == "games" else self.grid_cols()) if grid else 1
         page = self.grid_rows() * cols if grid else self.visible_rows()
 
         if self.ha_menu is not None:                   # Home Assistant's settings, over the page
@@ -2043,7 +2049,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             return
         if not self.dirty and self.face_step and not self.cam_fresh:   # (the bot's face: just it)
             self.face_step = False
-            if self.view == "list" and self.on_face_page():
+            if self.view == "list" and (self.on_face_page() or self.on_char_page()):
                 self.render_face()
             self.taps_kept(shown)
             return

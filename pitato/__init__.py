@@ -41,6 +41,7 @@
   mandelbrot.py     the Mandelbrot set
   snake.py          Snake, and its AI's thread
   games.py          your own games: finding them and their emulators, one while it runs
+  consoles.py       ...the Games tab's icon for each console: RetroArch's picture of it (icons/consoles), on a tile
   discs.py          disc games: PlayStation and PSP ones, and their game codes
   emulator.py       a game in a process of its own (libretro): its pictures, sound, saves
   gpu.py            the graphics chip, for a game drawn in 3D (an N64's, a PSP's)

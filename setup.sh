@@ -1157,6 +1157,10 @@ rm -rf /usr/local/share/pitato/pitato                          # (a fresh copy: 
 install -d /usr/local/share/pitato/pitato/screens
 install -m 644 "$HERE"/pitato/*.py /usr/local/share/pitato/pitato/
 install -m 644 "$HERE"/pitato/screens/*.py /usr/local/share/pitato/pitato/screens/
+install -d /usr/local/share/pitato/pitato/icons/consoles   # the Games tab's console pictures (CREDITS.txt)
+for f in "$HERE"/pitato/icons/consoles/*; do
+  if [ -f "$f" ]; then install -m 644 "$f" /usr/local/share/pitato/pitato/icons/consoles/; fi
+done
 python3 -m compileall -q /usr/local/share/pitato/pitato > /dev/null || true   # (quicker to start)
 
 grep -qx uinput /etc/modules || echo uinput >> /etc/modules

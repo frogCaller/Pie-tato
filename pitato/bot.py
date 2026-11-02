@@ -13,6 +13,7 @@ import urllib.request
 import uuid
 
 from .config import clean_name, read_config, read_own_bytes
+from .listen import WAKE, tidy_phrase, wake_name
 from .util import UA
 from .net import OLLAMA_OPENER, read_capped
 
@@ -95,7 +96,7 @@ FRIEND_ASKS = {
                  "say it out loud: who or what is there and what's going on. No lists."),
 }
 FRIEND_CHATTER = [("Every 30 min", "30"), ("Every hour", "60"), ("Never", "0")]
-FRIEND_PAGES = ("friend", "f_models", "f_voices")   # Settings > Bot and its lists
+FRIEND_PAGES = ("friend", "f_models", "f_voices", "f_char")   # Settings > Bot, its lists, and its Character
 # its face follows the tone of what it said: PiE-ink's faces and words
 FRIEND_FACES = {"happy": "(◕‿◕)", "pleased": "(•‿‿•)", "cool": "(⌐■_■)", "curious": "(☉_☉)",
                 "sorry": "(╥_╥)", "worried": "(°▃▃°)", "sleepy": "(⇀‿‿↼)", "thinking": "(•_•)",
@@ -694,8 +695,14 @@ class Friend:
         persona = FRIEND_PERSONA.replace(" Reply in", f" {voice} Reply in", 1) if voice else FRIEND_PERSONA
         return {"key": key, "name": name, "persona": persona, "ok": ok, "hey": hey}
 
+    def own_name(self):
+        """Its own name (its Character's): its wake phrase's, after the greeting ("hey potato": Potato)."""
+        return wake_name(tidy_phrase(self.conf.get("wake")) or WAKE)
+
     def system(self):
-        persona = (self.conf.get("persona") or "").strip() or self.style()["persona"]
+        """How it's told to talk: a persona of yours (as it is), or its style's, with its own name."""
+        own = (self.conf.get("persona") or "").strip()
+        persona = own or self.style()["persona"] + (f" Your name is {self.own_name()}." if self.own_name() else "")
         return persona + (f" The person you live with is called {self.name}." if self.name else "")
 
     def context(self, message):

@@ -32,6 +32,12 @@ KDSETMODE, VT_GETSTATE, VT_ACTIVATE = 0x4B3A, 0x5603, 0x5606
 CURSOR_SHOW, CURSOR_HIDE = b"\x1b[?25h", b"\x1b[?25l"   # the console's text cursor, on and off
 
 
+def prog_path(name):
+    """Where one of the Simulator's programs is: setup.sh's own build of it, or the system's. None: not installed."""
+    own = PROG_OWN.get(name)
+    return own if own and os.access(own, os.X_OK) else shutil.which(name)
+
+
 def prog_tty():
     return PROG_TTY or f"/dev/tty{MEDIA_VT}"
 
@@ -93,7 +99,7 @@ class ProgScreen:
         if self.prog is not None:
             return
         own = PROG_OWN.get(name)
-        path = own if own and os.access(own, os.X_OK) else shutil.which(name)
+        path = prog_path(name)
         if not path:
             self.toast(f"{name} isn't installed: sudo bash setup.sh puts it in" if own
                        else f"{name} isn't installed: sudo apt install {name}", 4)

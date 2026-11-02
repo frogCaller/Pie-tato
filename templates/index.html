@@ -780,6 +780,9 @@
   .btn2.bad { color: var(--bad); }
   .btn2.armed { border-color: rgba(var(--bad-rgb), .6); background: rgba(var(--bad-rgb), .12); color: var(--bad); }
   .swatches { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
+  .range { display: flex; align-items: center; gap: 12px; width: min(100%, 320px); }
+  .range input { flex: 1; min-width: 0; height: 28px; margin: 0; accent-color: var(--accent); }
+  .range-v { min-width: 2ch; text-align: right; color: var(--body); font-variant-numeric: tabular-nums; }
   .swatch { width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 1px var(--line-2) inset; }
   .swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text); }
   .set-pics { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: 8px; max-height: 284px; overflow-y: auto; padding: 4px; }
@@ -4432,6 +4435,30 @@ const SET_DRAW = {
     if (r.confirm) b.title = r.confirm;
     b.disabled = !!r.disabled;
     c.append(b);
+    return row;
+  },
+  range(r) {                                            // a step, from r.min to r.max: a slider, kept when let go
+    const [row, c] = setRow(r);
+    const box = el("div", "range");
+    const inp = el("input");
+    inp.type = "range"; inp.min = r.min; inp.max = r.max; inp.step = 1; inp.value = r.value;
+    inp.setAttribute("aria-label", r.label);
+    if (r.start !== undefined) {                        // (where it started: a mark on it)
+      const marks = el("datalist");
+      marks.id = "marks-" + r.key;
+      const o = el("option"); o.value = r.start; marks.append(o);
+      inp.setAttribute("list", marks.id);
+      box.append(marks);
+    }
+    const out = el("span", "range-v", String(r.value));
+    inp.oninput = () => { out.textContent = inp.value; };
+    inp.onchange = async () => {
+      const v = Number(inp.value);
+      if (v !== r.value && await setSave(r.key, v, null, true)) r.value = v;
+      unfocus(box);
+    };
+    box.append(inp, out);
+    c.append(box);
     return row;
   },
   info(r) {

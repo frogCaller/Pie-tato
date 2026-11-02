@@ -308,6 +308,9 @@ class WebScreen:
         kind, args = what[0], what[1:]
         if kind == "keys":                             # a button along the bottom, or ◀ ▶ by a value
             return list(args)
+        if kind == "char" and self.on_char_page():     # the Bot's Character: a part, or a row of it, picked
+            self.char_pick(*args)
+            return []
         if kind == "sel":                              # a row, a tile, an app: picked and opened, in one tap
             return self.tap_pick(*args)
         if kind in ("tab", "tabs") and self.view == "list":

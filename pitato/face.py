@@ -1,11 +1,12 @@
 """The bot's face: two big eyes and a little mouth, drawn as shapes (sharp at any size), that blink, glance about,
 and show what it's doing (listening, thinking, talking) and how it feels (happy, sorry, curious, sleepy, cool). In
-the colour you pick, on the background you pick, with eyelashes if you like (Settings > Bot).
+the colour you pick, on the background you pick, its eyes and mouth the shape you make them, with eyelashes if you
+like (the Bot's Character).
 face_state() says how it looks at a moment; draw_face() draws it; face_wait() says when it next changes, so the
 screen is only drawn again when it does (a blink, a glance), not all the time."""
 import math
 
-from .theme import BG, co_mix, ROW
+from .theme import BG
 
 LOOKS = ("idle", "happy", "sad", "cool", "curious", "sleepy", "thinking", "listening", "talking", "alert")
 MOODS = {   # the bot's moods (bot.py's friend_face) as looks
@@ -23,16 +24,19 @@ LASH_TIP = 0.5             # ...narrowing to this much of that at its end, round
 LASHES = ((38, 0.06), (60, 0.065), (82, 0.06))   # three on each eye's top outer corner: where (degrees round from
                            # straight up), and how long (of its size); each pointing a little further out than that
 
-# Its colours (Settings > Bot > Face colour, Background): up and down, on just its face, go from one to the next
+# its shape (the Bot's Character): each a step from 0 to 10, as bot.txt keeps them. Their defaults: as it's always looked
+SHAPE_DEFAULTS = {"eye_size": 5, "eye_height": 5, "eye_corners": 10, "eye_gap": 5, "mouth_size": 5}
+SHAPE_MOST = 10
+
+# Its colours (the Bot's Character: Face, Background), each picked on its own: on just its face, up and down go from
+# one face colour to the next, left and right from one background to the next
 FACE_COLOURS = (("White", (236, 239, 243)), ("Sky", (128, 196, 255)), ("Aqua", (94, 224, 222)),
                 ("Mint", (120, 230, 168)), ("Lime", (196, 236, 110)), ("Lemon", (255, 226, 102)),
                 ("Peach", (255, 178, 128)), ("Coral", (255, 128, 112)), ("Pink", (255, 140, 196)),
-                ("Lilac", (196, 164, 255)))
-FACE_BACKS = (("Matching", None), ("Dark", None),   # Matching: a deep shade of its colour (white's: Dark); Dark: the
-              ("Black", ((0, 0, 0), (22, 22, 24))),   # menus' own. The rest: (the screen behind it, its card)
-              ("Navy", ((14, 24, 50), (26, 40, 74))), ("Plum", ((40, 18, 46), (60, 32, 68))),
-              ("Forest", ((12, 36, 28), (24, 54, 44))), ("Wine", ((48, 14, 26), (70, 26, 42))))
-FACE_TINT = (0.16, 0.2)    # Matching: this much of its colour in the screen's dark, and in its card's
+                ("Lilac", (196, 164, 255)), ("Black", (26, 28, 34)))
+FACE_BACKS = (("Dark", BG), ("Black", (0, 0, 0)), ("Navy", (18, 32, 66)), ("Teal", (12, 58, 62)),
+              ("Forest", (16, 52, 34)), ("Plum", (54, 26, 66)), ("Wine", (74, 20, 38)), ("Sky", (58, 124, 196)),
+              ("Pink", (206, 86, 142)), ("Gold", (200, 150, 40)), ("White", (232, 235, 240)))
 
 
 def _hash(n):
@@ -134,16 +138,28 @@ def _mix(a, b, k):
     return tuple(int(x + (y - x) * k) for x, y in zip(a, b))
 
 
+def shape_step(v, default):
+    """A step of its shape (0 to 10) from what bot.txt says: its default if it isn't a number."""
+    try:
+        return max(0, min(SHAPE_MOST, int(round(float(str(v).split()[0])))))
+    except (TypeError, ValueError, IndexError):
+        return default
+
+
+def face_shape(steps=None):
+    """Its shape from its steps (the Bot's Character; one not given: its default): how big its eyes are (size), how
+    tall (tall), how round their corners (round: of the smaller of their width and height), how far apart their
+    middles (gap: of the face's size), and how big its mouth (mouth)."""
+    s = {k: shape_step((steps or {}).get(k), d) for k, d in SHAPE_DEFAULTS.items()}
+    return {"size": 1 + (s["eye_size"] - 5) * 0.06, "tall": 1 + (s["eye_height"] - 5) * 0.09,
+            "round": 0.48 - (10 - s["eye_corners"]) * 0.048, "gap": 0.46 + (s["eye_gap"] - 5) * 0.02,
+            "mouth": 1 + (s["mouth_size"] - 5) * 0.08}
+
+
 def face_colours(colour, back):
-    """(its face's colour, the screen behind it, its card's: the chat page's) for a face colour and a background,
-    by their names (one that isn't: the first)."""
-    face = dict(FACE_COLOURS).get(colour, FACE_COLOURS[0][1])
-    fixed = dict(FACE_BACKS).get(back, FACE_BACKS[0][1]) if back in dict(FACE_BACKS) else None
-    if fixed:
-        return face, fixed[0], fixed[1]
-    if back in (None, "", "Matching") and face != FACE_COLOURS[0][1]:
-        return face, co_mix(BG, face, FACE_TINT[0]), co_mix(ROW, face, FACE_TINT[1])
-    return face, BG, ROW
+    """(its face's colour, its background's) for a face colour and a background, by their names (one that isn't:
+    the first of them)."""
+    return dict(FACE_COLOURS).get(colour, FACE_COLOURS[0][1]), dict(FACE_BACKS).get(back, FACE_BACKS[0][1])
 
 
 def _lash(d, x, y, ux, uy, length, wide, colour):
@@ -188,13 +204,16 @@ def _slant_lashes(d, ax, ay, bx, by, side, size, colour):
         _lash(d, ax + dx * t, ay + dy * t, side * math.sin(b), -math.cos(b), size * long, wide, colour)
 
 
-def draw_face(d, cx, cy, size, look, t, colour, back, font=None, lashes=False):
+def draw_face(d, cx, cy, size, look, t, colour, back, font=None, lashes=False, shape=None):
     """The face, size across, its middle at cx, cy, in colour on back (what's behind it: its eyes' shapes are cut
-    with it). font: for a sleepy face's z's. lashes: eyelashes on its eyes (on its glasses, when it wears them)."""
+    with it). font: for a sleepy face's z's. lashes: eyelashes on its eyes (on its glasses, when it wears them).
+    shape: its eyes' and mouth's (face_shape's; None: as it's always looked)."""
     look = look if look in LOOKS else "idle"
+    sh = shape or face_shape()
     opened, (gx, gy), mouth, grow = face_state(look, t)
-    ew, eh = size * 0.25 * grow, size * 0.36 * grow                 # an eye
-    gap = size * 0.46                                               # between their middles
+    ew, eh = size * 0.25 * grow * sh["size"], size * 0.36 * grow * sh["size"] * sh["tall"]   # an eye
+    gap = size * sh["gap"]                                          # between their middles
+    lash = size * sh["size"]                                        # (its lashes: as big as its eyes)
     ox, oy = gx * size * 0.07, gy * size * 0.06                     # where they look
     ey = cy - size * 0.08 + oy
     soft = _mix(back, colour, 0.18)
@@ -206,7 +225,7 @@ def draw_face(d, cx, cy, size, look, t, colour, back, font=None, lashes=False):
             w, h = ew * k, eh * k
         hh = max(size * 0.035, h * opened)
         box = (ex - w / 2, ey - hh / 2, ex + w / 2, ey + hh / 2)
-        r = min(w, hh) * 0.48
+        r = min(w, hh) * sh["round"]
         if look == "cool":                             # (dark glasses: the eyes behind them)
             continue
         d.rounded_rectangle(box, radius=r, fill=colour)
@@ -225,27 +244,31 @@ def draw_face(d, cx, cy, size, look, t, colour, back, font=None, lashes=False):
                       if colour == back else _mix(colour, (255, 255, 255), 0.6))
         if lashes and look == "sad" and opened > 0.5:  # (along its slanted top)
             _slant_lashes(d, ex - side * w * 0.3, ey - h * 0.62 + h * 0.6 * 0.26, ex + side * w * 0.5,
-                          ey - h * 0.62 + h * 0.6 * 0.9, side, size, colour)
+                          ey - h * 0.62 + h * 0.6 * 0.9, side, lash, colour)
         elif lashes:
-            _corner_lashes(d, box, r, side, size, colour, down=look == "sleepy")
+            _corner_lashes(d, box, r, side, lash, colour, down=look == "sleepy")
     if look == "cool":                                 # the glasses: a bar, two lenses, a shine
-        lw, lh = size * 0.36, size * 0.26
+        lw, lh = min(size * 0.36 * sh["size"], gap * 0.96), size * 0.26 * sh["size"]
+        lr = size * 0.08 * sh["size"] * sh["round"] / 0.48       # (their corners: as round as its eyes')
         y0 = ey - lh / 2
         d.rounded_rectangle((cx - gap / 2 - lw / 2 + ox, y0, cx + gap / 2 + lw / 2 + ox, y0 + size * 0.05),
                             radius=size * 0.02, fill=colour)
         for side in (-1, 1):
             lx = cx + side * gap / 2 + ox
-            d.rounded_rectangle((lx - lw / 2, y0, lx + lw / 2, y0 + lh), radius=size * 0.08, fill=colour)
+            d.rounded_rectangle((lx - lw / 2, y0, lx + lw / 2, y0 + lh), radius=lr, fill=colour)
             d.line((lx - lw * 0.28, y0 + lh * 0.3, lx - lw * 0.08, y0 + lh * 0.12), fill=back, width=max(1, round(
                 size * 0.02)))
             if lashes:                                 # (over its glasses, at their outer corners)
-                _corner_lashes(d, (lx - lw / 2, y0, lx + lw / 2, y0 + lh), size * 0.08, side, size, colour)
-    # the mouth
-    my, mw = cy + size * 0.27 + oy * 0.5, size * 0.17
+                _corner_lashes(d, (lx - lw / 2, y0, lx + lw / 2, y0 + lh), lr, side, lash, colour)
+    # the mouth: under its eyes (lower, below tall ones, while it fits), as big as you made it
+    low = -0.08 + 0.18 * sh["size"] * sh["tall"]                    # (its eyes' bottom, of its size, open)
+    my = cy + size * min(0.36, 0.45 - 0.102 * sh["mouth"], max(0.27, low + 0.12)) + oy * 0.5
+    mw = size * 0.17 * sh["mouth"]
     mx = cx + ox * 0.6
     line = max(1, round(size * 0.028))
-    if look == "talking":
-        mh = size * (0.03 + 0.11 * mouth)
+    if look == "talking":                              # (opening no further than its eyes, when they're tall)
+        mh = size * (0.03 + 0.11 * mouth) * sh["mouth"]
+        mh = min(mh, max(size * 0.03, 2 * (my - cy - size * low) - size * 0.06))
         d.rounded_rectangle((mx - mw * 0.55, my - mh / 2, mx + mw * 0.55, my + mh / 2), radius=min(mh, mw) * 0.45,
                             fill=colour)
     elif look in ("happy",):
@@ -253,7 +276,7 @@ def draw_face(d, cx, cy, size, look, t, colour, back, font=None, lashes=False):
     elif look == "sad":
         d.arc((mx - mw * 0.8, my, mx + mw * 0.8, my + mw * 1.1), 200, 340, fill=colour, width=line)
     elif look in ("curious", "alert"):
-        r = size * (0.045 if look == "curious" else 0.06)
+        r = size * (0.045 if look == "curious" else 0.06) * sh["mouth"]
         d.ellipse((mx - r, my - r, mx + r, my + r), outline=colour, width=line)
     elif look == "sleepy":
         d.line((mx - mw * 0.4, my, mx + mw * 0.4, my), fill=colour, width=line)

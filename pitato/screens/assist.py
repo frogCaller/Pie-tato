@@ -20,7 +20,10 @@ from ..weather import wx_words
 from ..games import bios_missing, built_for_other_pi, find_core, find_games, neogeo_unknown, plain_title, system
 from ..tv import channel_row, ia_row, live_pick, SHELVES
 from .games import fold, game_matches
+from .progs import prog_path
 
+COOL_SKIP = ("Clock", "htop")              # the Simulator's that aren't for "show me something cool"
+COOL_THE = ("Game of Life", "Mandelbrot Set")   # ("Here's the Game of Life")
 MUSIC_WORDS = ("music", "song", "songs", "album", "albums", "playlist", "tunes", "track", "tracks", "artist", "band",
                "radio", "station", "stations", "fm")
 ALL_MUSIC = ("music", "my music", "some music", "songs", "my songs", "some songs", "something", "anything",
@@ -268,6 +271,8 @@ class AssistScreen:
             return f"Okay, no {asked['what']} then." if asked.get("what") else "Okay."
         if k == "bored":
             return self.assist_bored()
+        if k == "cool":
+            return self.assist_cool()
         if k == "game":
             return self.assist_game(a["name"])
         if k == "watch":
@@ -386,8 +391,9 @@ class AssistScreen:
             return self.weather_words()
         if k == "help":
             return ("I can play your music, the radio and your games, put on cartoons, a film or a channel, show your "
-                    "photos, set timers and a focus timer, keep your list, notes and reminders, open apps, turn your "
-                    "lights on and off, turn the camera, and update, restart or shut down the Pi. Or we can just chat.")
+                    "photos or something cool, set timers and a focus timer, keep your list, notes and reminders, "
+                    "open apps, turn your lights on and off, turn the camera, and update, restart or shut down the Pi. "
+                    "Or we can just chat.")
         if k == "open":
             return self.assist_open(a["app"])
         if k == "home":
@@ -427,6 +433,35 @@ class AssistScreen:
         q = random.choice(["How about some cartoons? Say yes, or ask me to play Snake.",
                            "Want to watch some cartoons? Say yes, or say \"play a game\" for Snake."])
         return self.assist_ask(q, lambda: self.watch_shelf("toons"), "cartoons", quiet=True)
+
+    # -- something cool: one of the Simulator's ------------------------------------------------------------------
+    def cool_choices(self):
+        """What "show me something cool" picks from: the Simulator's list (but its Clock and htop), the ones here."""
+        group = next((t for t in LIBRARY if t["name"] == "Simulator"), {})
+        out = []
+        for name in group.get("children", []):
+            t = next((t for t in LIBRARY if t["name"] == name), None)
+            if t is None or name in COOL_SKIP or (t["type"] == "prog" and not prog_path(t["prog"])):
+                continue
+            out.append(t)
+        return out
+
+    def assist_cool(self):
+        """One of the Simulator's, at random (not the one on now, nor the one shown last time), put on: what it is."""
+        picks = self.cool_choices()
+        on = (self.prog_name if self.prog is not None else LIBRARY[self.tab]["name"]
+              if self.view == "list" and isinstance(self.tab, int) and 0 <= self.tab < len(LIBRARY) else None)
+        fresh = [t for t in picks if t["name"] not in (on, getattr(self, "cool_last", None))] or picks
+        if not fresh:
+            return None
+        t = random.choice(fresh)
+        self.cool_last = t["name"]
+        if self.prog is not None:                      # (one of Linux's on now: off first, for the new one)
+            self.prog_stop()
+        self.web_tab(t["name"])
+        name = ("the " if t["name"] in COOL_THE else "") + t["name"]
+        about = t.get("about", "")
+        return f"Here's {name}" + (f": {about[:1].lower() + about[1:]}." if about else ".")
 
     # -- games ----------------------------------------------------------------------------------------------------
     def game_choices(self):
