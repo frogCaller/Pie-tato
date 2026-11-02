@@ -25,7 +25,8 @@ LASHES = ((38, 0.06), (60, 0.065), (82, 0.06))   # three on each eye's top outer
                            # straight up), and how long (of its size); each pointing a little further out than that
 
 # its shape (the Bot's Character): each a step from 0 to 10, as bot.txt keeps them. Their defaults: as it's always looked
-SHAPE_DEFAULTS = {"eye_size": 5, "eye_height": 5, "eye_corners": 10, "eye_gap": 5, "mouth_size": 5}
+SHAPE_DEFAULTS = {"eye_size": 5, "eye_height": 5, "eye_corners": 10, "eye_gap": 3, "mouth_size": 5}
+LISTEN_MOST = 0.58         # listening: its sound's arcs start no further out than this (of its size), eyes far apart
 SHAPE_MOST = 10
 
 # Its colours (the Bot's Character: Face, Background), each picked on its own: on just its face, up and down go from
@@ -149,10 +150,11 @@ def shape_step(v, default):
 def face_shape(steps=None):
     """Its shape from its steps (the Bot's Character; one not given: its default): how big its eyes are (size), how
     tall (tall), how round their corners (round: of the smaller of their width and height), how far apart their
-    middles (gap: of the face's size), and how big its mouth (mouth)."""
+    middles (gap: of the face's size: from close together at 0, by way of as it's always been at 3, to near its
+    sides at 10), and how big its mouth (mouth)."""
     s = {k: shape_step((steps or {}).get(k), d) for k, d in SHAPE_DEFAULTS.items()}
     return {"size": 1 + (s["eye_size"] - 5) * 0.06, "tall": 1 + (s["eye_height"] - 5) * 0.09,
-            "round": 0.48 - (10 - s["eye_corners"]) * 0.048, "gap": 0.46 + (s["eye_gap"] - 5) * 0.02,
+            "round": 0.48 - (10 - s["eye_corners"]) * 0.048, "gap": 0.46 + (s["eye_gap"] - 3) * 0.04,
             "mouth": 1 + (s["mouth_size"] - 5) * 0.08}
 
 
@@ -212,7 +214,7 @@ def draw_face(d, cx, cy, size, look, t, colour, back, font=None, lashes=False, s
     sh = shape or face_shape()
     opened, (gx, gy), mouth, grow = face_state(look, t)
     ew, eh = size * 0.25 * grow * sh["size"], size * 0.36 * grow * sh["size"] * sh["tall"]   # an eye
-    gap = size * sh["gap"]                                          # between their middles
+    gap = size * max(sh["gap"], 0.25 * grow * sh["size"] * 1.06)   # between their middles (never touching)
     lash = size * sh["size"]                                        # (its lashes: as big as its eyes)
     ox, oy = gx * size * 0.07, gy * size * 0.06                     # where they look
     ey = cy - size * 0.08 + oy
@@ -292,13 +294,13 @@ def draw_face(d, cx, cy, size, look, t, colour, back, font=None, lashes=False, s
             on = int(t * 3) % 3 == k
             r = size * (0.032 if on else 0.024)
             x = cx + size * 0.36 + k * size * 0.1
-            y = cy - size * THINK_DOTS
+            y = min(cy - size * THINK_DOTS, ey - eh / 2 - size * 0.07)   # (above tall eyes, too)
             d.ellipse((x - r, y - r, x + r, y + r), fill=colour if on else soft)
     elif look == "listening":                          # sound coming in, from one side (a little way off the eye)
         for k in range(3):
             phase = (t * 1.6 - k * 0.33) % 1.0
             r = size * (0.08 + 0.05 * k)
-            x = cx + gap / 2 + ew / 2 + size * LISTEN_GAP
+            x = cx + min(gap / 2 + ew / 2 + size * LISTEN_GAP, size * LISTEN_MOST)
             d.arc((x - r, ey - r, x + r, ey + r), -40, 40, fill=_mix(back, colour, 1.0 - phase * 0.8),
                   width=line)
     elif look == "sleepy" and font is not None:        # z's, drifting up

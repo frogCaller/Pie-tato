@@ -28,11 +28,11 @@ CHAR_CHATTER = {"30": "Every 30 min", "60": "Every hour", "0": "Never"}
 CHAR_LOOKS = (("idle", "Calm"), ("happy", "Happy"), ("curious", "Curious"), ("sad", "Sorry"), ("cool", "Cool"),
               ("sleepy", "Sleepy"), ("talking", "Talking"), ("listening", "Listening"), ("thinking", "Thinking"),
               ("alert", "Surprised"))
-CHAR_RANDOM = {"eye_size": (2, 9), "eye_height": (2, 9), "eye_corners": (3, 10), "eye_gap": (2, 8),
+CHAR_RANDOM = {"eye_size": (2, 9), "eye_height": (2, 9), "eye_corners": (3, 10), "eye_gap": (1, 8),
                "mouth_size": (2, 8)}   # X: a look made up, each step from this to that (none of them too odd)
 CHAR_CONTRAST = 90                     # ...its face and its background this far apart in lightness, at least
-CHAR_RESET = {"eye_size": 5, "eye_height": 5, "eye_corners": 10, "eye_gap": 5, "mouth_size": 5, "colour": "White",
-              "background": "Dark", "lashes": "off"}   # Y, twice: its look as it started (its voice as it is)
+CHAR_RESET = dict(SHAPE_DEFAULTS, colour="White", background="Dark", lashes="off")   # Y, twice: its look as it
+                                                                                      # started (its voice as it is)
 CHAR_ROW = 48                          # a row's height
 CHAR_SLIDER = 112                      # a step's slider: this wide
 
@@ -276,7 +276,7 @@ class CharacterScreen:
         pw = int(min(300, W * 0.42))
         px0, px1 = 16, 16 + pw
         d.rounded_rectangle((px0, top, px1, bottom), radius=18, fill=back, outline=LINE)
-        size = int(min(pw * 0.72, (bottom - top) * 0.58))
+        size = int(min(pw / 1.6, (bottom - top) * 0.58))   # (its widest look, eyes far apart: inside its panel)
         face_at = ((px0 + px1) / 2, top + (bottom - top) * 0.52, size)
         self.draw_bot_face(d, face_at, look=self.char_preview_look(), back=back)
         look = dict(CHAR_LOOKS).get(getattr(self, "char_look", "idle"), "Calm")
