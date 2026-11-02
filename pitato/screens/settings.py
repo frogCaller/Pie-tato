@@ -7,8 +7,8 @@ import time
 from ..theme import ACCENT, BODY, DONE, LINE, MUTED, ROW, TEXT, WARN
 from ..config import SETTINGS, TURN_DEGREES
 from ..system import is_pc, nm, nm_why, run_out, wifi_dev, wifi_saved, wifi_scan
-from ..screen import (boot_resolution, bt_output_name, hdmi_screens, resolution_choices, set_boot_video,
-                      set_terminal_turn, set_turn, sound_cards, sound_name, sound_place)
+from ..screen import (SQUARE_SIZES, boot_resolution, bt_output_name, hdmi_screens, res_name, resolution_choices,
+                      set_boot_video, set_terminal_turn, set_turn, sound_cards, sound_name, sound_place)
 from ..home import wallpaper
 from ..weather import find_me, geocode, place_text
 from ..voice import BOT_VOICES, VOICE_MB, voices_here
@@ -63,7 +63,7 @@ class SettingsScreen:
             return rows or [("f_wait", fr.models_status or "Asking for its models…", None)]
         if self.set_page == "resolution":
             info = self.res_info()
-            return [("res", "Auto", None)] + [("res", s, s) for s in info[1]] if info else \
+            return [("res", "Auto", None)] + [("res", res_name(s), s) for s in info[1]] if info else \
                 [("res_none", "No TV or monitor on HDMI", None)]
         return self.settings_root_rows()
 
@@ -245,10 +245,13 @@ class SettingsScreen:
         """The Pi starts at this size from now on (None: the screen's own), if you keep it."""
         screens = hdmi_screens()
         ports = [p for p, sizes in screens if not size or size in sizes]   # (a second screen: if it takes it)
+        mode = f"{size}@60"
+        if size and not ports and size in SQUARE_SIZES and screens:   # a square screen that says it's a TV: its size,
+            ports, mode = [screens[0][0]], f"{size}M@60"              # the picture's timing worked out (M: CVT's)
         if not ports:
             self.toast("The screen doesn't take that size", 4)
             return
-        args = [f"video={p}:{size}@60" for p in ports] if size else []
+        args = [f"video={p}:{mode}" for p in ports] if size else []
         own = screens[0][1][0]
         if is_pc():                                    # (a PC's GRUB takes a few seconds to put it in)
             self.render_wait("Changing the resolution", "One moment")

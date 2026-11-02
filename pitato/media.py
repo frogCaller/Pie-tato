@@ -218,6 +218,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.coder_next = 0.0        # when its next frame is due
         self.prompts = AgentPrompts()  # prompts for your coding agent, typed here (A on the Bot at work)
         self.prompts.on_taken = self.prompt_taken
+        self.prompts.on_ask = self.prompt_asked     # ...and its requests to use a tool, for you to answer here
         self.prompt_draft = ""       # ...one you haven't sent yet
         self.sims = {}               # the Simulator tab's sims, by key (each made the first time it's opened)
         self.brain = SnakeBrain()     # Snake's AI: a decision model on your bot's computer

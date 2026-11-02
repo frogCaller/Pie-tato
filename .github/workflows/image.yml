@@ -27,6 +27,13 @@ jobs:
           df -h / /mnt 2> /dev/null || true
           sudo env PITATO_REPO="$GITHUB_REPOSITORY" PITATO_COMMIT="$GITHUB_SHA" bash image/build.sh "$RUNNER_TEMP/images" "$NAME"
 
+      - name: Put the licences with them
+        env:
+          NAME: ${{ github.event.release.tag_name || 'test' }}
+        run: |
+          python3 image/licenses.py "$RUNNER_TEMP/licenses.zip"
+          sudo cp "$RUNNER_TEMP/licenses.zip" "$RUNNER_TEMP/images/pietato-$NAME-licenses.zip"
+
       - name: Attach them to the release
         if: github.event_name == 'release'
         env:

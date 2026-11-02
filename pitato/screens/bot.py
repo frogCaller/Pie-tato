@@ -1122,7 +1122,8 @@ class BotScreen:
         d.rounded_rectangle((cx0, top, cx1, bottom), radius=18, fill=ROW)
         side, below, tall, round_ = FACE_PANEL
         py0 = top + below
-        py1 = min(py0 + tall, bottom - 44)             # (room under it for what your coding agent's doing)
+        py1 = min(py0 + tall + max(0, H - 480), bottom - 44)   # (a taller screen's: taller. Room under it for what
+                                                               # your coding agent's doing)
         d.rounded_rectangle((cx0 + side, py0, cx1 - side, py1), radius=round_, fill=back)
         face_at = ((cx0 + cx1) / 2, (py0 + py1) / 2 - FACE_SIZE * 0.2 - 4, FACE_SIZE)   # (its eyes to the word under
                                                                                      # it: in the middle of it)

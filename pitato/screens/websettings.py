@@ -10,7 +10,7 @@ from ..config import (ACCENTS, SCREEN_MODES, WALLPAPERS, clean_name, edit_config
                       settings_glob)
 from ..homeassistant import ha_typed_url, ha_url, save_ha
 from ..pihole import dns_guess
-from ..screen import boot_resolution
+from ..screen import boot_resolution, res_name
 from ..util import IMAGE_EXTS
 from ..voice import BOT_VOICES, VOICE_MB, voices_here
 from ..listen import LISTENS, WAKE_MOST, mics, wake_for, wake_name
@@ -100,7 +100,7 @@ class WebSettingsScreen:
         info = self.res_info() if "resolution" in root else None
         if info:
             rows.append(choice("resolution", "Resolution", ["Auto"] + list(info[1]), value=boot_resolution() or "Auto",
-                               names={"Auto": f"Auto ({info[0]})"},
+                               names=dict({s: res_name(s) for s in info[1]}, Auto=f"Auto ({info[0]})"),
                                confirm="The Pi restarts at this size, then asks on its screen whether to keep it. "
                                        "If nobody says so, it goes back."))
         sec("screen", "Screen", rows)

@@ -382,6 +382,8 @@ VIDEO_SIZE = re.compile(r"video=(?:[A-Za-z]+-)+\d+:(\d+)x(\d+)")   # any screen'
 PC_PORTS = re.compile(r"card\d+-((?:HDMI-[AB]|DP|eDP|DVI-[ADI]|VGA)-\d+)")   # a PC's screens, by the kernel's names
 RES_SMALLEST, RES_BIGGEST = (640, 480), (1920, 1200)   # the sizes to pick from: the menus' own, up to 1080p
                                                        # (bigger is slower to draw, and no sharper)
+SQUARE_SIZES = ("720x720",)    # a square screen's size (Waveshare's and Pimoroni's 4-inch ones), there to pick even when
+                               # the screen doesn't list it: one that says it's a TV is sent a TV's picture, squeezed
 
 
 def hdmi_screens():
@@ -409,6 +411,11 @@ def size_of(text):
     return int(w), int(h)
 
 
+def res_name(size):
+    """Settings > Resolution's name for a size: "720x720 (square)" for a square screen's."""
+    return f"{size} (square)" if size in SQUARE_SIZES else size
+
+
 def resolution_choices():
     """Settings > Resolution: (the HDMI screen's own size, [the sizes it takes, biggest first]), or None
     without one (the GPi Case's screen)."""
@@ -418,6 +425,7 @@ def resolution_choices():
     sizes = screens[0][1]
     fits = [s for s in sizes if RES_SMALLEST[0] <= size_of(s)[0] <= RES_BIGGEST[0]
             and RES_SMALLEST[1] <= size_of(s)[1] <= RES_BIGGEST[1]]
+    fits += [s for s in SQUARE_SIZES if s not in fits]
     fits.sort(key=size_of, reverse=True)
     return sizes[0], fits
 
@@ -827,13 +835,16 @@ def grab_screen(max_w=640, dev="/dev/fb0"):
 class Framebuffer:
     """Draws a PIL image onto /dev/fb0 in whatever format it uses. The menus are drawn 640x480 on the
     GPi Case's screen. On a big one (1080p, 4K) they're drawn a little bigger, 960x540 on a 1080p
-    monitor, and doubled (or more): crisp, quick, and room to spare. On anything else they're 480
-    lines high and as wide as the screen's shape, scaled to fill it. A screen on its side (turn: degrees,
+    monitor, and doubled (or more): crisp, quick, and room to spare. On a square one they're square:
+    720x720 on a 720x720 screen, its own pixels. On anything else they're 480 lines high and as wide as
+    the screen's shape, scaled to fill it. A screen on its side (turn: degrees,
     clockwise; TURN's unless said) is all that, as it's seen: real_w and real_h are its size as it's seen, and
     each picture's turned as it goes onto the screen's own pixels (dev_w x dev_h)."""
     W, H = 640, 480
     TALLEST = 600                                     # ...the menus' height on a big screen, at most
     WIDEST = 1140                                     # (a 21:9 screen's, at 480 lines: wider, edges black)
+    SQUARE = 1.1                                      # a screen this near square (720x720): menus its shape, filling it,
+    SQUARE_MOST = 800                                 # ...its own pixels up to this; a bigger one's, 720 high, scaled
     count = 0                                         # pictures shown, ever: the web page's cue
 
     def __init__(self, dev="/dev/fb0", turn=None):
@@ -885,6 +896,10 @@ class Framebuffer:
             self.tw, self.th = round(self.w * k), h
             if abs(self.tw - w) <= 3:
                 self.tw = w                           # (to the pixel: a hair wider or narrower than its shape)
+        elif w >= self.W and 1 / self.SQUARE <= w / h <= self.SQUARE:   # a square screen: menus its shape, filling it
+            k = 1 if h <= self.SQUARE_MOST else h / 720
+            self.w, self.h = round(w / k), round(h / k)
+            self.tw, self.th = w, h
         else:
             k = min(w / self.W, h / self.H)
             if int(k) >= 1 and int(k) / k >= 0.85:   # 2x on a 1280x1024 monitor: crisp, and quick to draw

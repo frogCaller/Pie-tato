@@ -34,6 +34,8 @@ sudo bash setup.sh
 It asks if the Pi is in a GPi Case 2W (or, on a Compute Module 4, a GPi Case 2). If it is, it sets up the
 case's screen, sound and power switch: turn the SAFE SHUTDOWN switch behind the cartridge to ON, and
 switching the case off shuts the Pi down safely. If not, it leaves HDMI as it is.
+A small square screen (like Waveshare's 4-inch 720x720) may tell the Pi it's a TV, which squeezes the picture:
+pick 720x720 (square) in Settings > Resolution.
 In the GPi Case 2's dock, with the TV on, the picture is on the TV: put the case in the dock or take it out
 and the Pi restarts with the picture where it should be. The case's buttons don't work in the dock, so use a
 USB or Bluetooth controller there.
@@ -373,12 +375,14 @@ claude --dangerously-load-development-channels server:pitato
 ```
 
 Then press A at work, type a prompt, and press START. Claude Code gets it as if you had typed it.
+When Claude Code asks to use a tool (to run a command, say), the question shows on the Pi too: A allows
+it, B denies it, and X leaves it for the computer. Whichever answers first counts.
 This uses Claude Code's channels, which are a research preview: Claude Code asks you to confirm
 each time it starts, and it needs to be signed in with a Claude account or an Anthropic API key.
 If channels aren't available to you yet, Claude Code says so when it starts.
 
 - If your web page has a password, add `--password` and the password.
-- Prompts are only typed on the Pi itself. The web page's remote can't send them.
+- Prompts and answers only come from the Pi itself. The web page's remote can't send them.
 - If you only want the hooks, add `--no-prompts`.
 - To have Claude Code use your Ollama models, start it with `ollama launch claude`
   ([Ollama's guide](https://docs.ollama.com/integrations/claude-code)). Prompts from the Pi

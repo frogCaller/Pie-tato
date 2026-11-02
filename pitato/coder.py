@@ -1,6 +1,7 @@
 """The Bot at work: it sits at a desk and acts out what your coding agent is doing."""
 import math
 import random
+import re
 import secrets
 import shutil
 import struct
@@ -626,13 +627,27 @@ PROMPT_WAIT = 20           # seconds your agent's request for prompts waits for 
 PROMPT_LISTEN = 45         # seconds since it last asked that it still counts as listening
 PROMPT_ACK = 15            # seconds it has to say it got a prompt it was handed (or the next request gets it)
 PROMPT_KEEP = 60           # seconds a prompt waits to be taken, then it's yours to send again
+ASK_KEEP = 600             # seconds your agent's request to use a tool waits for your answer here (then: the computer's)
+ASK_GRACE = 1.5            # ...one this new isn't settled by your agent's word that it's moved on (its hooks come late)
+VERDICT_KEEP = 30          # seconds your answer goes to your agent each time it asks (in case one was lost on the way)
+ASK_ID = re.compile(r"[a-km-z]{5}")   # Claude Code's ids for its requests: five lowercase letters, never an l
+ASK_TOOL_MAX, ASK_ABOUT_MAX, ASK_PREVIEW_MAX = 64, 500, 2000   # characters kept of a request's tool, words, details
+
+
+def ask_text(text, most):
+    """A request's words, fit to show: printable, on one line, most characters at most (the rest: …)."""
+    text = " ".join("".join(c if c.isprintable() else " " for c in str(text or "")).split())
+    return text if len(text) <= most else text[:most - 1].rstrip() + "…"
 
 
 class AgentPrompts:
     """Prompts typed on the Pi for your coding agent, until it takes them. coder_hooks.py --channel (Claude
     Code runs it) asks for them: POST /coder/prompts, which waits a while for one. Each request says
     the last prompt it got: until then, one it was handed may not have reached it, and the next request
-    gets it again. run tells this Pi's prompts from those before it restarted."""
+    gets it again. run tells this Pi's prompts from those before it restarted.
+    The other way: your agent's requests to use a tool (Claude Code's permission prompts, which the channel
+    passes on: POST /coder/ask), until you answer them here (A allows, B denies), at the computer, or too long
+    goes by. Your answers go back with the prompts (verdicts), at once if it's waiting for them."""
 
     def __init__(self):
         self.cv = threading.Condition()
@@ -642,6 +657,9 @@ class AgentPrompts:
         self.asked = -1e9               # when your agent last asked (time.monotonic())
         self.asking = 0                 # its requests waiting now
         self.on_taken = lambda prompt: None
+        self.asks = []                  # its requests to use a tool: {"id", "tool", "about", "preview", "at", "hidden"}
+        self.verdicts = []              # your answers to them: {"id", "behavior", "at", "sent"}
+        self.on_ask = lambda ask: None
 
     def listening(self):
         """Your agent is asking for prompts (or was, a moment ago)."""
@@ -676,15 +694,66 @@ class AgentPrompts:
                         if p["out"] is not None and now - p["out"] > PROMPT_ACK:
                             p["out"] = None
                     out = [p for p in self.queue if p["out"] is None]
-                    if out or now >= end:
+                    if out or now >= end or any(not v["sent"] for v in self.verdicts):
                         break
                     self.cv.wait(end - now)
                 for p in out:
                     p["out"] = now
+                self.verdicts = [v for v in self.verdicts if now - v["at"] < VERDICT_KEEP]
+                verdicts = [{"request_id": v["id"], "behavior": v["behavior"]} for v in self.verdicts]
+                for v in self.verdicts:
+                    v["sent"] = True
             finally:
                 self.asking -= 1
                 self.asked = time.monotonic()
-        return {"ok": True, "run": self.run, "prompts": [{"id": p["id"], "text": p["text"]} for p in out]}
+        return {"ok": True, "run": self.run, "prompts": [{"id": p["id"], "text": p["text"]} for p in out],
+                "verdicts": verdicts}
+
+    # -- your agent's requests to use a tool, and your answers ------------------------------------------------------
+    def ask(self, rid, tool, about, preview):
+        """Your agent asks to use a tool (rid: its request's id): kept for you to answer. True if it's a new one."""
+        with self.cv:
+            if any(a["id"] == rid for a in self.asks) or any(v["id"] == rid for v in self.verdicts):
+                return False
+            ask = {"id": rid, "tool": tool, "about": about, "preview": preview, "at": time.monotonic(),
+                   "hidden": False}
+            self.asks.append(ask)
+        self.on_ask(dict(ask))
+        return True
+
+    def pending(self):
+        """Its requests waiting for your answer, the oldest first (those waiting longer than ASK_KEEP: gone)."""
+        with self.cv:
+            now = time.monotonic()
+            self.asks = [a for a in self.asks if now - a["at"] < ASK_KEEP]
+            return [dict(a) for a in self.asks]
+
+    def answer(self, rid, behavior):
+        """Your answer to a request ("allow" or "deny"): on its way to your agent. False: it isn't waiting now."""
+        with self.cv:
+            if behavior not in ("allow", "deny") or not any(a["id"] == rid for a in self.asks):
+                return False
+            self.asks = [a for a in self.asks if a["id"] != rid]
+            self.verdicts.append({"id": rid, "behavior": behavior, "at": time.monotonic(), "sent": False})
+            self.cv.notify_all()
+            return True
+
+    def hide(self, rid):
+        """A request left for the computer to answer: not shown here any more."""
+        with self.cv:
+            for a in self.asks:
+                if a["id"] == rid:
+                    a["hidden"] = True
+
+    def settle(self, grace=ASK_GRACE):
+        """Your agent has moved on (its hooks say so): its requests from before were answered at the computer.
+        True if there were any."""
+        with self.cv:
+            now = time.monotonic()
+            kept = [a for a in self.asks if now - a["at"] < grace]
+            gone = len(kept) != len(self.asks)
+            self.asks = kept
+            return gone
 
     def expire(self):
         """The prompts nobody took in time, back to you (oldest first)."""

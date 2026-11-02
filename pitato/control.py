@@ -232,9 +232,9 @@ def serve_control(media, control, port=CONTROL_PORT, key=None):
                 except Exception as ex:
                     print(f"bluetooth: {ex!r}", flush=True)
                     return self.reply(500, {"error": "Something went wrong on the Pi"})
-            if cmd["cmd"] == "coder":                  # your agent's word: answered at once, off the main loop
-                try:
-                    return self.reply(200, media.web_coder(cmd))
+            if cmd["cmd"] in ("coder", "coder/ask"):   # your agent's word, or its request: answered at once, off
+                try:                                   # the main loop
+                    return self.reply(200, media.web_coder(cmd) if cmd["cmd"] == "coder" else media.web_coder_ask(cmd))
                 except Exception as ex:
                     print(f"coder: {ex!r}", flush=True)
                     return self.reply(500, {"ok": False, "error": "Something went wrong on the Pi"})

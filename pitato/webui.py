@@ -34,8 +34,9 @@ Optional, static/webui.txt:
 The Bot hears from your coding agent here too, and acts it out at work: Claude Code's hooks
 (coder_hooks.py sets them up, and is handed out at /coder_hooks.py), POST /coder?pose=typing from
 anything else, and a WAV to POST /coder/say to have it said out loud. Prompts typed on the Pi go the
-other way: coder_hooks.py --channel, which Claude Code runs, asks for them at POST /coder/prompts.
-With a password, these send it as a token (Authorization: Bearer ...).
+other way: coder_hooks.py --channel, which Claude Code runs, asks for them at POST /coder/prompts. It
+passes on Claude Code's permission prompts too (POST /coder/ask), and your answers on the Pi go back with
+the prompts. With a password, these send it as a token (Authorization: Bearer ...).
 """
 import base64
 import hashlib
@@ -115,6 +116,9 @@ CODER_SAY_AS = ("talking", "typing", "reading", "thinking", "rest")   # the pose
 CLIP_MAX = 8 << 20                                      # bytes of a clip to say
 CLIP_TURN = threading.Lock()                            # clips take turns (the next waits, unread)
 HOOK_MAX = 32 << 20                                     # bytes of a hook's report read (a big edit's is big)
+ASK_MAX = 64 << 10                                      # bytes of your agent's request to use a tool
+HOOK_SETTLES = {"PostToolBatch", "PostToolUseFailure", "PermissionDenied", "Stop", "StopFailure", "UserPromptSubmit",
+                "SessionStart", "SessionEnd", "PreCompact"}   # (after these, its requests from before are answered)
 HOOK_READS = {"Read", "Grep", "Glob", "LS", "WebFetch", "WebSearch", "NotebookRead"}   # Claude Code's tools that read
 HOOK_HELPERS = {"Task", "Agent"}                        # ...and that hand work to a helper
 THUMBS = os.path.join(HOME, ".cache", "pitato", "thumbs")   # small copies of your pictures
@@ -1143,12 +1147,27 @@ def coder_hook():
         size += len(part)
         if size <= 1 << 20 or not keep:
             keep.append(part)
-    pose = hook_pose(hook_report(b"".join(keep), size))
-    if pose:
-        got = ask_pi("POST", "/coder", {"pose": pose}, timeout=5)
+    event = hook_report(b"".join(keep), size)
+    pose, settle = hook_pose(event), event.get("hook_event_name") in HOOK_SETTLES
+    if pose or settle:
+        got = ask_pi("POST", "/coder", dict({"pose": pose}, **({"settle": True} if settle else {})), timeout=5)
         if got is None or got[0] != 200:
             return Response(status=503)
     return Response(status=204)
+
+
+@app.post("/coder/ask")
+def coder_ask():
+    """Your coding agent asks to use a tool: Claude Code's permission prompt, which coder_hooks.py's channel passes
+    on (request_id, tool_name, description, input_preview). The Bot at work shows it: A allows it, B denies it, and
+    the answer goes back with the prompts (POST /coder/prompts)."""
+    if (request.content_length or 0) > ASK_MAX:
+        return jsonify(ok=False, error="too big"), 413
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(ok=False, error="JSON, please"), 400
+    body = {k: data.get(k) for k in ("request_id", "tool_name", "description", "input_preview")}
+    return coder_reply(ask_pi("POST", "/coder/ask", body, timeout=5))
 
 
 @app.post("/coder/prompts")

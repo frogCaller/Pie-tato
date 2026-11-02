@@ -1,15 +1,16 @@
-"""The Bot at work: your coding agent acted out, and prompts sent to it."""
+"""The Bot at work: your coding agent acted out, prompts sent to it, and its requests to use a tool answered."""
 import socket
 import time
 
-from ..theme import ACCENT, BG, BODY, MUTED, ROW, TEXT
+from ..theme import ACCENT, BG, BODY, LINE, MUTED, ROW, TEXT
 from ..config import read_config, settings_glob, WEB_PORT
 from ..system import run_out
 from ..screen import aplay_device
 from ..library import VOLUME_STEP
 from ..coder import (
-    CO_DIRTY, co_span, CO_TOP, CODER_BUSY, CODER_CHANNEL, coder_desk, coder_draw, coder_extras, CODER_POSES,
-    CODER_SAY_AS, CODER_TITLES, coder_under, coder_wav, PROMPT_MAX)
+    ASK_ABOUT_MAX, ASK_ID, ASK_PREVIEW_MAX, ask_text, ASK_TOOL_MAX, CO_DIRTY, co_span, CO_TOP, CODER_BUSY,
+    CODER_CHANNEL, coder_desk, coder_draw, coder_extras, CODER_POSES, CODER_SAY_AS, CODER_TITLES, coder_under,
+    coder_wav, PROMPT_MAX)
 
 
 class CoderScreen:
@@ -61,6 +62,8 @@ class CoderScreen:
     def coder_hints(self, s):
         if self.coder_help:
             return [("B", "Close")]
+        if self.coder_ask_shown() is not None:
+            return [("A", "Allow"), ("B", "Deny"), ("X", "Later")]
         y = ("Y", "OK") if s["anim"] in ("attention", "error") else ("Y", "Ring")
         return [("◀▶", "Chat"), ("A", "Prompt"), y, ("X", "Sound", self.setting("coder_sound") != "Off"),
                 ("START", "Connect")]
@@ -119,7 +122,7 @@ class CoderScreen:
     def press_coder(self, name, repeat):
         """The Bot at work: A types a prompt for your coding agent, Y rings its bell (or says you've seen
         what it wanted), X turns its sounds on or off, up and down the volume, START shows how to connect
-        an agent."""
+        an agent. While your agent asks to use a tool: A allows it, B denies it, X leaves it to the computer."""
         co = self.coder
         if self.coder_help:
             if name in ("l", "r"):
@@ -127,6 +130,11 @@ class CoderScreen:
             if name in ("a", "b", "start") and not repeat:
                 self.coder_help = False
                 self.dirty = True
+            return None
+        ask = self.coder_ask_shown()
+        if ask is not None and name in ("a", "b", "x"):
+            if not repeat:
+                self.coder_answer(ask, name)
             return None
         if name in ("up", "down"):
             self.set_volume(VOLUME_STEP if name == "up" else -VOLUME_STEP)
@@ -148,6 +156,76 @@ class CoderScreen:
             return "pass"
         self.dirty = True
         return None
+
+    # -- your agent asks to use a tool (Claude Code's permission prompt, through the channel) ---------------------
+    def coder_ask_shown(self):
+        """Your agent's oldest request to use a tool that's waiting for your answer here (not left for the
+        computer), or None."""
+        return next((a for a in self.prompts.pending() if not a["hidden"]), None)
+
+    def coder_answer(self, ask, name):
+        """A allows what your agent asked, B denies it, X leaves it to the computer. Only from the Pi's own buttons
+        and keyboard: the web page's remote can work the screen, but it can't let your agent do something."""
+        if name == "x":
+            self.prompts.hide(ask["id"])
+            self.toast("Left for the computer to answer", 3)
+        elif self.web_guard:
+            self.toast("Answer it on the Pi itself, not with the web page's remote", 4)
+        elif self.prompts.answer(ask["id"], "allow" if name == "a" else "deny"):
+            self.toast(f"Allowed: {ask['tool']}" if name == "a" else f"Denied: {ask['tool']}", 3)
+            self.coder.ask("thinking" if name == "a" else "shrug", agent=False)
+        self.dirty = True
+
+    def prompt_asked(self, ask):
+        """Your agent asks to use a tool: it looks up from its desk, and a word about it if you're elsewhere. (The
+        control server's thread.)"""
+        self.coder.ask("attention")
+        if self.active and not self.on_coder_page() and not self.proc_owns_screen():
+            self.toast(f"Your coding agent asks to use {ask['tool']}: answer on the Bot at work", 5)
+        self.dirty = True
+
+    def coder_ask_card(self, img, ask):
+        """Your agent's request, over its desk: what it wants to use, its words about it, the details (a command,
+        a file), and that the computer can answer it too."""
+        from ..fine import ImageDraw
+        F, W, H = self.fonts, self.fb.w, self.fb.h
+        d = ImageDraw.Draw(img)
+        x0, x1 = 24, W - 24
+        inner = x1 - x0 - 48
+        about = self.wrap(d, ask["about"], F["small"], inner, lines=2) if ask["about"] else []
+        detail = self.wrap(d, ask["preview"], F["mono_s"], inner - 16, lines=2) if ask["preview"] else []
+        h = 26 + 30 + 24 * len(about) + (12 + 26 * len(detail) + 8 if detail else 0) + 30 + 6
+        y1 = H - (0 if self.full_app() else self.FOOTER) - 10
+        y0 = max(self.HEADER + 8, y1 - h)
+        d.rounded_rectangle((x0, y0, x1, y1), radius=16, fill=ROW, outline=LINE)
+        x, y = x0 + 24, y0 + 30
+        d.text((x, y), self.fit(d, f"Allow {ask['tool']}?", F["head"], inner), font=F["head"], fill=TEXT, anchor="lm")
+        y += 30
+        for line in about:
+            d.text((x, y), line, font=F["small"], fill=BODY, anchor="lm")
+            y += 24
+        if detail:
+            y += 4
+            d.rounded_rectangle((x - 8, y - 14, x1 - 16, y - 14 + 26 * len(detail) + 4), radius=8, fill=BG)
+            for line in detail:
+                d.text((x, y), line, font=F["mono_s"], fill=TEXT, anchor="lm")
+                y += 26
+            y += 8
+        d.text((x, y + 4), "Or answer it at the computer", font=F["small"], fill=MUTED, anchor="lm")
+
+    def web_coder_ask(self, cmd):
+        """POST /coder/ask: your agent asks to use a tool (Claude Code's permission prompt, which coder_hooks.py's
+        channel passes on). It's shown on the Bot at work for you to answer. (The control server's thread.)"""
+        rid = cmd.get("request_id")
+        if not isinstance(rid, str) or not ASK_ID.fullmatch(rid):
+            return {"ok": False, "error": "request_id is its five letters"}
+        words = [cmd.get(k) for k in ("tool_name", "description", "input_preview")]
+        if not all(w is None or isinstance(w, str) for w in words):
+            return {"ok": False, "error": "tool_name, description and input_preview are words"}
+        tool, about, preview = words
+        new = self.prompts.ask(rid, ask_text(tool, ASK_TOOL_MAX) or "a tool", ask_text(about, ASK_ABOUT_MAX),
+                               ask_text(preview, ASK_PREVIEW_MAX))
+        return {"ok": True, "new": new}
 
     def coder_card(self, img):
         """START on the Bot at work: how to connect an agent to it, and to send it prompts from here."""
@@ -199,8 +277,9 @@ class CoderScreen:
         title, sub = self.coder_status(s)
         hints = self.coder_hints(s)
         quiet = self.setting("coder_sound") == "Off"
+        ask = None if self.coder_help else self.coder_ask_shown()
         key = (self.status_sig, self.msg, ACCENT, title, sub, tuple(hints), quiet, self.coder_help, self.tab_off,
-               fb.w, self.full_app())
+               fb.w, self.full_app(), ask and ask["id"])
         ox = max(0, (fb.w - 640) // 2)                # a wide screen: the coder in the middle, the desk all along
         oy = max(0, fb.h - 480)                       # ...a taller one: the room above it
         if key != self.coder_base[0]:                 # what doesn't move: drawn when it changes
@@ -231,6 +310,8 @@ class CoderScreen:
                                                  "z": (F["co_z1"], F["co_z2"], F["co_z3"])})
             if ox or oy:
                 img.paste(stage, (ox, oy))
+            if ask is not None:                        # (its request, over it all)
+                self.coder_ask_card(img, ask)
         last_key, last_count, last_t, whole_t = self.coder_shown
         if (key != last_key or getattr(fb, "frames", None) != last_count or now - last_t > 0.5
                 or now - whole_t > 3 or not hasattr(fb, "show_part")):
@@ -246,8 +327,13 @@ class CoderScreen:
         return {"ok": True, "pose": self.coder.current()}
 
     def web_coder(self, cmd):
-        """POST /coder: your agent says what it's doing. (The control server's thread: answered at once.)"""
+        """POST /coder: your agent says what it's doing (settle: it's moved on, so its requests to use a tool from
+        before were answered at the computer). (The control server's thread: answered at once.)"""
         name = cmd.get("pose")
+        if cmd.get("settle") is True and self.prompts.settle():
+            self.dirty = True
+        if name is None and cmd.get("settle") is True:
+            return {"ok": True, "pose": self.coder.current()}
         if name not in CODER_POSES:
             return {"ok": False, "error": "no such pose"}
         return {"ok": True, "pose": self.coder.ask(name)}

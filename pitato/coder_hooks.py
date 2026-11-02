@@ -10,7 +10,8 @@ the Pi what Claude Code is doing. They run in the background, so they never hold
 and do nothing when the Pi is off.
 
 It also adds a copy of itself to Claude Code as a channel called pitato, which hands Claude Code
-the prompts you type on the Pi (A on the Bot at work). Claude Code takes them when you start it with
+the prompts you type on the Pi (A on the Bot at work), and shows Claude Code's permission prompts on
+the Pi, so you can allow (A) or deny (B) them there too. Claude Code takes them when you start it with
     claude --dangerously-load-development-channels server:pitato
 Channels are a research preview: Claude Code asks you to confirm each time, and it needs to be
 signed in to a Claude account (or use an Anthropic API key).
@@ -24,8 +25,10 @@ Run it again to change the address. Your other settings and hooks stay as they a
 The Pi hands this script out too:  curl -O http://<your Pi's name>.local:5432/coder_hooks.py
 """
 import argparse
+import collections
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -50,6 +53,7 @@ OLD_CHANNELS = ("gpi-media",)          # ...and what it was called before (taken
 START = f"claude --dangerously-load-development-channels server:{CHANNEL}"
 PROTOCOLS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")   # the MCP versions the channel speaks
 WAIT = 20                              # seconds each request for prompts waits on the Pi for one
+VERDICT = re.compile(r"[a-km-z]{5}")   # Claude Code's permission requests' ids: five lowercase letters, never an l
 INSTRUCTIONS = (
     f'Messages in <channel source="{CHANNEL}"> are prompts the user typed on their Pietato handheld '
     "(a Raspberry Pi with a small screen and game buttons). Act on each one as if they had typed it here. "
@@ -276,12 +280,35 @@ def ask_pi(url, password, got, run):
     return data
 
 
-def hand_on(url, password, send, ready):
-    """The Pi's prompts, each handed to Claude Code as it comes."""
+def tell_pi(url, password, params, said):
+    """Claude Code's permission prompt, passed on to the Pi to show (POST /coder/ask): the Pi's answer comes back
+    with its prompts. If the Pi can't take it, the prompt is answered at the computer, as ever."""
+    body = {k: params.get(k) for k in ("request_id", "tool_name", "description", "input_preview")
+            if isinstance(params.get(k), str)}
+    req = urllib.request.Request(f"{url}/coder/ask", data=json.dumps(body).encode(), method="POST",
+                                 headers={"Content-Type": "application/json"})
+    if password:
+        req.add_header("Authorization", "Bearer " + password)
+    try:
+        with DIRECT.open(req, timeout=5):
+            pass
+    except urllib.error.HTTPError as ex:
+        said(f"the Pi can't show permission prompts ({ex.code}): does it have the newest Pietato?")
+    except (OSError, ValueError) as ex:
+        said(f"couldn't show a permission prompt on the Pi ({getattr(ex, 'reason', ex)})")
+
+
+def hand_on(url, password, send, ready, taking):
+    """The Pi's prompts, each handed to Claude Code as it comes, and your answers there to its permission prompts.
+    taking: {"yes": whether this session takes the Pi's prompts, "known": an Event, set once that's known,
+    "mine": the permission prompts this session passed on (it answers only those, not another session's)}."""
     ready.wait(30)                                 # (Claude Code says when it's ready for them)
-    if not wanted():
+    taking["yes"] = wanted()
+    taking["known"].set()
+    if not taking["yes"]:
         return
     run, got, pause, told = "", 0, 0.0, ""
+    answered = collections.deque(maxlen=200)      # (the requests answered: each answer goes to Claude Code once)
 
     def say(why):
         nonlocal told
@@ -314,21 +341,44 @@ def hand_on(url, password, send, ready):
                 if isinstance(text, str) and text.strip():
                     send({"jsonrpc": "2.0", "method": "notifications/claude/channel",
                           "params": {"content": text, "meta": {"from": "handheld"}}})
+            for v in data.get("verdicts") if isinstance(data.get("verdicts"), list) else []:
+                rid = v.get("request_id") if isinstance(v, dict) else None
+                behavior = v.get("behavior") if isinstance(v, dict) else None
+                if (isinstance(rid, str) and VERDICT.fullmatch(rid) and behavior in ("allow", "deny")
+                        and rid in taking["mine"] and rid not in answered):
+                    answered.append(rid)
+                    send({"jsonrpc": "2.0", "method": "notifications/claude/channel/permission",
+                          "params": {"request_id": rid, "behavior": behavior}})
         if pause:
             time.sleep(pause)
 
 
 def channel(url, password):
     """What Claude Code runs (claude mcp add ... --channel): an MCP server on stdin and stdout, a channel
-    that hands Claude Code each prompt you type on the Pi."""
+    that hands Claude Code each prompt you type on the Pi, and shows its permission prompts on the Pi."""
     out, lock, ready = sys.stdout.buffer, threading.Lock(), threading.Event()
+    taking = {"yes": False, "known": threading.Event(), "mine": collections.deque(maxlen=200)}
+    told = set()
 
     def send(msg):
         data = json.dumps(msg, ensure_ascii=False).encode("utf-8") + b"\n"
         with lock:
             out.write(data)
             out.flush()
-    threading.Thread(target=hand_on, args=(url, password, send, ready), daemon=True).start()
+
+    def said(why):
+        if why not in told:                        # (Claude Code keeps what's said here in its logs)
+            told.add(why)
+            print(f"{CHANNEL}: {why}", file=sys.stderr, flush=True)
+
+    def pass_on(params):
+        """A permission prompt, to the Pi: when this session takes the Pi's prompts (it can't answer it otherwise)."""
+        taking["known"].wait(40)
+        if taking["yes"]:
+            if isinstance(params.get("request_id"), str):
+                taking["mine"].append(params["request_id"])
+            tell_pi(url, password, params, said)
+    threading.Thread(target=hand_on, args=(url, password, send, ready, taking), daemon=True).start()
     for line in sys.stdin.buffer:
         try:
             msg = json.loads(line)
@@ -340,13 +390,15 @@ def channel(url, password):
         if "id" not in msg:                        # a notification
             if method == "notifications/initialized":
                 ready.set()
+            elif method == "notifications/claude/channel/permission_request" and isinstance(msg.get("params"), dict):
+                threading.Thread(target=pass_on, args=(msg["params"],), daemon=True).start()
             continue
         if method == "initialize":
             params = msg.get("params") if isinstance(msg.get("params"), dict) else {}
             asked = params.get("protocolVersion")
             send({"jsonrpc": "2.0", "id": msg["id"], "result": {
                 "protocolVersion": asked if asked in PROTOCOLS else PROTOCOLS[1],
-                "capabilities": {"experimental": {"claude/channel": {}}},
+                "capabilities": {"experimental": {"claude/channel": {}, "claude/channel/permission": {}}},
                 "serverInfo": {"name": CHANNEL, "version": "1.0"},
                 "instructions": INSTRUCTIONS}})
         elif method == "ping":
