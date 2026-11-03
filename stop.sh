@@ -6,7 +6,11 @@
 set -e
 
 if [ "$(id -u)" -ne 0 ]; then
-  echo "Run with sudo:  sudo bash stop.sh"
+  if command -v sudo > /dev/null 2>&1; then
+    echo "Run with sudo:  sudo bash stop.sh"
+  else                                           # (Debian, when root has a password of its own: no sudo)
+    echo "Run it as root:  su -c \"bash stop.sh\""
+  fi
   exit 1
 fi
 

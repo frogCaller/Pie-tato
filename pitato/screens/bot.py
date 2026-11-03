@@ -3,9 +3,10 @@ import io
 import random
 import re
 import shutil
+import threading
 import time
 
-from ..theme import ACCENT, BG, BODY, co_mix, LINE, MUTED, ROW, TEXT, WARN
+from ..theme import ACCENT, BG, BODY, LINE, MUTED, ROW, TEXT, WARN
 from ..config import clean_name, edit_config
 from ..util import pictures_dir, save_picture
 from ..net import cam_address
@@ -27,9 +28,10 @@ from ..face import draw_face, face_colours, face_shape, face_wait, FACE_BACKS, F
 BOT_MODES = ("today", "chat", "work")   # the Bot's pages, left to right: your day, chatting, your coding agent at work
 BOT_MODE_NAMES = {"today": "Today", "chat": "Chat", "work": "Work"}
 FACE_MOOD_SECS = 90             # the face shows how it felt about what it said for this long, then its everyday look
+HOLD_AFTER = 1.0                # Pauses music: seconds after the bot's done (listening, thinking, talking) it plays on
 FACE_SIZE = 96                  # the face, across (on its chat page: in its panel, its background's colour)
-FACE_PANEL = (10, 48, 214, 16)  # ...that panel: in from its card's sides, down from its card's top (under its pages'
-                                # names), how tall at most, how round its corners
+FACE_PANEL = (10, 48, 30)       # ...that panel, a square: in from its card's sides, down from its card's top (under
+                                # its pages' names), how round its corners. Its model or the day, under it
 FACE_ONLY_SIZE = (0.52, 0.66)   # Just its face: as wide as this much of the screen's width, or this much of its height
 FACE_ONLY_FPS = 8               # ...and on a Pi Zero, at most this many frames a second while it's busy (a big face)
 FRIEND_MENU = (320, 44)         # the Bot page's X menu: its width, and each of its rows' height
@@ -210,9 +212,15 @@ class BotScreen:
 
     def say_aloud(self, text=None):
         """A reply said out loud: the last one when none is given (not over something playing, which
-        has the sound, and the memory). (True, "") or (False, why not)."""
+        has the sound, and the memory: unless it's music and the bot pauses music, which then plays on after it).
+        (True, "") or (False, why not)."""
         if self.proc:
-            return False, "Not while something's playing"
+            if not (self.bot_pauses_music() and self.kind in LISTEN_KINDS):
+                return False, "Not while something's playing"
+            if threading.current_thread() is not threading.main_thread():
+                self.soon(lambda: self.say_aloud(text))   # (the music's stopped on media mode's own thread)
+                return True, ""
+            self.hold_music(talk=True)
         if self.coder.talking():
             return False, "Not while your coding agent is talking"
         if text is None:
@@ -225,9 +233,73 @@ class BotScreen:
         return self.voice.say(text, self.bot_voice(), aplay_device(self.setting("sound")), self.volume)
 
     def bot_replied(self, text):
-        """It answered (on its own thread): out loud too, when that's set and nothing is playing."""
-        if self.bot_voice() and self.bot_speaks() and not self.proc:
+        """It answered (on its own thread): out loud too, when that's set and nothing is playing (or music is, and it
+        pauses music: not for something it says by itself, though)."""
+        last = next((x for x in reversed(self.friend.log) if x.get("who") == "friend"), None)
+        own = bool(last) and last.get("kind") == "remark"
+        if self.bot_voice() and self.bot_speaks() and not (self.proc and own):
             self.say_aloud(text)
+
+    def bot_pauses_music(self):
+        """Character > Voice > Pauses music: it pauses your music (or the radio) as you talk to it and as it talks,
+        and plays it on after. Off: the music's quieter while you talk to it, and it doesn't talk over it."""
+        return (self.friend.conf.get("pause_music") or "off").strip().lower() in ("on", "yes", "true", "1")
+
+    def hold_music(self, talk=False):
+        """Your music or the radio, paused for the bot (Pauses music on), to play on after it's done
+        (music_hold_tick): paused, as you'd pause it, while you talk to it; stopped while it talks (a player, paused,
+        keeps the sound card), to start again where it was. True when it's held (or nothing's playing)."""
+        h = self.music_held
+        if h is not None and (h["proc"] is not self.proc or not self.paused if h.get("proc") is not None
+                              else self.proc is not None):
+            h = self.music_held = None                 # (played on since, or something else: not the bot's now)
+        if h is None:
+            if self.proc is None:
+                return True
+            if self.kind not in LISTEN_KINDS or not self.bot_pauses_music():
+                return False
+            if not talk and self.paused:
+                return True                            # (paused already: as quiet as it gets)
+            h = self.music_held = {"proc": self.proc, "paused": self.paused}
+            if not self.paused:
+                self.duck(False)
+                self.cmd("pause")
+                self.paused = True
+        if talk and h.get("proc") is not None:
+            h.update(proc=None, queue=self.queue, qi=self.qi, pos=self.pos if self.kind == "audio" else 0)
+            self.stop()
+        h["at"] = time.monotonic()
+        return True
+
+    def music_hold_tick(self, now):
+        """The main loop: music the bot paused (hold_music) plays on a moment after it's done listening, thinking and
+        talking, as it was (paused, if you'd paused it), unless something else has started since."""
+        h = self.music_held
+        if h is None:
+            return
+        if (self.ears.state == "listening" or self.voice.speaking or self.friend.busy or self.coder.talking()
+                or self.soon_jobs):
+            h["at"] = now
+            return
+        if now - h.get("at", now) < HOLD_AFTER:
+            return
+        self.music_held = None
+        p = h.get("proc")
+        if p is not None:                              # (paused: played on)
+            if p is self.proc and self.paused and not h.get("paused"):
+                self.cmd("pause")
+                self.paused = False
+                self.dirty = True
+            return
+        queue, qi = h.get("queue") or [], h.get("qi", -1)
+        if self.proc is not None or self.game is not None or not 0 <= qi < len(queue):
+            return                                     # (something else since: it plays instead)
+        pos = h.get("pos") or 0
+        self.start_paused = bool(h.get("paused"))
+        try:
+            self.play(queue, qi, start=pos if pos > 5 else 0, show=False)
+        finally:
+            self.start_paused = False
 
     def voice_ready(self, vid):
         """A voice arrived (on its download's thread): the main loop puts it to use."""
@@ -407,6 +479,11 @@ class BotScreen:
                 or self.coder.talking()
                 or (self.proc is not None and not self.paused and self.kind not in LISTEN_KINDS and self.pi_slow))
 
+    def ears_noisy(self):
+        """Something playing out loud (not paused, quieter or silent): the bot listens for its wake phrase alone
+        (hear.py). (From the ears' thread.)"""
+        return self.proc is not None and not self.paused and not self.muted and not self.ducked
+
     def duck(self, on):
         """What's playing, quieter while you talk to the bot ("Listening…"), so it hears you; as it was after."""
         if on and self.proc is not None and not self.paused and not self.muted and not self.ducked:
@@ -443,8 +520,8 @@ class BotScreen:
             self.duck(False)                           # (what's playing: back as it was)
         if now == was or not self.active:
             return
-        if now[0] == "listening":
-            self.duck(True)
+        if now[0] == "listening" and not (self.music_held or self.hold_music()):
+            self.duck(True)                            # (Pauses music: paused instead, till it's done)
         if now[0] == "listening" and was[0] != "listening":
             if not self.on_friend_page():             # (there, its face says so)
                 self.toast("Listening…", PATIENCE)
@@ -1120,23 +1197,22 @@ class BotScreen:
         face, back = self.bot_palette()
         cx0, cx1 = 16, 196
         d.rounded_rectangle((cx0, top, cx1, bottom), radius=18, fill=ROW)
-        side, below, tall, round_ = FACE_PANEL
+        side, below, round_ = FACE_PANEL
         py0 = top + below
-        py1 = min(py0 + tall + max(0, H - 480), bottom - 44)   # (a taller screen's: taller. Room under it for what
-                                                               # your coding agent's doing)
+        py1 = min(py0 + (cx1 - cx0) - 2 * side, bottom - 74)   # (square. Room under it for its model or the day, and
+                                                                # what your coding agent's doing)
         d.rounded_rectangle((cx0 + side, py0, cx1 - side, py1), radius=round_, fill=back)
-        face_at = ((cx0 + cx1) / 2, (py0 + py1) / 2 - FACE_SIZE * 0.2 - 4, FACE_SIZE)   # (its eyes to the word under
-                                                                                     # it: in the middle of it)
+        face_at = ((cx0 + cx1) / 2, (py0 + py1) / 2 + FACE_SIZE * 0.06, FACE_SIZE)   # (its eyes and mouth in the
+                                                                                     # middle of it)
         self.draw_bot_face(d, face_at, back=back)
         speaking = self.voice.speaking
         hearing = self.ears.state == "listening" and not fr.busy and not speaking
         now = time.localtime()
         status = (fr.doing or "Thinking…") if fr.busy else "Speaking…" if speaking else "Listening…" if hearing else \
             f"{time.strftime('%A', now)} {now.tm_mday}" if today else \
-            self.fit(d, fr.model, F["small"], cx1 - cx0 - 2 * side - 20) if fr.ready() else "Not set up"
+            self.fit(d, fr.model, F["small"], cx1 - cx0 - 24) if fr.ready() else "Not set up"
         lit = fr.busy or speaking or hearing
-        d.text(((cx0 + cx1) / 2, face_at[1] + FACE_SIZE * 0.66), status, font=F["small"],
-               fill=face if lit else co_mix(back, face, 0.55), anchor="mm")
+        d.text(((cx0 + cx1) / 2, py1 + 22), status, font=F["small"], fill=ACCENT if lit else MUTED, anchor="mm")
         self.bot_label(d)
         work = self.friend_work_shown = self.bot_work_line()
         if work:                                      # (your coding agent: left or right shows it)

@@ -271,7 +271,7 @@ class PhotoScreen:
         if name == "select" and not repeat:
             if in_home(v["items"][v["i"]]):
                 v["confirm"] = True
-            else:
+            elif not self.net_save(v["items"][v["i"]]):   # (another computer's: a copy onto this Pi)
                 self.toast("Only pictures in your home folder can be deleted here", 3)
             self.dirty = True
             return None
@@ -366,7 +366,8 @@ class PhotoScreen:
                 hints = [("A", f"Zoom {v['zoom']}x"), ("PAD", "Move"), ("L R", "Prev/next"),
                          ("B", "Back")]
             else:
-                hints = [("◀▶", "Next"), ("A", "Zoom"), ("X", "Filters"), ("SEL", "Delete"),
+                hints = [("◀▶", "Next"), ("A", "Zoom"), ("X", "Filters"),
+                         ("SEL", "Save" if self.net_file(v["items"][v["i"]]) else "Delete"),
                          ("START", "Show"), ("B", "Back")]
             self.footer(d, hints, right=pos if not v["edit"] else None)
             if v["confirm"]:                           # are you sure?

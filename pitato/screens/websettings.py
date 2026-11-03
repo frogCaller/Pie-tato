@@ -279,7 +279,10 @@ class WebSettingsScreen:
                      {"key": "f_speak", "label": "Says its replies out loud", "kind": "choice",
                       "value": "on" if self.bot_speaks() else "off", "choices": ["on", "off"],
                       "names": {"on": "Yes", "off": "No"}}]
-        rows += [{"key": "f_style", "label": "How it talks", "kind": "choice", "value": fr.style()["key"],
+        rows += [{"key": "f_pause", "label": "Pauses your music to talk", "kind": "choice",
+                  "value": "on" if self.bot_pauses_music() else "off", "choices": ["on", "off"],
+                  "names": {"on": "Yes", "off": "No"}},
+                 {"key": "f_style", "label": "How it talks", "kind": "choice", "value": fr.style()["key"],
                   "choices": [k for k, *_ in FRIEND_STYLES], "names": {k: n for k, n, *_ in FRIEND_STYLES}},
                  {"key": "f_chatter", "label": "Says something by itself", "kind": "choice",
                   "value": str(fr.chatter()), "choices": [v for _, v in chatter], "names": {v: t for t, v in chatter}}]
@@ -639,6 +642,11 @@ class WebSettingsScreen:
         if value == "off":
             self.voice.stop()
         return {"ok": True}
+
+    def web_set_f_pause(self, value, cmd):
+        if value not in ("on", "off"):
+            return {"error": "That isn't one of its choices"}
+        return {"ok": True} if self.friend_set(pause_music=value) else {"error": "Couldn't save static/bot.txt"}
 
     def web_set_f_face(self, value, cmd):
         if value not in ("on", "off"):

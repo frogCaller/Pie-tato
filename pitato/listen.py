@@ -3,8 +3,9 @@
 It listens by itself while a microphone's plugged in, once the bot's set up (Settings > Bot > Listens: Auto, as it
 comes; On listens with any there is, a webcam's or a PC's own too; Off). It waits for the wake phrase ("hey potato",
 or yours), and what you say after it goes to the bot, which answers out loud when it has a voice; "Talk to it" on the
-Bot page skips the phrase. It's deaf while the bot speaks, something plays or a game runs (it would hear that
-instead). What it hears goes nowhere but to your bot. hear.py does the listening, as you rather than as root (as
+Bot page skips the phrase. It's deaf while the bot speaks or a game runs (it would hear that instead). While music
+plays, it listens for the wake phrase alone (hear.py: over a song, that's all it can hear), then for what you say
+once the music's paused or quieter. What it hears goes nowhere but to your bot. hear.py does the listening, as you rather than as root (as
 Piper does: its model comes from the internet). Vosk (its library, from its release on PyPI, checked against its known
 SHA-256) and its small English model come from their own releases the first time it listens."""
 import glob
@@ -255,6 +256,7 @@ class Ears:
         self.job = None              # Vosk on its way: {"what", "pct"}
         self.got_error = ""          # why it didn't arrive
         self.is_busy = lambda: False
+        self.is_noisy = lambda: False  # something playing, out loud: the wake phrase alone, then (hear.py)
         self.on_heard = lambda text: None
         self.on_change = lambda: None
         self.on_ready = lambda: None   # Vosk arrived (from its download's thread)
@@ -314,6 +316,12 @@ class Ears:
             return False
         self.poked = True
         return True
+
+    def noisy_now(self):
+        try:
+            return bool(self.is_noisy())
+        except Exception:
+            return False
 
     def busy_now(self):
         try:
@@ -390,6 +398,7 @@ class Ears:
         """hear.py's lines, till it stops (why: its error, or "" when it said none) or listening's turned off."""
         out = proc.stdout.fileno()
         buf, deaf, armed, why = b"", None, 0.0, ""
+        noisy = False                                 # (hear.py's told when something's playing, out loud)
         began = 0.0                                   # when it started listening for what you say (LISTEN_MOST)
         while gen == self.gen:
             busy = self.busy_now()
@@ -399,6 +408,11 @@ class Ears:
                 deaf = busy
                 if armed:
                     armed = began = time.monotonic()  # (what you say next still goes to the bot)
+            loud = self.noisy_now()
+            if loud != noisy:
+                if not self.tell(proc, "noisy" if loud else "clear"):
+                    break
+                noisy = loud
             if self.poked and not deaf and self.state in ("waiting", "listening"):
                 self.poked = False
                 self.tell(proc, "reset")
@@ -411,6 +425,7 @@ class Ears:
                 began = time.monotonic()
             if armed and not deaf and time.monotonic() - armed > PATIENCE:
                 armed = 0.0                           # (nothing followed the wake phrase)
+                self.tell(proc, "reset")              # (over music: the wake phrase alone again)
                 self.set(gen, "waiting")
             elif armed and not deaf and time.monotonic() - began > LISTEN_MOST:
                 text, armed = self.heard, 0.0         # (music on and on: what it made out, as it was)
@@ -450,7 +465,10 @@ class Ears:
                     elif wake_end([w for w, _ in tokens(part)], wake) is not None and self.state != "listening":
                         self.set(gen, "listening")   # (the phrase, it seems: the screen says so at once)
                 elif "final" in msg:
+                    was = armed
                     armed = self.final(gen, str(msg["final"])[:600], wake, armed)
+                    if was and not armed:             # (what you said, passed on: over music, the wake phrase
+                        self.tell(proc, "reset")      # alone again)
         return why
 
     def final(self, gen, text, wake, armed):

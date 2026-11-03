@@ -7,8 +7,8 @@ monitor on HDMI, or the GPi Case's own. The menus are drawn at 640x480 (a little
 scaled up to fit; on a 1080p or 4K screen, a Pi 4 or 5 or a PC draws them in its finer detail (pitato/fine.py:
 sharp text, icons and pictures, laid out the same). In the GPi
 Case 2's dock (the TV on), the picture's on the TV: docked or taken out, the Pi restarts with it there.
-It works on a PC (Intel or AMD) with Ubuntu too: the PC starts in it, like a console, and System > Desktop
-starts Ubuntu's desktop instead, till the PC restarts (pitato/system.py's is_pc).
+It works on a PC (Intel or AMD) with Ubuntu or Debian too: the PC starts in it, like a console, and System >
+Desktop starts its desktop instead, till the PC restarts (pitato/system.py's is_pc).
 
 Controllers: the GPi Case's buttons, or any USB or Bluetooth game controller (Xbox, PlayStation,
 8BitDo, the cheap SNES-style ones...), plugged in or out at any time; a Bluetooth one (or a keyboard,

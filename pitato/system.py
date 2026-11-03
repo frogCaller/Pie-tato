@@ -116,15 +116,15 @@ def read_file(path, default=""):
 
 PI_MODEL = "/proc/device-tree/model"            # a Pi's model ("Raspberry Pi 4 Model B Rev 1.4")
 DMI = "/sys/class/dmi/id"                      # a PC's description of itself, from its firmware (none on a Pi)
-DESKTOP = "/etc/systemd/system/display-manager.service"   # a desktop it can start (Ubuntu Desktop's), if there's one
+DESKTOP = "/etc/systemd/system/display-manager.service"   # a desktop it can start (Ubuntu's, Debian's), if there's one
 PC_WORDS = re.compile(r"\b([Tt]he|[Tt]his|[Yy]our|[Aa]) Pi\b(?![-\w]| \d| Zero| OS| Case)")
 NO_NAME = re.compile(r"to be filled|default string|system product name|system manufacturer|not specified|"
                      r"not applicable|o\.e\.m|^none$|^unknown$", re.I)   # (what some firmware leaves in its names)
 
 
 def is_pc():
-    """A computer of your own (Intel or AMD, with Ubuntu) rather than a Pi: no Pi model, and its firmware's own
-    description of itself."""
+    """A computer of your own (Intel or AMD, with Ubuntu or Debian) rather than a Pi: no Pi model, and its firmware's
+    own description of itself."""
     return "Raspberry Pi" not in read_file(PI_MODEL) and os.path.isdir(DMI)
 
 
@@ -148,7 +148,7 @@ def pc_name():
 
 
 def has_desktop():
-    """A PC with a desktop it can start (Ubuntu Desktop's): System > Desktop."""
+    """A PC with a desktop it can start (Ubuntu's or Debian's): System > Desktop."""
     return is_pc() and os.path.exists(DESKTOP)
 
 

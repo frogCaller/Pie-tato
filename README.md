@@ -3,7 +3,7 @@
 Turns your Raspberry Pi GPi Case 2W or GPi Case 2 into a pocket-sized smart media center. Versatile home
 entertainment remote where you can watch live TV, stream videos, listen to music and radio, view photos, play
 your own games, check the weather and system stats, and control your smart home through Home Assistant. It
-works on any Raspberry Pi with a TV or monitor on HDMI too, and on a regular PC with Ubuntu.
+works on any Raspberry Pi with a TV or monitor on HDMI too, and on a regular PC with Ubuntu or Debian.
 
 <p>
   <img src="docs/tv.gif" height="260">
@@ -46,12 +46,17 @@ the game emulators), so leave the Pi on until it says All set.
 
 ### On a PC
 
-If you have a regular computer (Intel or AMD) with Ubuntu 24.04, Desktop or Server, you can run it there
-too and play with a USB or Bluetooth controller. Set it up the same way, with the commands above.
+If you have a regular computer (Intel or AMD) with Ubuntu 24.04 (Desktop or Server) or Debian 12 or 13, you can
+run it there too and play with a USB or Bluetooth controller. Set it up the same way, with the commands above
+(if git isn't there yet, `sudo apt install git` first).
+On Debian, setup.sh also turns on Debian's non-free packages, where the SNES and Genesis emulators are. If
+sudo isn't there (you gave root a password when you installed Debian), use `su -c` instead:
+`su -c "apt install git"`, then `su -c "bash setup.sh"` in the Pietato folder, and the same for the other
+scripts below.
 It builds every game emulator (under an hour), so leave the computer on until it says All set.
-After that, the computer starts in Pietato, like a console. If you have Ubuntu's desktop, open System,
+After that, the computer starts in Pietato, like a console. If you have a desktop, open System,
 press SELECT for its list and pick Desktop to use it, then restart the computer to come back to Pietato.
-Settings > Resolution sets the screen's size at start-up. With Ubuntu's desktop installed, Bluetooth
+Settings > Resolution sets the screen's size at start-up. With a desktop installed, Bluetooth
 headphones only play sound on the desktop, so in Pietato use the computer's speakers, HDMI or a USB speaker.
 
 Keep the Pietato folder where it is: your settings live in its `static` folder. To update, press
@@ -262,7 +267,9 @@ for zoom, tabs, full screen, or closing it. A keyboard and a mouse work in it to
 
 If you want another computer's files on the Pi, open Files, then Other computers, and add it by its
 address (like `192.168.1.20`). On Windows or a Mac, share a folder first; on Linux, turn on SSH. Its
-files open read-only, so nothing on that computer is changed from the Pi.
+files open read-only, so nothing on that computer is changed from the Pi. To keep a copy on the Pi,
+press SELECT on a file (in its list, or while you're looking at it), or Save to the Pi on the web page:
+pictures go in Pictures, videos in Videos, music in Music, games in Games and the rest in Documents.
 
 If you have more than one Pietato on your network, they share what they fetch: coin and stock prices
 and charts, and the weather. Whichever needs something first fetches it, and the others ask it, so
@@ -342,12 +349,15 @@ If you pick a voice in its Character (Voice), it says its replies out loud with
 [Piper](https://github.com/rhasspy/piper), which runs on the Pi. The first time, the Pi
 downloads Piper (about 25 MB) and the voice (about 60 MB). The quick voices suit a Pi Zero
 best. Press X and Say it again to hear the last reply again, or Say it out loud on the web page.
+It doesn't talk over your music, unless you turn on Pauses music in its Character (Voice): then it
+pauses your music or the radio while you talk to it and while it answers, and plays it on after.
 
 If you plug a USB microphone into the Pi (one with a free USB port: in a GPi Case, only the GPi Case 2's
 dock has one) or a PC, you can talk to it: say "hey potato" and what you want. It makes out what you say on
 the Pi itself with [Vosk](https://alphacephei.com/vosk/), which it downloads the first time you plug one in
-(about 45 MB). It listens while music plays or is paused, and turns the music down while you talk. It
-doesn't listen while it's talking, while you play a game, or while a video plays on a Pi Zero, 1, 2 or 3.
+(about 45 MB). It listens while music plays or is paused: over music it only listens for its name, so
+say "hey potato" and, once the music pauses or goes quieter, what you want. It doesn't listen while it's
+talking, while you play a game, or while a video plays on a Pi Zero, 1, 2 or 3.
 Renaming it in its Character changes what you say, or set any wake phrase in Settings > Bot. Or press X
 on the Bot page and Talk to it instead. Set Settings > Bot > Listens to Off to stop it, or to On to have it
 use a webcam's microphone or a PC's built-in one too.

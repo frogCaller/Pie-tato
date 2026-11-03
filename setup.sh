@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# setup.sh - set up Raspberry Pi OS Lite (Bookworm) on any Raspberry Pi with a screen, or Ubuntu 24.04 on a PC
+# setup.sh - set up Raspberry Pi OS Lite (Bookworm) on any Raspberry Pi with a screen, or Ubuntu 24.04 or Debian
+#   12 or 13 on a PC
 #   - in a RetroFlag GPi Case 2W (Pi Zero 2 W): the case screen as the console (with
 #     GPIO 18/19 left free for the speaker), the case speaker, and its power switch:
 #     switching off shuts the Pi down safely (GPIO 26 and 27, as RetroFlag's own script)
@@ -7,8 +8,9 @@
 #     (picked as the Pi starts, GPIO 18 saying which; Pietato restarts the Pi when it's
 #     docked or taken out), the case's sound, and its power switch, as the 2W's
 #   - on any other Pi: the screen on HDMI as it is
-#   - on a PC (Intel or AMD, Ubuntu): every emulator built for it, and it starts in Pietato; with Ubuntu's desktop,
-#     the terminal instead of the desktop at start-up (System > Desktop starts the desktop till it restarts)
+#   - on a PC (Intel or AMD, Ubuntu or Debian): every emulator built for it, and it starts in Pietato; with a desktop,
+#     the terminal instead of the desktop at start-up (System > Desktop starts the desktop till it restarts); on
+#     Debian, its non-free packages on (the SNES and Genesis emulators are there, as Raspberry Pi OS has them on)
 #   - game controller buttons as keys + media mode (the case buttons, or any USB or
 #     Bluetooth controller), which opens at start-up on a home screen of app icons: TV (Plex,
 #     cartoons, free movies, news, sports, streams, a TV remote through Home Assistant),
@@ -36,6 +38,7 @@
 # keep the folder where it is. Ones left in your home folder by an earlier version move there.
 #
 # Usage (from the repo folder):  sudo bash setup.sh
+#   (on Debian without sudo, where root has a password of its own:  su -c "bash setup.sh")
 #   --gpi       it's in a GPi Case (don't ask): the 2W on a Pi Zero, the GPi Case 2 on a CM4
 #   --gpi2      it's in a GPi Case 2 (don't ask)
 #   --no-gpi    it isn't (don't ask)
@@ -51,9 +54,16 @@
 # Beside it: stop.sh turns Pietato off (start.sh turns it back on), and uninstall.sh takes it off.
 
 set -e
+for d in /usr/local/sbin /usr/sbin /sbin; do     # (su keeps your own PATH, without these: modprobe, usermod...)
+  case ":$PATH:" in *":$d:"*) ;; *) PATH="$PATH:$d" ;; esac
+done
 
 if [ "$(id -u)" -ne 0 ]; then
-  echo "Run with sudo:  sudo bash setup.sh"
+  if command -v sudo > /dev/null 2>&1; then
+    echo "Run with sudo:  sudo bash setup.sh"
+  else                                           # (Debian, when root has a password of its own: no sudo)
+    echo "Run it as root:  su -c \"bash setup.sh\""
+  fi
   exit 1
 fi
 
@@ -77,7 +87,11 @@ for arg in "$@"; do
 done
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-USER_NAME="${SUDO_USER:-$(logname 2>/dev/null || echo pi)}"
+USER_NAME="${SUDO_USER:-}"             # you: who ran sudo, or with su (no sudo), whose the Pietato folder is
+if [ -z "$USER_NAME" ]; then
+  USER_NAME="$(stat -c %U "$HERE" 2>/dev/null || true)"
+  case "$USER_NAME" in ""|root|UNKNOWN) USER_NAME="$(logname 2>/dev/null || echo pi)" ;; esac
+fi
 USER_HOME="$(getent passwd "$USER_NAME" | cut -d: -f6)"
 STATIC="$HERE/static"                  # your settings files
 case "$HERE" in
@@ -233,7 +247,8 @@ if [ -d /boot/firmware ]; then BOOT=/boot/firmware; else BOOT=/boot; fi
 CONFIG="$BOOT/config.txt"
 MODEL="$(tr -d '\0' 2> /dev/null < "${PITATO_MODEL_FILE:-/proc/device-tree/model}" || true)"   # (none where an
                                                                                                 # image is made)
-# a computer of your own (Intel or AMD, with Ubuntu) rather than a Pi: no config.txt, no GPi Case, and every emulator
+# a computer of your own (Intel or AMD, with Ubuntu or Debian) rather than a Pi: no config.txt, no GPi Case, and every
+# emulator
 PC=no
 if [[ "$MODEL" != *"Raspberry Pi"* ]] && [ ! -f "$CONFIG" ] && [ "$IMAGE" != yes ]; then
   case "$(dpkg --print-architecture 2>/dev/null || uname -m)" in
@@ -241,6 +256,10 @@ if [[ "$MODEL" != *"Raspberry Pi"* ]] && [ ! -f "$CONFIG" ] && [ "$IMAGE" != yes
   esac
 fi
 if [ "$PC" = yes ]; then MACHINE=computer; else MACHINE=Pi; fi     # (what to leave on while it works)
+os_field() {       # os_field NAME: os-release's (ID: ubuntu, or debian, as Raspberry Pi OS's is too; VERSION_CODENAME)
+  sed -n "s/^$1=//p" "${PITATO_OS_RELEASE:-/etc/os-release}" 2> /dev/null | tr -d '"' | head -n 1
+}
+OS_ID="$(os_field ID)"
 
 # Until it's done, a shutdown asked for gently (a Pi 5's power button, the GPi Case's switch, poweroff without
 # sudo) waits. Nothing can stop a pulled plug, so it says to leave the Pi on. If it stops early (an error, Ctrl+C),
@@ -346,10 +365,117 @@ fi
 echo "Leave the $MACHINE on until it says All set."
 
 # --------------------------------------------------------------------------
+# Debian on a PC: the SNES and Genesis emulators (Snes9x, Genesis Plus GX) are in Debian's non-free packages, which
+# Raspberry Pi OS has on and a new Debian doesn't. Debian's own sources for this release get non-free beside main,
+# and nothing else changes: anyone else's sources, and the rest of each line, stay as they are. If apt can't read
+# them then, they go back as they were.
+apt_has() {        # apt_has PACKAGE: there to install (or put in already)
+  LC_ALL=C apt-cache policy "$1" 2> /dev/null | grep -q '^ *Candidate: [^(]'
+}
+NON_FREE_AWK=$(cat <<'AWK'
+# (setup.sh's: -v code=trixie, and -v deb822=1 for a .sources file)
+function debian(uri) {                     # Debian's own archive (or a mirror of it), or its security archive
+  sub(/\/+$/, "", uri)
+  return uri !~ /^cdrom:/ && (uri ~ /\/debian(-security)?$/ || uri ~ /\/debian(-security)?\.list$/)
+}
+function ours(suite) {                     # this release's: trixie, trixie-updates, trixie-security...
+  sub(/\/+$/, "", suite)
+  return suite == code || suite == "stable" || index(suite, code "-") == 1 || index(suite, "stable-") == 1
+}
+function has(list, word,    n, w, i) {     # (a comment after the list left out)
+  sub(/#.*/, "", list)
+  n = split(list, w, /[ \t]+/)
+  for (i = 1; i <= n; i++) if (w[i] == word) return 1
+  return 0
+}
+function non_free(list,    t) {            # " main non-free-firmware": " main non-free non-free-firmware"
+  t = " " list " "
+  if (!match(t, /[ \t]main[ \t#]/)) return list
+  t = substr(t, 1, RSTART + 4) " non-free" substr(t, RSTART + 5)
+  return substr(t, 2, length(t) - 2)
+}
+function stanza(    i, k, v, p, uris, suites, comps, at, on, n, w, j, u, s) {   # (a .sources file's, as it ends)
+  uris = suites = comps = ""; at = 0; on = 1
+  for (i = 1; i <= nb; i++) {
+    p = index(buf[i], ":")
+    if (buf[i] ~ /^[ \t#]/ || p == 0) continue          # (a comment, or a field's next line: a key's)
+    k = tolower(substr(buf[i], 1, p - 1)); v = substr(buf[i], p + 1)
+    if (k == "uris") uris = v
+    else if (k == "suites") suites = v
+    else if (k == "components") { comps = v; at = i }
+    else if (k == "enabled" && tolower(v) ~ /^[ \t]*(no|false|0)[ \t]*$/) on = 0
+  }
+  u = s = 0
+  n = split(uris, w, /[ \t]+/); for (j = 1; j <= n; j++) if (w[j] != "" && debian(w[j])) u = 1
+  n = split(suites, w, /[ \t]+/); for (j = 1; j <= n; j++) if (w[j] != "" && ours(w[j])) s = 1
+  if (on && at && u && s && has(comps, "main") && !has(comps, "non-free")) {
+    p = index(buf[at], ":")
+    buf[at] = substr(buf[at], 1, p) non_free(substr(buf[at], p + 1))
+  }
+  for (i = 1; i <= nb; i++) print buf[i]
+  nb = 0
+}
+deb822 && /^[ \t]*$/ { stanza(); print; next }
+deb822 { buf[++nb] = $0; next }
+/^[ \t]*deb(-src)?[ \t]/ {                 # deb [options] address suite components
+  match($0, /^[ \t]*deb(-src)?[ \t]+/)
+  head = substr($0, 1, RLENGTH); rest = substr($0, RLENGTH + 1)
+  if (substr(rest, 1, 1) == "[") {
+    p = index(rest, "]")
+    if (p == 0) { print; next }
+    head = head substr(rest, 1, p); rest = substr(rest, p + 1)
+  }
+  if (match(rest, /^[ \t]*[^ \t#]+[ \t]+[^ \t#]+/)) {
+    where = substr(rest, 1, RLENGTH); comps = substr(rest, RLENGTH + 1)
+    t = where; sub(/^[ \t]+/, "", t); split(t, w, /[ \t]+/)
+    if (debian(w[1]) && ours(w[2]) && has(comps, "main") && !has(comps, "non-free")) {
+      print head where non_free(comps); next
+    }
+  }
+}
+{ print }
+END { if (deb822) stanza() }
+AWK
+)
+debian_non_free() {   # non-free on in Debian's own sources for this release: the files changed, or 1 if none
+  local code f kind keep changed=""
+  code="$(os_field VERSION_CODENAME)"
+  if [ -z "$code" ]; then return 1; fi
+  keep="$(mktemp -d /var/tmp/pietato-apt-XXXXXX)" || return 1
+  for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+    [ -f "$f" ] || continue
+    case "$f" in *.sources) kind=1 ;; *) kind=0 ;; esac
+    awk -v code="$code" -v deb822="$kind" "$NON_FREE_AWK" "$f" > "$keep/new" || continue
+    if ! awk 1 "$f" | cmp -s - "$keep/new"; then
+      cp -p "$f" "$keep/$(echo "$f" | tr / _)"       # (as it was)
+      cat "$keep/new" > "$f"                       # (its owner and permissions kept)
+      changed="$changed $f"
+    fi
+  done
+  if [ -z "$changed" ]; then rm -rf "$keep"; return 1; fi
+  echo "Non-free is on now in:$changed"
+  if ! apt-get update; then                        # (back as they were)
+    for f in $changed; do cp -p "$keep/$(echo "$f" | tr / _)" "$f"; done
+    rm -rf "$keep"
+    apt-get update || true
+    return 1
+  fi
+  rm -rf "$keep"
+}
+
 step "Installing packages"
 apt-get update
+if [ "$PC" = yes ] && [ "$OS_ID" = debian ] && ! apt_has libretro-snes9x; then
+  echo "Turning on Debian's non-free packages: the SNES and Genesis emulators are there."
+  debian_non_free || echo "(Couldn't turn on Debian's non-free packages: SNES and Genesis games won't start. Add" \
+    "non-free after main in Debian's sources in /etc/apt, then run setup.sh again.)"
+fi
+# (kbd: chvt, to change the screen over; openssl: the web page's secure page)
 apt-get install -y python3-evdev python3-pil python3-numpy fonts-dejavu-core \
-  mplayer poppler-utils iw evtest device-tree-compiler python3-flask alsa-utils ffmpeg bluez
+  mplayer poppler-utils iw evtest device-tree-compiler python3-flask alsa-utils ffmpeg bluez kbd openssl
+if [ "$PC" = yes ]; then   # (NAME.local, for the web page, as on a Pi: Ubuntu's and Debian's servers haven't it)
+  apt-get install -y avahi-daemon || echo "(Couldn't install avahi-daemon: open the web page by its address.)"
+fi
 # a USB camera (v4l2-ctl: its sizes, and turning one that turns) and a USB microphone (Vosk needs libatomic)
 apt-get install -y v4l-utils libatomic1 || echo "(Couldn't install v4l-utils or libatomic1: a USB camera or microphone may not work.)"
 # the Simulator's cmatrix, nyancat, htop and hollywood: Linux's own. hollywood with what its panes show, but not
@@ -900,7 +1026,8 @@ if [ "$BIG" = yes ] && [ "$CASE" != 2w ]; then
     for pkg in $CHROMIUM_PKGS; do apt-get install -y "$pkg" && return 0; done
     return 1
   }
-  if apt-get install -y cage xwayland wlr-randr fonts-liberation fonts-noto-color-emoji && chromium_install; then
+  if apt-get install -y cage xwayland wlr-randr fonts-liberation fonts-noto-color-emoji libpam-systemd \
+     && chromium_install; then
     cat > /etc/pam.d/pietato-chromium <<'EOF'
 # Pietato's Chromium: a session of your own on its console. Pietato starts it, as root, so no password is asked.
 auth      required  pam_unix.so nullok
@@ -1213,9 +1340,9 @@ AUTO
 fi
 
 # --------------------------------------------------------------------------
-# A PC with a desktop (Ubuntu Desktop's): it starts in the terminal instead, with Pietato on the screen, as a Pi does.
-# System > Desktop starts the desktop when you want it, and the computer restarting comes back to Pietato. (Not on
-# an update: you may have set it back yourself.)
+# A PC with a desktop (Ubuntu's or Debian's): it starts in the terminal instead, with Pietato on the screen, as a Pi
+# does. System > Desktop starts the desktop when you want it, and the computer restarting comes back to Pietato. (Not
+# on an update: you may have set it back yourself.)
 if [ "$PC" = yes ] && [ "$UPDATE" != yes ] && [ "$(systemctl get-default 2>/dev/null)" = graphical.target ]; then
   step "This computer starts in Pietato now, not the desktop (System > Desktop starts the desktop)"
   systemctl set-default multi-user.target
@@ -1281,7 +1408,7 @@ options snd-aloop index=7 id=Loopback pcm_substreams=2
 ALOOP
 echo snd-aloop > /etc/modules-load.d/pietato-loopback.conf
 if ! modprobe snd-aloop 2>/dev/null; then
-  if [ "$PC" = yes ]; then                         # (Ubuntu keeps it in its kernel's extra modules)
+  if [ "$PC" = yes ] && [ "$OS_ID" = ubuntu ]; then   # (Ubuntu keeps it in its kernel's extra modules; Debian's has it)
     apt-get install -y "linux-modules-extra-$(uname -r)" > /dev/null 2>&1 || true
   fi
   modprobe snd-aloop 2>/dev/null || echo "(The Loopback sound card didn't load yet: Sound here and Mic here work after a restart.)"
@@ -1416,7 +1543,8 @@ fi
 
 # --------------------------------------------------------------------------
 step "Bluetooth"
-if ! command -v rfkill > /dev/null 2>&1; then    # (Ubuntu Server's hasn't it: Pietato turns Bluetooth back on with it)
+if ! command -v rfkill > /dev/null 2>&1; then    # (Ubuntu's or Debian's server may not have it: Pietato turns Bluetooth
+                                                 # back on with it)
   apt-get install -y rfkill > /dev/null 2>&1 || true
 fi
 rfkill unblock bluetooth 2>/dev/null || true

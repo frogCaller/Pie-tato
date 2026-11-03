@@ -168,6 +168,10 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.net_want = {}           # ...a folder -> the row to pick when its list comes
         self.net_changed = False     # ...the web page added or forgot one
         self.net_shown = {}          # ...a file the web page is showing: what it is (looked at on its thread)
+        self.net_saves = collections.deque()   # ...its files to save onto this Pi (SELECT), one after another
+        self.net_saver = None        # ...on this thread
+        self.net_saving = None       # ...the one now: {"src", "name", "done", "size"}
+        self.net_saved = collections.deque()   # ...how each went, for the screen's thread to say
         self.camera = Camera()
         self.camera.on_select = self.camera_select
         self.cam_list = False        # the Camera tab shows your cameras rather than one's picture
@@ -190,6 +194,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.ears = Ears()           # its ears: a microphone (Settings > Bot > Listens)
         self.term = Terminal()       # the Pi's terminal on the web page (term.py): its keys, and the console's looks
         self.ears.is_busy = self.ears_busy
+        self.ears.is_noisy = self.ears_noisy
         self.ears.on_heard = self.ears_heard
         self.ears.on_change = self.ears_changed
         self.ears.on_ready = self.ears_ready
@@ -326,6 +331,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.settle_ask = 0.0        # ...told again then
         self.pause_said = None       # (the player, "yes" or "no"): whether it said it's paused, last it was asked
         self.ducked = False          # what's playing, quieter while you talk to the bot (bot.py's duck)
+        self.music_held = None       # ...or paused (Pauses music), to play on after (bot.py's hold_music)
         self.assist_pending = None   # a question the bot asked (shut down? a game?): yes does it (assist.py)
         self.set_sel = 0             # Settings: the row picked
         self.set_page = "root"       # Settings: "root", or one of its pages ("wifi", "friend"...)
@@ -1281,9 +1287,9 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         subprocess.Popen(cmd)
 
     def desktop_start(self):
-        """System > Desktop (a PC with Ubuntu's desktop): Pietato stops and the desktop starts, till the computer
-        restarts (it starts in Pietato, setup.sh's way). Never both at once: they'd fight over the controller, the sound
-        and the screen. A job of its own does it (systemd-run), as stopping Pietato stops this."""
+        """System > Desktop (a PC with a desktop, Ubuntu's or Debian's): Pietato stops and the desktop starts, till the
+        computer restarts (it starts in Pietato, setup.sh's way). Never both at once: they'd fight over the controller,
+        the sound and the screen. A job of its own does it (systemd-run), as stopping Pietato stops this."""
         if not has_desktop():
             self.toast("There's no desktop on this computer", 3)
             return
@@ -1391,6 +1397,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
                 print(f"soon: {ex!r}", flush=True)
         if self.net_done or self.net_changed:
             self.net_tick()
+        if self.net_saving or self.net_saved:
+            self.net_save_tick(now)
         if self.prog is not None:
             self.prog_tick()
         if self.chromium is not None:
@@ -1489,6 +1497,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.face_tick(now)                            # (the bot's face: a blink, a glance, talking)
         self.listen_tick(now)                          # (a microphone plugged in or taken out: Listens, Auto)
         self.ears_tick()
+        self.music_hold_tick(now)                      # (music the bot paused: on again once it's done)
         self.rest_tick(now)                            # (the screen dark, to save the battery, or awake again)
         if self.voice.error and self.voice.error != self.voice_told:
             self.voice_told = self.voice.error
@@ -1988,6 +1997,10 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             return self.press_weather(name, repeat)
         if name == "x":
             self.view, self.help_from = "help", "list"
+        elif name == "select" and ttype == "browser" and n and self.net_file(items[sel]["src"]) \
+                and items[sel]["kind"] not in ("dir", "up"):
+            if not repeat:
+                self.net_save(items[sel]["src"])       # (another computer's file: a copy onto this Pi)
         elif name == "y" and ttype == "browser" and self.cwd == NET:
             if n and items[sel]["kind"] == "netpc" and not repeat:
                 self.net_forget(items[sel])

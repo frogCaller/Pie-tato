@@ -746,6 +746,8 @@ class WebScreen:
             return {"ok": True, "title": todo[i]["title"]}
         if c == "show":
             return self.web_show(str(cmd.get("path") or ""))
+        if c == "save":
+            return self.web_net_save(str(cmd.get("path") or ""))
         if c == "player":
             return self.web_player(str(cmd.get("do") or ""))
         if c == "learn":

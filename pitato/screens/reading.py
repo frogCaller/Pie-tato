@@ -128,7 +128,7 @@ class ReadingScreen:
                 return
         self.close_viewer()
         self.v = {"type": "text", "title": os.path.basename(path), "text": text,
-                  "size": 0, "lines": None, "top": 0}
+                  "size": 0, "lines": None, "top": 0, "path": path}
         self.view = "text"
         self.dirty = True
 
@@ -238,6 +238,8 @@ class ReadingScreen:
             v["top"] += (rows - 1) * (1 if name == "right" else -1)
         elif name in ("l", "r") and not repeat:
             v["top"] = 0 if name == "l" else n
+        elif name == "select" and not repeat:
+            self.net_save(v.get("path") or "")         # (another computer's: a copy onto this Pi)
         elif name == "a" and not repeat:
             first = v["lines"][v["top"]] if v["lines"] and v["top"] < len(v["lines"]) else ""
             v["size"] = 1 - v["size"]
@@ -311,5 +313,6 @@ class ReadingScreen:
         self.scrollbar(d, v["top"], rows, n, self.LIST_TOP + 4, self.LIST_TOP + rows * lh)
         self.footer(d, [("▲▼", "Scroll"), ("◀▶", "Page"),
                         ("A", "Bigger text" if v["size"] == 0 else "Smaller text"),
-                        ("L R", "Start/end"), ("B", "Back")])
+                        ("L R", "Start/end")] + ([("SEL", "Save")] if self.net_file(v.get("path") or "") else [])
+                    + [("B", "Back")])
         self.fb.show(img)

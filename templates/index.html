@@ -1181,6 +1181,7 @@ const ICONS = {
   documents: I('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>'),
   other: I('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>'),
   download: I('<path d="M12 4v11m-5-5 5 5 5-5M5 20h14"/>'),
+  keep: I('<path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2h9A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/><path d="M12 10.5v6m-2.6-2.6 2.6 2.6 2.6-2.6"/>'),
   trash: I('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'),
   rotate: I('<path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4.5v4h-4"/>'),
   swapLR: I('<path d="M4 8.5h15m-3.5-3.5 3.5 3.5-3.5 3.5"/><path d="M20 15.5H5m3.5-3.5L5 15.5 8.5 19"/>'),
@@ -4887,6 +4888,17 @@ function rowFor(e) {
       catch (err) { toast(err.message); }
     };
     acts.append(sh);
+  }
+  if (!e.dir && S.folder === "computers") {         // another computer's file: a copy onto the Pi, where it goes
+    const sv = button("ib", "");
+    sv.innerHTML = ICONS.keep; sv.title = "Save to the Pi";
+    sv.setAttribute("aria-label", "Save " + e.name + " to the Pi");
+    sv.onclick = async (ev) => {
+      ev.stopPropagation();
+      try { const r = await pi("save", { folder: S.folder, path }); toast(r.said || "Saving it onto the Pi"); }
+      catch (err) { toast(err.message); }
+    };
+    acts.append(sv);
   }
   if (!e.dir) {
     const dl = el("a", "ib");

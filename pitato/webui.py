@@ -105,7 +105,7 @@ CONTROL_KEY = "/run/pitato/control-key"       # ...and the key it asks for (made
 PI_GET = {"state", "screen", "catalog", "channels", "radio", "icon", "cameras", "camframe", "friend", "friendpic",
           "computers", "bluetooth", "settings", "places"}
 PI_POST = {"press", "open", "play", "show", "player", "learn", "mode", "reset_pads", "pad_swap", "camera", "friend",
-           "computer", "bluetooth", "settings", "tap", "swipe", "scroll", "type", "term"}
+           "computer", "bluetooth", "settings", "tap", "swipe", "scroll", "type", "term", "save"}
 PI_ARGS = ("what", "genre", "q", "name", "size", "addr", "id", "after", "wait", "w")
 FRAME_WAIT = 20                                 # seconds the page's request for the screen's next picture waits, at most
 PI_BODY_MOST = 1 << 20                          # bytes a request for media mode can be, at most (all it takes itself)
@@ -389,7 +389,7 @@ PC_WORDS = re.compile(r"\b([Tt]he|[Tt]his|[Yy]our|[Aa]) Pi\b(?![-\w]| \d| Zero| 
 
 
 def is_pc():
-    """A computer of your own (Intel or AMD, with Ubuntu) rather than a Pi."""
+    """A computer of your own (Intel or AMD, with Ubuntu or Debian) rather than a Pi."""
     try:
         with open(PI_MODEL, errors="replace") as f:
             if "Raspberry Pi" in f.read():
@@ -942,6 +942,16 @@ def pi_post(what):
         if not (request.is_secure or loopback(request.remote_addr)):   # what you type, never cross your WiFi as they
             return jsonify(error="Open the secure page to use the Pi's terminal", kind="insecure"), 403   # are
         data = dict(data, **{"from": request.remote_addr or ""})   # (where it's from: wrong passwords counted by it)
+    if what == "save":                              # a file on another computer, saved onto the Pi: where it is
+        if data.get("folder") != "computers":
+            return jsonify(error="Only your other computers' files are saved onto the Pi from here"), 400
+        bad = open_computer(clean_parts(data.get("path", "")))
+        if bad:
+            return bad
+        root, full, parts = locate("computers", data.get("path", ""))
+        if not parts or private(os.path.basename(full)) or not os.path.isfile(full):
+            return jsonify(error="That file isn't there"), 404
+        data = {"path": full}
     if what == "show":                              # a file from the Files list: where it really is
         if data.get("folder") == "computers":
             bad = open_computer(clean_parts(data.get("path", "")))

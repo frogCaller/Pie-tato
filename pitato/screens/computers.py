@@ -1,17 +1,43 @@
 """Files > Other computers: another computer's files by its address (pitato/computers.py opens them). Anything
 that asks the network goes on a thread of its own, so a slow computer, or one that's gone, never holds the
-screen up: what it finds comes back to net_tick."""
+screen up: what it finds comes back to net_tick. SELECT on one of its files (in the list, or open) saves a copy on
+this Pi, in the folder for its kind: a picture in Pictures, a video in Videos, a song in Music, a game in Games,
+anything else in Documents (net_save)."""
+import collections
 import os
+import shutil
 import threading
 import time
 
 from ..computers import folder_name, Trouble
 from ..config import home_dir, web_private
-from ..util import item, kind_by_name
+from ..games import GAME_SYSTEMS
+from ..util import copy_new, home_folder, human_size, item, kind_by_name
 
 NET = "net:"                  # Other computers' own places: "net:" (the list) and "net:<address>" (its folders)
 SEEN_FRESH = 3.0              # seconds a folder's look stays new enough not to look again on the way in
 SCAN_MOST = 5000              # files shown from one folder
+SAVE_SPARE = 64 << 20         # room left on the card after a file from another computer is saved onto it
+SAVE_SAY = 1.0                # seconds between words on how far a save has got
+SAVE_FOLDERS = {"image": "Pictures", "video": "Videos", "audio": "Music", "game": "Games"}   # (the rest: Documents)
+GAME_FILES = {e for s in GAME_SYSTEMS for e in s[3]} - {".zip"}   # (a zip could be anything)
+
+
+def save_folder(path):
+    """The folder in your home folder a file from another computer is saved in, by its kind (a .md: a Genesis game if
+    it has zeros near its start, as a game's first bytes do; a document if not. That's a look at it: not on the
+    screen's thread)."""
+    kind = kind_by_name(path)
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".md":
+        try:
+            with open(path, "rb") as f:
+                kind = "game" if b"\0" in f.read(512) else "text"
+        except OSError:
+            kind = "text"
+    elif kind == "other" and ext in GAME_FILES:
+        kind = "game"
+    return SAVE_FOLDERS.get(kind, "Documents")
 
 
 def scan(path):
@@ -32,6 +58,72 @@ def scan(path):
 
 class ComputersScreen:
     """Files > Other computers."""
+
+    # -- saving a file onto this Pi ---------------------------------------------------------
+    def net_file(self, path):
+        """A file on another computer (not one of Other computers' own rows)."""
+        return bool(path) and not path.startswith(NET) and self.is_net(path)
+
+    def net_save(self, path):
+        """A file on another computer, saved onto this Pi (SELECT): one after another, on a thread of their own,
+        what it's doing said as it goes (net_save_tick). False when it isn't one."""
+        if not self.net_file(path):
+            return False
+        busy = self.net_saving
+        if path in self.net_saves or (busy and busy["src"] == path):
+            self.toast("Saving it already", 2)
+            return True
+        self.net_saves.append(path)
+        if self.net_saver is None or not self.net_saver.is_alive():
+            self.net_saver = threading.Thread(target=self.net_save_job, daemon=True, name="net-save")
+            self.net_saver.start()
+        self.toast(f"Saving {os.path.basename(path)}" + (f" after {len(self.net_saves) - 1 + bool(busy)} more"
+                                                          if len(self.net_saves) > 1 or busy else "…"), 3)
+        return True
+
+    def net_save_job(self):
+        """(Its own thread.) Each file asked for, copied into the folder for its kind; the same name and size there
+        already: kept as it is."""
+        while self.net_saves:
+            src = self.net_saves.popleft()
+            name = os.path.basename(src)
+            info = self.net_saving = {"src": src, "name": name, "done": 0, "size": 0, "said": time.monotonic()}
+            try:
+                size = info["size"] = os.path.getsize(src)
+                where = save_folder(src)
+                folder = home_folder(where)
+                same = os.path.join(folder, name)
+                if os.path.isfile(same) and os.path.getsize(same) == size:
+                    said = (True, f"{name} is in {where} already")
+                elif size > shutil.disk_usage(folder).free - SAVE_SPARE:
+                    said = (False, f"Not enough room on the Pi for {name} ({human_size(size)})")
+                else:
+                    path = copy_new(src, folder, name, progress=info)
+                    said = (True, f"Saved to {where}" + ("" if os.path.basename(path) == name
+                                                          else f" as {os.path.basename(path)}"))
+            except OSError as ex:
+                said = (False, f"Couldn't save {name} ({ex.strerror or 'the computer stopped answering'})")
+            self.net_saved.append(said)
+            self.net_saving = None
+            self.wake()
+
+    def net_save_tick(self, now):
+        """The main loop: how far a save has got (now and then, once it's taking a while), and how it went."""
+        while self.net_saved:
+            ok, words = self.net_saved.popleft()
+            self.toast(words, 3 if ok else 5)
+        info = self.net_saving
+        if info and info["size"] and now - info["said"] >= SAVE_SAY and self.active:
+            info["said"] = now
+            pct = int(100 * info["done"] / max(1, info["size"]))
+            self.toast(f"Saving {info['name']}… {pct}%", SAVE_SAY + 1)
+
+    def web_net_save(self, path):
+        """The web page's Save to the Pi, on a file on another computer."""
+        if not (path.startswith("/") and self.net_file(path) and self.web_may_see(path)):
+            return {"error": "That file isn't there"}
+        self.net_save(path)
+        return {"ok": True, "said": "Saving it onto the Pi"}
 
     # -- places --------------------------------------------------------------------------
     def is_net(self, path):

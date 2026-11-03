@@ -119,14 +119,51 @@ def in_home(path):
     return os.path.realpath(path).startswith(home + os.sep)
 
 
-def pictures_dir():
+def home_folder(name):
+    """~/<name> (Pictures, Videos...), made if it isn't there, owned like your home folder."""
     home = home_dir()
-    folder = os.path.join(home, "Pictures")
+    folder = os.path.join(home, name)
     if not os.path.isdir(folder):
         st = os.stat(home)
         os.makedirs(folder, exist_ok=True)
         os.chown(folder, st.st_uid, st.st_gid)
     return folder
+
+
+def pictures_dir():
+    return home_folder("Pictures")
+
+
+def copy_new(src, folder, name, progress=None, chunk=1 << 20):
+    """A copy of the file src in folder as name (name-2, name-3... if taken), owned like the folder, with src's date.
+    Copied under a hidden name first, so nothing sees half a file. progress: a dict, its "done" the bytes so far."""
+    st = os.stat(folder)
+    stem, ext = os.path.splitext(name)
+    path, n = os.path.join(folder, name), 2
+    while os.path.lexists(path):
+        path, n = os.path.join(folder, f"{stem}-{n}{ext}"), n + 1
+    tmp = os.path.join(folder, "." + os.path.basename(path) + ".part")
+    try:
+        with open(src, "rb") as fin, open(tmp, "wb") as fout:
+            while True:
+                data = fin.read(chunk)
+                if not data:
+                    break
+                fout.write(data)
+                if progress is not None:
+                    progress["done"] = progress.get("done", 0) + len(data)
+        os.chown(tmp, st.st_uid, st.st_gid)
+        os.chmod(tmp, 0o644)
+        try:
+            was = os.stat(src)
+            os.utime(tmp, (was.st_atime, was.st_mtime))   # (its own date: Photos sorts by it)
+        except OSError:
+            pass
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+    return path
 
 
 def write_new(folder, stem, ext, data):

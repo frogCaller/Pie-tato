@@ -1,7 +1,7 @@
 """The Bot's Character: everything about who it is, made your own, as a game's character creator does. Its name (and
 what it calls you), its eyes (how big, how tall, how round their corners, how far apart, eyelashes), its mouth (how
-big), its colours (its face's, its background's) and its voice (which one, out loud or not, how it talks, how often it
-says something by itself): ▲▼ go from one to the next, ◀▶ change it (A types a name), and its face beside them shows
+big), its colours (its face's, its background's) and its voice (which one, out loud or not, whether it pauses your
+music to talk, how it talks, how often it says something by itself): ▲▼ go from one to the next, ◀▶ change it (A types a name), and its face beside them shows
 it at once, its name over it. L and R go from one part to the next, SELECT shows it happy, sorry, cool..., X makes up
 a look at random, and Y twice puts its look back as it started. Kept in bot.txt as you go. From the Bot (X > Edit
 Character), or its settings (Settings > Bot > Character)."""
@@ -17,12 +17,12 @@ CHAR_PARTS = (("Name", ("name", "you")),
               ("Eyes", ("eye_size", "eye_height", "eye_corners", "eye_gap", "lashes")),
               ("Mouth", ("mouth_size",)),
               ("Colours", ("colour", "background")),
-              ("Voice", ("voice", "speak", "style", "chatter")))
+              ("Voice", ("voice", "speak", "pause_music", "style", "chatter")))
 CHAR_FIRST = 1                         # (the part it opens on, the first time: Eyes)
 CHAR_LABELS = {"name": "Name", "you": "What it calls you", "eye_size": "Size", "eye_height": "Height",
                "eye_corners": "Corners", "eye_gap": "Spacing", "lashes": "Eyelashes", "mouth_size": "Size",
                "colour": "Face", "background": "Background", "voice": "Voice", "speak": "Talks out loud",
-               "style": "How it talks", "chatter": "Chats"}
+               "pause_music": "Pauses music", "style": "How it talks", "chatter": "Chats"}
 CHAR_TYPED = ("name", "you")           # (A types these: no ◀▶)
 CHAR_CHATTER = {"30": "Every 30 min", "60": "Every hour", "0": "Never"}
 CHAR_LOOKS = (("idle", "Calm"), ("happy", "Happy"), ("curious", "Curious"), ("sad", "Sorry"), ("cool", "Cool"),
@@ -111,6 +111,8 @@ class CharacterScreen:
             return self.friend.name or "Not set"
         if key == "speak":
             return "On" if self.bot_speaks() else "Off"
+        if key == "pause_music":
+            return "On" if self.bot_pauses_music() else "Off"
         if key == "chatter":
             return CHAR_CHATTER.get(str(self.friend.chatter()), self.friend.chatter_text())
         return ""
@@ -142,6 +144,11 @@ class CharacterScreen:
                 self.toast(self.style_sample(), 3)
         elif key == "speak":
             self.bot_speak_step()
+        elif key == "pause_music":
+            on = not self.bot_pauses_music()
+            if self.friend_set(pause_music="on" if on else "off"):
+                self.toast("It pauses your music to talk to you, and plays it on after" if on
+                           else "Your music goes quieter while you talk to it", 3)
         elif key == "chatter":
             labels = [t for t, _ in FRIEND_CHATTER]
             cur = self.friend.chatter_text()

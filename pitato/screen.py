@@ -382,8 +382,9 @@ VIDEO_SIZE = re.compile(r"video=(?:[A-Za-z]+-)+\d+:(\d+)x(\d+)")   # any screen'
 PC_PORTS = re.compile(r"card\d+-((?:HDMI-[AB]|DP|eDP|DVI-[ADI]|VGA)-\d+)")   # a PC's screens, by the kernel's names
 RES_SMALLEST, RES_BIGGEST = (640, 480), (1920, 1200)   # the sizes to pick from: the menus' own, up to 1080p
                                                        # (bigger is slower to draw, and no sharper)
-SQUARE_SIZES = ("720x720",)    # a square screen's size (Waveshare's and Pimoroni's 4-inch ones), there to pick even when
-                               # the screen doesn't list it: one that says it's a TV is sent a TV's picture, squeezed
+SQUARE_SIZES = ("720x720",)    # a square screen's size (Waveshare's and Pimoroni's 4-inch ones), there to pick on a Pi
+                               # even when the screen doesn't list it: one that says it's a TV is sent a TV's picture,
+                               # squeezed
 
 
 def hdmi_screens():
@@ -425,7 +426,8 @@ def resolution_choices():
     sizes = screens[0][1]
     fits = [s for s in sizes if RES_SMALLEST[0] <= size_of(s)[0] <= RES_BIGGEST[0]
             and RES_SMALLEST[1] <= size_of(s)[1] <= RES_BIGGEST[1]]
-    fits += [s for s in SQUARE_SIZES if s not in fits]
+    if not is_pc():                                # (a Pi's little square screen: a PC's screen lists its sizes)
+        fits += [s for s in SQUARE_SIZES if s not in fits]
     fits.sort(key=size_of, reverse=True)
     return sizes[0], fits
 

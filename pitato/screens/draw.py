@@ -544,8 +544,10 @@ class DrawScreen:
         hints = [first, ("L R", "Tabs")]
         if ttype == "browser" and self.is_net(self.cwd):
             pc = items and sel < len(items) and items[sel]["kind"] == "netpc"
-            hints += [("B", "Up")] + ([("Y", "Forget")] if pc else [] if self.cwd.startswith("net:") else
-                                      [("Y", "Hidden")])
+            keep = items and sel < len(items) and items[sel]["kind"] not in ("dir", "up") \
+                and self.net_file(items[sel]["src"])           # (one of its files: a copy onto this Pi)
+            hints += ([("SELECT", "Save")] if keep else []) + [("B", "Up")] + (
+                [("Y", "Forget")] if pc else [] if self.cwd.startswith("net:") else [("Y", "Hidden")])
         elif ttype == "browser":
             hints += [("B", "Up" if self.cwd.rstrip("/") != home_dir() and self.cwd != "/" else "Home"),
                       ("Y", "Hidden")]

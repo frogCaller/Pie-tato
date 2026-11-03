@@ -4,17 +4,24 @@
 # on a PC, signing you in by itself, the web page's sound card, BlueALSA's settings).
 #
 # What's yours stays: your Videos, Music, Pictures, Documents and Games (with their saves), and this folder with
-# your settings in it. So do the packages setup.sh put in (mplayer, ffmpeg, LibreOffice, Chromium, the emulators):
-# other programs may use them. In a GPi Case, its screen and sound settings stay in config.txt, so the case keeps
+# your settings in it. So do the packages setup.sh put in (mplayer, ffmpeg, LibreOffice, Chromium, the emulators),
+# and on Debian its non-free packages turned on: other programs may use them. In a GPi Case, its screen and sound settings stay in config.txt, so the case keeps
 # working.
 #
 # Usage (from the Pietato folder):  sudo bash uninstall.sh      (--yes: without asking first)
 # (No set -e: if one thing can't go, the rest still does.)
 
 if [ "$(id -u)" -ne 0 ]; then
-  echo "Run with sudo:  sudo bash uninstall.sh"
+  if command -v sudo > /dev/null 2>&1; then
+    echo "Run with sudo:  sudo bash uninstall.sh"
+  else                                           # (Debian, when root has a password of its own: no sudo)
+    echo "Run it as root:  su -c \"bash uninstall.sh\""
+  fi
   exit 1
 fi
+for d in /usr/local/sbin /usr/sbin /sbin; do     # (su keeps your own PATH, without these: modprobe...)
+  case ":$PATH:" in *":$d:"*) ;; *) PATH="$PATH:$d" ;; esac
+done
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SYSD=/etc/systemd/system
