@@ -44,6 +44,10 @@ VOICE_IDLE = 120         # seconds quiet before Piper is let go (it holds about 
 VOICE_WAIT = 90          # a voice on a small Pi can take this long to load and make its first sentence
 VOICE_SAMPLE = "Hello! This is how I sound."
 VOICE_SINCE = time.time()  # (leftovers older than this, under this process's number, are from before)
+PLAY_CHUNK = 4096       # bytes to aplay at a time (a pipe takes this much at once without waiting)
+PLAY_STUCK = 6.0        # seconds aplay may go without taking any: then it's stuck (the sound card held by something
+                        # else, say), and that's said, not waited on for ever
+TALK_GAP = 1.0          # once it's heard, it's still talking through a pause this long (between sentences, say)
 CHIME_RATE = 22050
 CHIME_NOTES = ((1046.5, 0.0), (1318.5, 0.14), (1568.0, 0.28))   # C, E and G, rising: a timer or a reminder, when
                                                                 # there's no voice to say it
@@ -205,6 +209,8 @@ class Voice:
         self.inflight = 0            # sentences given to Piper that haven't come back
         self.play = None             # aplay, while something is being said
         self.speaking = False
+        self.sounding = 0.0          # ...what's been given aplay plays till about then (time.monotonic()): heard now
+        self.asked = 0.0             # when it was asked to say what it's saying (for the log, if it's slow to start)
         self.error = ""              # why the last thing wasn't said, or a voice didn't arrive
         self.used = 0.0              # when it last said something (time.monotonic())
         self.let_go = False
@@ -272,6 +278,8 @@ class Voice:
             self.gen += 1
             self.pending = (self.gen, text, vid, device, volume)
             self.speaking = True
+            self.sounding = 0.0
+            self.asked = time.monotonic()
             self.error = ""
         self.kill_play()
         self.wake.set()
@@ -293,8 +301,13 @@ class Voice:
         threading.Thread(target=job, daemon=True, name="chime").start()
         return True
 
+    def talking(self):
+        """It's being heard now (not just getting ready to: Piper loading, or making the first sentence), or was a
+        moment ago (a pause between sentences): the mouth moves while this is so."""
+        return self.speaking and self.sounding > 0 and time.monotonic() < self.sounding + TALK_GAP
+
     def warm(self, vid):
-        """The voice loaded ahead of the first reply (the bot's page just opened)."""
+        """The voice loaded ahead of the reply (the bot's page just opened, or it's thinking about what you asked)."""
         if vid in voices_here() and self.have_piper():
             with self.lock:
                 if self.pending is None and not self.speaking:
@@ -307,6 +320,7 @@ class Voice:
             self.gen += 1
             self.pending = None
             self.speaking = False
+            self.sounding = 0.0
             self.let_go = self.let_go or unload
         self.kill_play()
         self.wake.set()
@@ -350,6 +364,9 @@ class Voice:
                 with self.lock:
                     if self.pending is None:
                         self.speaking = False
+                        self.sounding = 0.0
+                if self.error and text is not None and gen == self.gen:
+                    print(f"voice: {self.error}", flush=True)   # (in the log too: journalctl -u pitato)
                 self.changed()
 
     def load(self, vid):
@@ -491,7 +508,10 @@ class Voice:
                     play = self.start_play(rate, device)
                     if play is None:
                         break
-                if not self.write(play, pcm, gen):
+                    late = time.monotonic() - self.asked
+                    if late > 3:                       # (a voice loaded first, or a slow Pi: in the log)
+                        print(f"voice: speaking {late:.1f} s after it was asked", flush=True)
+                if not self.write(play, pcm, gen, rate):
                     break
                 if not todo and self.inflight == 0:
                     break
@@ -516,7 +536,7 @@ class Voice:
             cmd += ["-D", device]
         err = tempfile.TemporaryFile()
         try:
-            play = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=err)
+            play = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=err, bufsize=0)
         except OSError as ex:
             err.close()
             self.error = f"aplay wouldn't start ({ex.strerror or ex})"
@@ -533,28 +553,66 @@ class Voice:
             lines = []
         return re.sub(r"^aplay: \w+:\d+: ", "", lines[-1])[:80] if lines else ""
 
-    def write(self, play, pcm, gen):
-        """Samples to aplay, a little at a time so being cut off is quick. False when it can't go on."""
-        for i in range(0, len(pcm), 8192):
-            if gen != self.gen:
-                return False
+    def write(self, play, pcm, gen, rate):
+        """Samples to aplay, a little at a time so being cut off is quick (and it's heard till they've played).
+        False when it can't go on: cut off, aplay gone, or aplay not taking them (stuck: said, and let go)."""
+        try:
+            fd = play.stdin.fileno()
+        except (OSError, ValueError, AttributeError):
+            return False
+        for i in range(0, len(pcm), PLAY_CHUNK):
+            chunk = pcm[i:i + PLAY_CHUNK]
+            stuck = time.monotonic() + PLAY_STUCK
+            while True:
+                if gen != self.gen:
+                    return False
+                try:
+                    ready = select.select([], [fd], [], 0.1)[1]
+                except (OSError, ValueError):
+                    ready = [fd]                       # (the write says what's wrong)
+                if ready:
+                    break
+                if play.poll() is not None or time.monotonic() > stuck:
+                    return self.play_failed(play, gen)
             try:
-                play.stdin.write(pcm[i:i + 8192])
+                os.write(fd, chunk)
             except (BrokenPipeError, OSError, ValueError):
-                if gen == self.gen:
-                    play.wait()
-                    self.error = "Couldn't play it" + (f": {self.aplay_said(play)}" if self.aplay_said(play) else "")
-                return False
+                return self.play_failed(play, gen)
+            first = not self.sounding
+            self.sounding = max(self.sounding, time.monotonic()) + len(chunk) / (2.0 * rate)
+            if first:
+                self.changed()                         # (heard now: its mouth moves)
         return True
 
+    def play_failed(self, play, gen):
+        """aplay gone, or stuck (it's let go): why, as aplay said it if it did. False (it can't go on)."""
+        if gen != self.gen:
+            return False
+        if play.poll() is None:
+            try:
+                play.kill()
+                play.wait(2)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+            said = self.aplay_said(play)
+            self.error = "Couldn't play it: " + (said or "the sound didn't go (is something else using it?)")
+        else:
+            said = self.aplay_said(play)
+            self.error = "Couldn't play it" + (f": {said}" if said else "")
+        self.sounding = 0.0
+        return False
+
     def finish(self, play, gen):
-        """The rest played out (unless it's cut off)."""
+        """The rest played out (unless it's cut off, or aplay's stuck)."""
         try:
             play.stdin.close()
         except OSError:
             pass
         while play.poll() is None:
             if gen != self.gen:
+                return
+            if time.monotonic() > self.sounding + PLAY_STUCK:
+                self.play_failed(play, gen)
                 return
             time.sleep(0.05)
         if play.returncode not in (0, None) and gen == self.gen:

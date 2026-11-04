@@ -189,6 +189,25 @@ try:
     check(f"...◀▶ picks another of yours ({picked}, then {m.game_value('send')})", picked == "den"
           and m.game_value("send") == "tv")
     del m.pie.heard["http://127.0.0.2:5432"]
+    from PIL import Image, ImageDraw
+    d = ImageDraw.Draw(Image.new("RGB", (8, 8)))
+    F = m.fonts
+    items = m.game_menu_items()
+
+    def row_needs(name):
+        return 24 + d.textlength("Play on another Pietato", font=F["row_b"]) + 28 \
+            + d.textlength(f"◀  {name}  ▶", font=F["small"]) + 22
+    mw = m.game_menu_width(d, items, m.game.game["title"])
+    check(f"...the menu's wide enough for it, picked, and the name beside it ({mw} for {row_needs('tv'):.0f})",
+          mw >= row_needs("tv") and mw > 360)
+    m.pie.heard[THEIRS]["host"] = "kitchen-pietato-zero"
+    mw2 = m.game_menu_width(d, items, m.game.game["title"])
+    check(f"...wider for a longer name ({mw2} for {row_needs('kitchen-pietato-zero'):.0f}), no wider than the screen",
+          row_needs("kitchen-pietato-zero") <= mw2 <= 640 - 2 * g.GAME_MENU_EDGE)
+    m.pie.heard[THEIRS]["host"] = "tv"
+    m.game_menu = {"sel": [j for j, _ in items].index("send"), "confirm": (None, 0.0), "bg": None}
+    m.view = "gamemenu"
+    m.dirty = True; m.flush()
 
     # ---- sent: the TV has it -----------------------------------------------------------------------------------------
     n = tv_lines()

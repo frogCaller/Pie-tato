@@ -50,6 +50,9 @@ DS_STICK_DPAD = 64                  # the left stick, as the d-pad: pushed this 
 STICK_JOIN = 64                     # a controller not playing yet: its stick pushed this far (of 127) makes it a player
                                     # (a stick at rest reads a little off the middle: that doesn't)
 GAME_CONFIRM = ("load", "reset")    # (these lose where you are: A twice)
+GAME_MENU_W = 360                   # a game's menu: this wide at least, wider for its longest row (and the game's name)
+GAME_MENU_EDGE = 16                 # ...as far as this from the screen's sides
+GAME_MENU_TITLED = 480              # ...and for the game's name, no wider than this (a longer one's cut short)
 GAME_PANEL_W = 212                  # the picked game's picture, beside the list
 GAME_THUMB = 40                     # ...and each game's, on its row
 GAME_PICS_KEPT = 80                 # pictures kept ready to draw
@@ -1222,7 +1225,7 @@ class GameScreen:
             self.render_cheevos(img, d, m["list"], g)
             return
         menu = self.game_menu_items() if self.game is not None else GAME_MENU
-        n, mw = len(menu), 360
+        n, mw = len(menu), self.game_menu_width(d, menu, g["title"])
         rh = 38 if n <= 7 else 34                       # (a game on discs has a row more; a DS game, more again:
         rh = min(rh, max(28, (H - self.FOOTER - 98) // n))   # as many as fit)
         mh = 64 + n * rh + 10
@@ -1247,21 +1250,27 @@ class GameScreen:
         for k, (job, label) in enumerate(menu):
             ry = my0 + 64 + k * rh
             sel = k == m["sel"]
-            self.tappable((mx0, ry - 2, mx0 + mw, ry + rh - 2), "sel", "dict", "game_menu", k)
-            if sel and job in GAME_CHANGE:             # ◀ value ▶: each end, a way to change it
-                self.tappable((mx0 + mw - 150, ry - 2, mx0 + mw - 75, ry + rh - 2), "keys", "left")
-                self.tappable((mx0 + mw - 75, ry - 2, mx0 + mw, ry + rh - 2), "keys", "right")
-            if sel:
-                d.rounded_rectangle((mx0 + 8, ry, mx0 + mw - 8, ry + rh - 4), radius=10, fill=ROW)
-                d.rounded_rectangle((mx0 + 8, ry + 10, mx0 + 12, ry + rh - 14), radius=2, fill=ACCENT)
-            mid = ry + (rh - 4) / 2
-            d.text((mx0 + 24, mid), label, font=F["row_b"] if sel else F["row"], fill=TEXT if sel else BODY,
-                   anchor="lm")
+            font = F["row_b"] if sel else F["row"]
+            room = mw - 24 - d.textlength(label, font=font) - 28 - 22   # (what's left of the row for its value)
             right, colour = self.game_value(job), MUTED
             if waiting == job and time.monotonic() <= until:
                 right, colour = "press A again", ACCENT
             elif job in GAME_CHANGE and sel:
-                right, colour = f"◀  {right}  ▶", TEXT
+                arrows = d.textlength("◀    ▶", font=F["small"])
+                right, colour = f"◀  {self.fit(d, right, F['small'], max(20, room - arrows))}  ▶", TEXT
+            elif right:
+                right = self.fit(d, right, F["small"], max(20, room))
+            self.tappable((mx0, ry - 2, mx0 + mw, ry + rh - 2), "sel", "dict", "game_menu", k)
+            if sel and job in GAME_CHANGE:             # ◀ value ▶: each end, a way to change it
+                vx = mx0 + mw - 22 - max(128, d.textlength(right, font=F["small"]) if right else 0)
+                half = (vx + mx0 + mw - 22) / 2
+                self.tappable((vx - 22, ry - 2, half, ry + rh - 2), "keys", "left")
+                self.tappable((half, ry - 2, mx0 + mw, ry + rh - 2), "keys", "right")
+            if sel:
+                d.rounded_rectangle((mx0 + 8, ry, mx0 + mw - 8, ry + rh - 4), radius=10, fill=ROW)
+                d.rounded_rectangle((mx0 + 8, ry + 10, mx0 + 12, ry + rh - 14), radius=2, fill=ACCENT)
+            mid = ry + (rh - 4) / 2
+            d.text((mx0 + 24, mid), label, font=font, fill=TEXT if sel else BODY, anchor="lm")
             if right:
                 d.text((mx0 + mw - 22, mid), right, font=F["small"], fill=colour, anchor="rm")
         job = menu[min(m["sel"], n - 1)][0]
@@ -1271,6 +1280,20 @@ class GameScreen:
         hints.append(("B", "Back to the game"))
         self.footer(d, hints)
         self.fb.show(img)
+
+    def game_menu_width(self, d, menu, title):
+        """A game's menu: as wide as its longest row needs (its words in bold, as when it's picked, and its value as it
+        shows then: ◀ value ▶, or press A again) and the game's name, GAME_MENU_W at least, and no wider than the
+        screen leaves room for."""
+        F = self.fonts
+        need = min(d.textlength(title or "", font=F["row_b"]) + 44, GAME_MENU_TITLED)
+        for job, label in menu:
+            value = self.game_value(job)
+            shown = [value] + ([f"◀  {value}  ▶"] if job in GAME_CHANGE else []) \
+                + (["press A again"] if job in GAME_CONFIRM or job == "together" else [])
+            vw = max((d.textlength(v, font=F["small"]) for v in shown if v), default=0)
+            need = max(need, 24 + d.textlength(label, font=F["row_b"]) + (28 + vw if vw else 0) + 22)
+        return int(max(GAME_MENU_W, min(need + 2, self.fb.w - 2 * GAME_MENU_EDGE)))   # (+2: never a pixel short)
 
     def render_cheevos(self, img, d, lst, g):
         """The game's achievements, over it: yours first (a tick), then the rest (how far along, or their points)."""

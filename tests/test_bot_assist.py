@@ -280,7 +280,10 @@ box = m.face_shot[1]
 check(f"9 seconds idle: the face alone drawn again, a few times ({len(blinks)} parts, {len(shots) - n_shots} whole)",
       2 <= len(blinks) <= 60 and all(b == box for b, _ in blinks) and len(shots) - n_shots <= 3)
 m.voice.speaking = True
-check(f"talking: its mouth ({m.face_look()})", m.face_look() == "talking")
+check(f"about to talk (its voice getting ready, nothing heard yet): still thinking ({m.face_look()})",
+      m.face_look() == "thinking")
+m.voice.sounding = time.monotonic() + 30            # (heard: aplay has its first samples)
+check(f"talking, heard: its mouth ({m.face_look()})", m.face_look() == "talking")
 n_parts = len(parts)
 end = time.monotonic() + 1.0
 m.face_next = 0

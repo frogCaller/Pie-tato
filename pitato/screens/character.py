@@ -84,7 +84,7 @@ class CharacterScreen:
 
     def char_preview_look(self):
         """How its face looks beside them: talking while it talks (its voice, tried), else the look SELECT showed."""
-        return "talking" if self.voice.speaking else getattr(self, "char_look", "idle")
+        return "talking" if self.voice.talking() else getattr(self, "char_look", "idle")
 
     def char_value(self, key):
         """What a row shows: its step (0 to 10) for its shape, else its words."""

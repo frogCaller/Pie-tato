@@ -171,8 +171,8 @@ class BotScreen:
         fr = self.friend
         self.friend_opened_at = time.time()
         self.friend_scroll = 0
-        if fr.ready() and self.bot_voice() and self.bot_speaks() and not self.proc:
-            self.voice.warm(self.bot_voice())          # (a voice takes a few seconds to load)
+        if fr.ready() and not self.proc:
+            self.bot_warm()                            # (a voice takes a few seconds to load)
         if fr.ready() and not fr.busy and time.time() - fr.last_said() > FRIEND_HELLO_AFTER:
             fr.remark("hello")
 
@@ -184,6 +184,13 @@ class BotScreen:
     def bot_speaks(self):
         """Its replies said out loud (when it has a voice)."""
         return (self.friend.conf.get("speak") or "on").strip().lower() not in ("off", "no", "0", "false")
+
+    def bot_warm(self):
+        """Its voice loaded ahead of what it'll say (on a small Pi that takes seconds, and the player let it go when it
+        started): when it'll say it out loud, a voice and Talks out loud, over nothing playing or music it pauses."""
+        if self.bot_voice() and self.bot_speaks() and (not self.proc or (self.bot_pauses_music()
+                                                                        and self.kind in LISTEN_KINDS)):
+            self.voice.warm(self.bot_voice())
 
     def bot_speak_step(self):
         """Its Character's Talks out loud, on or off (a voice first)."""
@@ -551,6 +558,7 @@ class BotScreen:
         if not fr.say(text):
             self.toast("Still thinking about the last one", 2)
             return
+        self.bot_warm()                                # (its voice ready by the time it answers)
         self.friend_scroll = 0
         if self.active and self.view in ("home", "list") and not self.on_friend_page() and not self.learn:
             self.set_setting("bot_mode", "chat")
@@ -935,6 +943,8 @@ class BotScreen:
             return
         if not self.friend.say(text, picture=picture):
             self.toast("Still thinking about the last one", 2)
+        else:
+            self.bot_warm()                            # (its voice ready by the time it answers)
         self.friend_scroll = 0
 
     def friend_setup(self):
@@ -1208,7 +1218,8 @@ class BotScreen:
         speaking = self.voice.speaking
         hearing = self.ears.state == "listening" and not fr.busy and not speaking
         now = time.localtime()
-        status = (fr.doing or "Thinking…") if fr.busy else "Speaking…" if speaking else "Listening…" if hearing else \
+        status = (fr.doing or "Thinking…") if fr.busy else ("Speaking…" if self.voice.talking() else "Thinking…") \
+            if speaking else "Listening…" if hearing else \
             f"{time.strftime('%A', now)} {now.tm_mday}" if today else \
             self.fit(d, fr.model, F["small"], cx1 - cx0 - 24) if fr.ready() else "Not set up"
         lit = fr.busy or speaking or hearing
@@ -1315,8 +1326,8 @@ class BotScreen:
             return "alert"
         if fr.busy:
             return "thinking"
-        if self.voice.speaking:
-            return "talking"
+        if self.voice.speaking:                        # (talking once it's heard: till then, still getting it ready)
+            return "talking" if self.voice.talking() else "thinking"
         if self.ears.state == "listening":
             return "listening"
         last = next((x for x in reversed(fr.log) if x["who"] == "friend"), None)

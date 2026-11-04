@@ -317,9 +317,9 @@ check(f"SELECT: how it looks, one after another and round again ({looks})", look
 m.press("select"); m.press("select"); m.press("select")
 m.dirty = True; m.flush(); m.fb.last.save(S + "/pics/sorry.png")
 check(f"...its name under its face ({m.char_look})", m.char_look == "sad")
-m.voice.speaking = True
-check("...talking while it talks", m.char_preview_look() == "talking")
-m.voice.speaking = False
+m.voice.speaking, m.voice.sounding = True, time.monotonic() + 30
+check("...talking while it talks (heard)", m.char_preview_look() == "talking")
+m.voice.speaking, m.voice.sounding = False, 0.0
 
 # its frames: only in its panel
 m.fb.parts.clear()
