@@ -1,0 +1,2 @@
+held 19647 --what=shutdown:sleep:handle-power-key | --mode=block | --who=Pietato setup | --why=Setting up Pietato: leave the computer on until it says All set
+let go 19647

@@ -1,0 +1,3 @@
+#!/bin/sh
+# stand-in: BlueALSA, there once apt-get has "installed" it
+exit 0

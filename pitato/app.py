@@ -8,12 +8,13 @@ from .config import move_old_places
 from .library import MENU_RATE, MENU_REPEAT, SCREEN_KINDS
 from .inputs import (
     BUTTONS, CHORD_WAIT, Keys, MEDIA_TOGGLE, NAME, Pads, PowerKey, REPEAT, REPEAT_DELAY, REPEAT_RATE, STAR, STAR_TAP,
-    TERMINAL)
+    TERMINAL, Touch)
 from .control import Control, control_key, serve_control
 from .media import Media
 
 
 NEVER = float("inf")
+HOT_HELD = 10.0  # HOME down in the menus this long without letting go: as if it had (another button goes as itself)
 
 
 # ---- the main loop ----------------------------------------------------------------------
@@ -25,6 +26,7 @@ def run(ui, media, control=None, stop=None):
     pending = {}     # (pad, "select" or "start") -> when it goes out, unless the other comes first
     chorded = set()  # (pad, button) pressed as SELECT + START: its release goes nowhere
     star = {}        # pad -> [when its star went down, whether another button went with it]
+    hot = {}         # HOME down in the menus: {"at": when, "used": another button went with it (Konami code)}
     was = {"learning": False, "keys": False}
 
     def key_down(name):
@@ -63,10 +65,26 @@ def run(ui, media, control=None, stop=None):
         if media.active and media.resting:            # (TURBO tapped, or SELECT and START: as HOME)
             media.stir()
             return
-        if media.active and (media.game_home() or media.prog_home() or media.chromium_home()):
+        if media.active and (media.game_home() or media.prog_home() or media.chromium_home() or media.konami_home()):
             menu_held.clear()
             return
         toggle()
+
+    def hotkey(down):
+        """HOME (or SELECT and START together). In the menus it does its thing as you let go of it, unless another
+        button's pressed with it: that's Konami code's (the box for one of your codes), and HOME does nothing else.
+        Anywhere else, as it goes down."""
+        if down:
+            hot.clear()
+            if media.active and media.konami_hotkey_ok():
+                hot.update(at=time.monotonic(), used=False)
+                return
+            home()
+            return
+        was_hot = dict(hot)
+        hot.clear()
+        if was_hot and not was_hot["used"]:
+            home()
 
     def button(name, down, pad=None):
         """A button, from a controller (pad: which, for a game's players) or the web page's remote."""
@@ -74,9 +92,15 @@ def run(ui, media, control=None, stop=None):
             media.stir()
             return
         if name == MEDIA_TOGGLE:
-            if down:
-                home()
+            hotkey(down)
             return
+        if down and hot:                               # HOME held in the menus: this button with it
+            if time.monotonic() - hot["at"] > HOT_HELD:
+                hot.clear()                            # (its letting go never came: as if it had)
+            elif not hot["used"]:
+                hot["used"] = True
+                if media.konami_listen():
+                    return
         if media.active:
             media.input_pad = pad
             try:
@@ -117,6 +141,8 @@ def run(ui, media, control=None, stop=None):
         if not down:
             if k in chorded:
                 chorded.discard(k)
+                if ko in chorded:                      # (the first of the two let go: HOME, let go)
+                    hotkey(False)
                 return
             if pending.pop(k, None) is not None:       # a quick press: it goes out now
                 button(name, True, pad)
@@ -126,7 +152,7 @@ def run(ui, media, control=None, stop=None):
             if pending.pop(ko, None) is None:
                 button(other, False, pad)              # it went out already: let it go
             chorded.update((k, ko))
-            home()
+            hotkey(True)
             return
         pending[k] = time.monotonic() + CHORD_WAIT
 
@@ -138,6 +164,7 @@ def run(ui, media, control=None, stop=None):
             pending.clear()
             chorded.clear()
             star.clear()
+            hot.clear()
             if not now_learning:
                 for p in pads.by_path.values():
                     p.now, p.down = {}, set()
@@ -194,6 +221,28 @@ def run(ui, media, control=None, stop=None):
                 continue                               # shutting down: let go of things, no more
             button(name, down)                         # (in a game: player 1, as the web page's remote is)
 
+    def touch_event(touch, ev):
+        """The touch screen: in media mode, a tap or a swipe, as on the web page's copy of the screen (the resting
+        screen woken, and nothing else). Not the terminal's, Settings > Controller's, or Chromium's while it's in
+        front (it reads the screen's touches itself)."""
+        if not media.active or media.learning or media.chromium_shown():
+            touch.forget()
+            return
+        for gesture in touch.translate(ev):
+            media.web_guard = False                    # someone at the Pi has it
+            if media.resting:
+                media.stir()
+                continue
+            media.stir()
+            cmd = media.touch_cmd(gesture)
+            if cmd is None:
+                continue
+            names, _ = media.web_touch(cmd)
+            for name in names:                         # (what it stands for: pressed as the remote's buttons are)
+                if name in BUTTONS:
+                    button(name, True)
+                    button(name, False)
+
     def keys_check():
         """A text box (or the number pad) just opened: the keyboards are its own while it's up (KeyReader; their keys
         let go of there, a trackpad in with one too), so what they're holding down is let go of here now, not left
@@ -207,6 +256,7 @@ def run(ui, media, control=None, stop=None):
         was["keys"] = now_keys
 
     def keyboard_gone(kb):
+        hot.clear()                                    # (its HOME, if it was held: nothing more)
         pads.drop(kb)
         print(f"{'mouse' if kb.mouse else 'keyboard'} gone: {kb.dev.name}", flush=True)
         for name in kb.let_go():
@@ -223,6 +273,7 @@ def run(ui, media, control=None, stop=None):
                 media.toast(f"{named[-1].dev.name} connected", 2)                  # the keyboard's name)
 
     def lost(pad):
+        hot.clear()                                    # (its HOME, if it was held: nothing more)
         pads.drop(pad)
         print(f"controller gone: {pad.dev.name}", flush=True)
         mine = {k for k in list(pending) + list(chorded) if k[0] == pad.path}
@@ -351,6 +402,21 @@ def run(ui, media, control=None, stop=None):
                     for ev in events:
                         keyboard_event(kb, ev)
                     continue
+                if isinstance(key.data, Touch):
+                    touch = key.data
+                    if pads.touches.get(touch.path) is not touch:
+                        continue                       # gone a moment ago
+                    try:
+                        events = list(touch.dev.read())
+                    except BlockingIOError:
+                        continue
+                    except OSError:
+                        pads.drop(touch)
+                        print(f"touch screen gone: {touch.dev.name}", flush=True)
+                        continue
+                    for ev in events:
+                        touch_event(touch, ev)
+                    continue
                 if isinstance(key.data, PowerKey):
                     switch = key.data
                     if pads.power.get(switch.path) is not switch:
@@ -403,7 +469,8 @@ def run(ui, media, control=None, stop=None):
 
             media.flush()
     finally:
-        for pad in list(pads.by_path.values()) + list(pads.power.values()) + list(pads.keyboards.values()):
+        for pad in (list(pads.by_path.values()) + list(pads.power.values()) + list(pads.keyboards.values())
+                    + list(pads.touches.values())):
             pads.drop(pad)
         sel.close()
 

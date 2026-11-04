@@ -97,6 +97,9 @@ class WebSettingsScreen:
         if battery["value"] not in ("On", "Off"):
             battery["value"], battery["note"] = "Auto", self.saver_why()   # (Auto: on or off now, and why)
         rows.append(battery)
+        attract = choice("attract")
+        attract["note"] = "Left idle, plugged in: a game plays by itself, till a button's pressed."
+        rows.append(attract)
         info = self.res_info() if "resolution" in root else None
         if info:
             rows.append(choice("resolution", "Resolution", ["Auto"] + list(info[1]), value=boot_resolution() or "Auto",
@@ -111,7 +114,9 @@ class WebSettingsScreen:
                 sound["note"] = self.sound_value()     # (Auto: HDMI, say)
         sec("sound", "Sound and video", [sound, choice("screen", "Video size", SCREEN_MODES)])
         sec("start", "Starting up", [choice("start"), choice("start_song")])
-        sec("share", "Your other Pietatos", [choice("share")])
+        sec("share", "Your other Pietatos", [choice("share")], "Prices and the weather fetched once for them all, and "
+            "your game saves following you: a game picks up where you left it on whichever of them you played it on "
+            "last.")
 
         # WiFi
         w, went = self.wifi, self.wifi.get("said")
@@ -339,7 +344,8 @@ class WebSettingsScreen:
         key = str(cmd.get("key") or "")
         value = cmd.get("value")
         if key in ("home_style", "clock", "app_full", "turn", "start", "start_song", "wallpaper", "accent", "sound",
-                   "screen", "units", "sim_full", "coder_sound", "ds_screens", "ds_touch", "battery", "share") \
+                   "screen", "units", "sim_full", "coder_sound", "ds_screens", "ds_touch", "battery", "share",
+                   "attract") \
                 or key.startswith("game_picture_"):
             return self.web_pick(key, value)
         handler = getattr(self, "web_set_" + key, None)

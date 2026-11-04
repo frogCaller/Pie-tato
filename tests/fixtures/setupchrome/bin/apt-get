@@ -1,0 +1,7 @@
+#!/bin/bash
+# stands in for apt-get: notes what it's asked; fails for the packages named in APT_MISSING
+echo "apt-get $*" >> "$LOG"
+for p in $APT_MISSING; do
+  for a in "$@"; do [ "$a" = "$p" ] && exit 100; done
+done
+exit 0

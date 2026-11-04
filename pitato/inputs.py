@@ -1,6 +1,6 @@
 """Buttons and keys: game controllers, the keys they stand for in terminal mode, a real keyboard (its keys as the
 buttons in media mode, and typing while the on-screen one is up), a trackpad or mouse (its swipes the d-pad in media
-mode), and the GPi Case's power switch."""
+mode), a touch screen (tapped and swiped in media mode), and the GPi Case's power switch."""
 import json
 import os
 import selectors
@@ -342,6 +342,124 @@ class Keys:
         return sorted(before - self.held())
 
 
+# ---- a touch screen (Waveshare's 4inch 720x720, any that says it's the screen itself), in media mode: as the web
+# page's copy of the screen is, a tap picks and opens what's there and a swipe moves along. Where it's touched is
+# a share of the screen, its own way round (0 to 1 across and down): media mode works out what's there
+TOUCH_TAP = 0.03       # moved less than this share of the screen, and lifted soon: a tap
+TOUCH_TAP_LONG = 0.9   # ...lifted later than this: a finger resting, not a tap
+TOUCH_SWIPE = 0.05     # moved more than this share: a swipe
+
+
+def abs_codes(dev):
+    """The axes it has (capabilities() gives (code, its range) for each, or the code alone)."""
+    return {c[0] if isinstance(c, tuple) else c for c in dev.capabilities().get(e.EV_ABS, [])}
+
+
+def is_touchscreen(dev):
+    """A touch screen: where it's touched on the screen itself. Not a laptop's touchpad (that moves a pointer
+    about), a drawing tablet beside the screen, or a controller."""
+    if dev.name == NAME:
+        return False
+    axes, keys = abs_codes(dev), set(dev.capabilities().get(e.EV_KEY, []))
+    if not ({e.ABS_X, e.ABS_Y} <= axes or {e.ABS_MT_POSITION_X, e.ABS_MT_POSITION_Y} <= axes):
+        return False
+    if not keys & {e.BTN_TOUCH, e.BTN_LEFT} and e.ABS_MT_TRACKING_ID not in axes:
+        return False
+    try:
+        props = set(dev.input_props())
+    except (AttributeError, OSError):
+        props = set()
+    if e.INPUT_PROP_DIRECT in props:                  # (it says it's on the screen)
+        return True
+    name = (dev.name or "").lower()
+    if props & {e.INPUT_PROP_POINTER, e.INPUT_PROP_BUTTONPAD} or "touchpad" in name or "trackpad" in name:
+        return False
+    return e.BTN_TOUCH in keys and not keys & {e.BTN_TOOL_FINGER, e.BTN_TOOL_PEN}
+
+
+class Touch:
+    """A touch screen, for media mode: a finger put down and lifted is a tap where it went down, or a swipe the way
+    it went; resting there, or not far either way, nothing. The first finger counts (a second is let be)."""
+
+    def __init__(self, dev):
+        self.dev, self.path = dev, dev.path
+        caps = dev.capabilities(absinfo=True)
+        ranges = {c[0]: c[1] for c in caps.get(e.EV_ABS, []) if isinstance(c, tuple)}
+        axes = abs_codes(dev)
+        keys = set(caps.get(e.EV_KEY, []))
+        self.mt = not {e.ABS_X, e.ABS_Y} <= axes      # (its fingers by slot alone: the first slot's)
+        self.xc, self.yc = (e.ABS_MT_POSITION_X, e.ABS_MT_POSITION_Y) if self.mt else (e.ABS_X, e.ABS_Y)
+        self.xr, self.yr = self.span(ranges.get(self.xc)), self.span(ranges.get(self.yc))
+        self.key = e.BTN_TOUCH if e.BTN_TOUCH in keys else e.BTN_LEFT if e.BTN_LEFT in keys else None
+        self.slot = 0
+        self.x = self.y = None                         # where it was last touched (kept: the same place again
+        self.forget()                                  # isn't said again)
+
+    @staticmethod
+    def span(info):
+        """An axis's (lowest, highest): from what it says of itself, or the usual 0 to 4095."""
+        lo, hi = (getattr(info, "min", 0), getattr(info, "max", 4095)) if info is not None else (0, 4095)
+        return lo, hi if hi > lo else lo + 1
+
+    def forget(self):
+        """No finger down: what comes next starts afresh."""
+        self.down_at = None                            # (across, down, when): where and when the finger went down
+        self.touching = self.lifted = False
+
+    def where(self):
+        u = (self.x - self.xr[0]) / (self.xr[1] - self.xr[0])
+        v = (self.y - self.yr[0]) / (self.yr[1] - self.yr[0])
+        return min(1.0, max(0.0, u)), min(1.0, max(0.0, v))
+
+    def translate(self, ev, now=None):
+        """What one raw event finishes: [("tap", across, down)], [("swipe", across, down)] (how far, a share of
+        the screen each way), or []."""
+        if ev.type == e.EV_ABS:
+            if ev.code == e.ABS_MT_SLOT:
+                self.slot = ev.value
+            elif ev.code == e.ABS_MT_TRACKING_ID and self.key is None and self.slot == 0:
+                if ev.value < 0:
+                    self.lifted = True                 # (no touch key: the first finger's going says it)
+                else:
+                    self.touching, self.lifted = True, False
+            elif ev.code in (self.xc, self.yc) and (not self.mt or self.slot == 0):
+                if ev.code == self.xc:
+                    self.x = ev.value
+                else:
+                    self.y = ev.value
+            return []
+        if ev.type == e.EV_KEY and ev.code == self.key and ev.value in (0, 1):
+            if ev.value:
+                self.touching, self.lifted = True, False
+            else:
+                self.lifted = True
+            return []
+        if ev.type != e.EV_SYN:
+            return []
+        if ev.code == e.SYN_DROPPED:
+            self.forget()                              # (some of it lost: start afresh)
+            return []
+        if ev.code != e.SYN_REPORT:
+            return []
+        if now is None:                                # when it happened, not when it's read
+            when = getattr(ev, "timestamp", None)
+            now = when() if callable(when) else time.monotonic()
+        if self.touching and self.down_at is None and self.x is not None and self.y is not None:
+            self.down_at = self.where() + (now,)
+        if not self.lifted:
+            return []
+        out = []
+        if self.down_at is not None:
+            (u0, v0, t0), (u, v) = self.down_at, self.where()
+            moved = max(abs(u - u0), abs(v - v0))
+            if moved < TOUCH_TAP and now - t0 <= TOUCH_TAP_LONG:
+                out = [("tap", u0, v0)]
+            elif moved > TOUCH_SWIPE:
+                out = [("swipe", u - u0, v - v0)]
+        self.forget()
+        return out
+
+
 # ---- input: controllers ---------------------------------------------------------
 CHORD_WAIT = 0.25   # no HOME button: how long SELECT or START waits to see if the other comes
 SCAN_EVERY = 2.0    # seconds between looks for controllers plugged in
@@ -526,6 +644,7 @@ class Pads:
         self.sel = sel
         self.by_path = {}
         self.keyboards = {}          # path -> Keys: keyboards (and mice), their keys the buttons in media mode
+        self.touches = {}            # path -> Touch: a touch screen, tapped and swiped in media mode
         self.skip = {}               # path -> its device node: looked at, not a controller
         self.power = {}              # path -> PowerKey: the case's power switch
         self.gpi = gpi_case_set_up()
@@ -602,7 +721,7 @@ class Pads:
                 del self.skip[path]
         new = []
         for path in sorted(paths):
-            if path in self.by_path or path in self.power or path in self.keyboards:
+            if path in self.by_path or path in self.power or path in self.keyboards or path in self.touches:
                 continue
             try:
                 node = os.stat(path).st_ino
@@ -627,6 +746,13 @@ class Pads:
                         self.keyboards[path] = kb
                         print(f"{'mouse' if kb.mouse else 'keyboard'}: {dev.name} ({path})", flush=True)
                         new.append(kb)
+                        continue
+                    if is_touchscreen(dev):
+                        touch = Touch(dev)
+                        self.sel.register(dev, selectors.EVENT_READ, touch)
+                        self.touches[path] = touch
+                        print(f"touch screen: {dev.name} ({path})", flush=True)
+                        new.append(touch)
                         continue
                     dev.close()
                     self.skip[path] = node
@@ -653,6 +779,8 @@ class Pads:
             self.power.pop(pad.path, None)
         elif isinstance(pad, Keys):
             self.keyboards.pop(pad.path, None)
+        elif isinstance(pad, Touch):
+            self.touches.pop(pad.path, None)
         else:
             self.by_path.pop(pad.path, None)
         try:

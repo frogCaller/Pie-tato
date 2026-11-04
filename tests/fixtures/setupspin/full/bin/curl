@@ -1,0 +1,7 @@
+#!/bin/bash
+# stand-in for curl (no network for GitHub's source archives here): PCSX ReARMed's, as a pretend source
+for a in "$@"; do url="$a"; done
+case "$url" in
+  *pcsx_rearmed/archive/c8816799b50388e61cfe237fe2cdbb7d8175f20a.tar.gz) sleep 1; cat "$PIETATO_TEST_WORK/setupspin/full/pcsx_rearmed.tar.gz" ;;
+  *) echo "curl: (22) The requested URL returned error: 404" >&2; exit 22 ;;
+esac

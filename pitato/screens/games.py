@@ -5,8 +5,10 @@ menu HOME brings up over it."""
 import json
 import os
 import struct
+import threading
 import time
 import unicodedata
+import urllib.parse
 
 from ..config import CACHE_DIR
 from ..theme import ACCENT, BG, BODY, LINE, MUTED, ROW, TEXT
@@ -21,6 +23,7 @@ from ..games import (ANALOG_SYSTEMS, art_path, ArtFinder, bios_missing, built_fo
 from ..emulator import screen_picture
 from ..fine import made_fine, scale
 from ..gameai import GameAI
+from .. import savesync
 
 GAME_BUTTONS = ("a", "b", "x", "y", "l", "r", "l2", "r2", "start", "select", "up", "down", "left", "right")
 BY_PLACE = {"a": "b", "b": "a", "x": "y", "y": "x"}   # PlayStation buttons go by where they are, not their letters
@@ -35,9 +38,10 @@ DPAD = ("up", "down", "left", "right")
 GAME_MENU = [("resume", "Back to the game"), ("save", "Save state"), ("load", "Load state"),
              ("reset", "Start over"), ("disc", "Disc"), ("screens", "Screens"), ("touch", "Touch screen"),
              ("volume", "Volume"), ("picture", "Picture"), ("players", "Players"), ("ai", "AI player"),
-             ("cheevos", "Achievements"), ("quit", "Quit game")]
+             ("cheevos", "Achievements"), ("together", "Play together"), ("send", "Play on another Pietato"),
+             ("quit", "Quit game")]
 DS_ONLY = ("screens", "touch")      # (a DS game's own)
-GAME_CHANGE = ("disc", "volume", "picture", "screens", "touch", "ai")   # (◀▶ changes these)
+GAME_CHANGE = ("disc", "volume", "picture", "screens", "touch", "ai", "together", "send")   # (◀▶ changes these)
 DS_SCREENS = [("Left/Right", "Side by side"), ("Top/Bottom", "One above the other"),
               ("Hybrid Top", "Top one big"), ("Hybrid Bottom", "Touch screen big")]   # (melonDS's names, and ours)
 DS_TOUCH = ["Right stick, R2", "D-pad, A"]   # what moves the pointer on the touch screen, and touches
@@ -397,26 +401,11 @@ class GameScreen:
         if self.here_take_game(it):                    # (picked on the web page, with Play here on: played there)
             return
         g = {"path": it["src"], "title": it["title"], "system": it.get("system", "")}
-        name = system(g["system"])[2]
+        why = self.game_cant(g)
+        if why:
+            self.toast(*why)
+            return
         core = find_core(g["system"])
-        if not core:
-            pkg = GAME_PACKAGES.get(system(g["system"])[4][0], "")
-            if g["system"] == "nds" and struct.calcsize("P") < 8:   # (a 32-bit system: setup.sh can't build it)
-                self.toast("DS games need the 64-bit Raspberry Pi OS", 5)
-                return
-            self.toast(f"The {name} emulator isn't installed. Run setup.sh again to add it"
-                       if pkg else f"There's no {name} emulator here", 5)
-            return
-        missing = bios_missing(core, g["path"])
-        if missing:
-            self.toast(f"{name} games need {missing} in Games/BIOS", 5)
-            return
-        if g["system"] == "neogeo" and neogeo_unknown(g["path"]):   # (it plays them only by the names it knows)
-            self.toast("The Neo Geo emulator doesn't know this game by its name. Name it as in its list, like mslug.zip", 6)
-            return
-        if built_for_other_pi(core):                   # (the SD card moved from a Pi 4 to a Pi 5, say)
-            self.toast(f"The {name} emulator was built on another kind of Pi. Run setup.sh again to build it here", 6)
-            return
         self.stop()                                    # (music, a video, another game: the game has the speaker)
         self.game_menu = None
         options = []
@@ -427,8 +416,11 @@ class GameScreen:
             layout = self.setting("ds_screens")
             options.append("melonds_screen_layout=" + (layout if layout in dict(DS_SCREENS) else DS_SCREENS[0][0]))
         self.view = "game"
-        self.render_curtain(g["title"], "Starting…", hints=[("HOME", "Its menu")] + (   # (the game draws over it)
-            [("SELECT", "Coin")] if g["system"] == "neogeo" else []))
+        hints = [("HOME", "Its menu")] + ([("SELECT", "Coin")] if g["system"] == "neogeo" else [])
+        self.render_curtain(g["title"], "Starting…", hints=hints)   # (the game draws over it)
+        came = self.saves_follow(g, lambda words: self.render_curtain(g["title"], words, hints=hints))
+        if came:
+            self.render_curtain(g["title"], f"Carrying on from {came}", hints=hints)
         run = GameRun(g, on_change=self.game_changed)
         place = sound_place(self.setting("sound"))     # (Bluetooth headphones, if they're on: sound_tick moves it)
         try:
@@ -448,6 +440,28 @@ class GameScreen:
         used = getattr(self, "input_pad", None)       # the controller that started it: player 1 (from the web page or
         self.game_players = {used.path: 0} if used is not None and self.pads and \
             self.pads.by_path.get(used.path) is used else {}      # a keyboard: the first controller pressed)
+
+    @staticmethod
+    def game_cant(g):
+        """Why a game won't start here, and for how long to say so: (words, seconds), or None. (Its path "": its
+        console's games.)"""
+        name = system(g["system"])[2]
+        core = find_core(g["system"])
+        if not core:
+            pkg = GAME_PACKAGES.get(system(g["system"])[4][0], "")
+            if g["system"] == "nds" and struct.calcsize("P") < 8:   # (a 32-bit system: setup.sh can't build it)
+                return "DS games need the 64-bit Raspberry Pi OS", 5
+            return (f"The {name} emulator isn't installed. Run setup.sh again to add it"
+                    if pkg else f"There's no {name} emulator here", 5)
+        missing = bios_missing(core, g["path"] or None)
+        if missing:
+            return f"{name} games need {missing} in Games/BIOS", 5
+        if g["system"] == "neogeo" and g["path"] and neogeo_unknown(g["path"]):   # (it plays them only by the names
+            return ("The Neo Geo emulator doesn't know this game by its name. Name it as in its list, like mslug.zip",
+                    6)                                                              # it knows)
+        if built_for_other_pi(core):                   # (the SD card moved from a Pi 4 to a Pi 5, say)
+            return f"The {name} emulator was built on another kind of Pi. Run setup.sh again to build it here", 6
+        return None
 
     def game_picture(self, key):
         """A console's games' picture: Fit, Sharp or Fill, as it was last picked for that console (at first: as it
@@ -512,11 +526,13 @@ class GameScreen:
             if not self.on_game():
                 self.toast(note, 5)
         run = self.game
-        if run is None:
+        if run is None or getattr(run, "attract", False):   # (a game playing by itself: attract_tick's)
             return
         if run.state in ("on", "paused") and not getattr(run, "noted", False):   # (it's started: one of the ones
             run.noted = True                                                    # played last now)
             self.games_played(run.game["path"])
+        if self.together_of(run) is not None:          # (played together: the other joined, left...)
+            self.together_tick(run, now)
         if run.ended or (run.state == "starting" and now - self.game_since > 15):
             why = run.error or ("The game didn't start" if run.state == "starting" else "The game stopped")
             self.game_end()
@@ -822,6 +838,16 @@ class GameScreen:
         run.quit()
         if self.fb is not None and hasattr(self.fb, "invalidate"):
             self.fb.invalidate()                       # (the game drew everywhere: all of it again)
+        if getattr(run, "attract", False):             # (a game playing by itself: its saves were never yours)
+            if getattr(self, "attract", None) is not None and self.attract["run"] is run:
+                self.attract = None
+            self.dirty = True
+            return
+        t = self.together_of(run)
+        if t is not None:
+            self.together_end(run)                     # (a link cable's save, back with yours)
+        if t is None or t.get("host") or t.get("link"):
+            self.saves_tell(run)                       # (its saves written: your other Pietatos take them)
         gi = self.tab_index("games")
         if gi is not None:
             self.load_tab(gi)
@@ -832,11 +858,110 @@ class GameScreen:
                 self.sels[gi] = at
         self.dirty = True
 
+    # -- saves that follow you: your other Pietatos' (savesync.py) ------------------------------------------
+    def saves_peers(self, addr=None):
+        """Your other Pietatos heard lately ([(address, name)]), with Settings > Share with other Pietatos on: the one
+        at addr alone, if that's given."""
+        pie = getattr(self, "pie", None)
+        if pie is None or self.setting("share") == "Off":
+            return []
+        peers = pie.peer_list()
+        if addr is not None:
+            peers = [(u, h) for u, h in peers if urllib.parse.urlsplit(u).hostname == addr]
+        return peers
+
+    def saves_playing(self):
+        """The game being played here now, by its saves' name (None: none)."""
+        run = self.game
+        if run is None or run.ended:
+            return None
+        return save_name(run.game["path"])
+
+    def saves_owner(self):
+        """Whose the Games folder is (the saves are theirs too): (uid, gid), or None."""
+        try:
+            st = os.stat(games_dir())
+            return st.st_uid, st.st_gid
+        except OSError:
+            return None
+
+    def saves_follow(self, g, say=None):
+        """Before a game starts: its saves from whichever of your other Pietatos played it last, if that was later
+        than here (asked quickly: a moment at most when none has it). The name of the one they came from, or None."""
+        peers = self.saves_peers()
+        if not peers:
+            return None
+        saves, owner = os.path.join(games_dir(), SAVES_FOLDER), self.saves_owner()
+        try:
+            os.makedirs(saves, exist_ok=True)
+            if owner:
+                os.chown(saves, *owner)
+            with self.saves_lock:
+                came = savesync.pull(saves, save_name(g["path"]), peers, owner=owner,
+                                     on_fetch=(lambda host: say(f"Getting your save from {host}…")) if say else None)
+        except Exception as ex:                        # (whatever happens, the game still starts)
+            print(f"saves: {ex!r}", flush=True)
+            return None
+        if came:
+            print(f"saves: {save_name(g['path'])} from {came}", flush=True)
+        return came
+
+    def saves_tell(self, run):
+        """A game just played here: your other Pietatos told, so they take its saves (on a thread of its own)."""
+        path = (getattr(run, "game", None) or {}).get("path")
+        peers = self.saves_peers() if path else []
+        if peers:
+            threading.Thread(target=savesync.tell, args=(save_name(path), peers), daemon=True,
+                             name="saves-tell").start()
+
+    def web_saves(self, name):
+        """GET /api/saves (another of your Pietatos asking, from your network: webui.py): a game's saves here, and
+        whether it's being played here now (its saves still changing). (The control server's thread.)"""
+        name = savesync.game_name(name)
+        if name is None:
+            return {"ok": False, "error": "Which game?"}
+        if self.setting("share") == "Off":
+            return {"ok": True, "on": False}
+        files = savesync.save_files(os.path.join(games_dir(), SAVES_FOLDER), name)
+        return {"ok": True, "on": True, "playing": self.saves_playing() == name, "files": files,
+                "folder": os.path.join(games_dir(), SAVES_FOLDER)}
+
+    def web_saves_news(self, cmd):
+        """POST /api/saves/news: another of your Pietatos has just played a game: its saves, taken from it (on a
+        thread of its own), unless the game's being played here now."""
+        name = savesync.game_name(cmd.get("game"))
+        if name is None:
+            return {"ok": False, "error": "Which game?"}
+        peers = self.saves_peers(str(cmd.get("from") or ""))
+        if not peers or not os.path.isdir(games_dir()):
+            return {"ok": False, "error": "Not one of your Pietatos"}
+
+        def take():
+            if self.saves_playing() == name:
+                return
+            saves, owner = os.path.join(games_dir(), SAVES_FOLDER), self.saves_owner()
+            try:
+                os.makedirs(saves, exist_ok=True)
+                if owner:
+                    os.chown(saves, *owner)
+                with self.saves_lock:
+                    if self.saves_playing() != name:
+                        came = savesync.pull(saves, name, peers, owner=owner)
+                        if came:
+                            print(f"saves: {name} from {came}", flush=True)
+            except Exception as ex:
+                print(f"saves: {ex!r}", flush=True)
+        threading.Thread(target=take, daemon=True, name="saves-take").start()
+        return {"ok": True}
+
     # -- its menu (HOME) -------------------------------------------------------------------
     def game_home(self):
         """HOME in a game: its menu, or (from the menu) back to the game. False: not in a game."""
         if not self.on_game():
             return False
+        if self.attract_on():                          # (a game playing by itself: back where you were)
+            self.attract_stop()
+            return True
         if self.view == "game":
             self.game_menu_open()
         else:
@@ -845,7 +970,7 @@ class GameScreen:
 
     def game_menu_open(self):
         run = self.game
-        if run.state != "on" or not run.pause():
+        if (run.state != "on" or not run.pause()) and not self.together_waiting(run):
             return                                     # (still starting, or busy: HOME again in a moment)
         bg = screen_picture()                          # the game, dimmed, behind the menu
         if bg is not None:
@@ -862,19 +987,28 @@ class GameScreen:
     def game_menu_close(self):
         self.game_menu = None
         self.view = "game"
+        t = self.together_of()
+        if t is not None:
+            t["waiting"] = False
         if self.game is not None:
             self.game.resume()
             self.game_sticks_now()
 
     def game_menu_items(self):
         """The game's menu: Disc only for a game on more than one; Players for one two (or more) can play;
-        Screens and Touch screen for a DS game. (AI player: any game.)"""
+        Screens and Touch screen for a DS game; Play on another Pietato while another of yours is on, and Play
+        together for a game two can play on two of them (Link cable: a Game Boy's). (AI player: any game.) Playing
+        together: not what'd put the two out of step (screens/together.py)."""
         many = self.game is not None and self.game.disc[1] > 1
         ds = self.game is not None and self.game.game.get("system") == "nds"
         together = self.game is not None and GAME_PLAYERS.get(self.game.game.get("system"), 1) > 1
         cheevos = self.game is not None and self.game.cheevos is not None
-        return [m for m in GAME_MENU if (m[0] != "disc" or many) and (m[0] not in DS_ONLY or ds)
-                and (m[0] != "players" or together) and (m[0] != "cheevos" or cheevos)]
+        send = self.game is not None and self.handoff_target() is not None
+        two = self.together_can()                      # (Play together: Link cable, for a Game Boy game)
+        return [(m[0], self.together_label()) if m[0] == "together" else m for m in GAME_MENU
+                if (m[0] != "disc" or many) and (m[0] not in DS_ONLY or ds)
+                and (m[0] != "players" or together) and (m[0] != "cheevos" or cheevos) and (m[0] != "send" or send)
+                and (m[0] != "together" or two) and not self.together_apart(m[0])]
 
     # -- the AI player (a decision model on your bot's computer plays, looking at the screen; your Bot's model
     #    coaches it) -----------------------------------------------------------------------------------------
@@ -929,6 +1063,9 @@ class GameScreen:
             return ai.model if ai is not None and ai.alive() else "Off"
         if job == "cheevos" and self.game is not None and self.game.cheevos:
             return f"{self.game.cheevos[0]} of {self.game.cheevos[1]}"
+        if job in ("send", "together"):
+            target = self.handoff_target()
+            return target[1] if target else ""
         return ""
 
     def game_change(self, job, d):
@@ -982,6 +1119,8 @@ class GameScreen:
             self.game_ai_set(want)
             self.toast("The AI plays once you're back in the game. Your buttons wait while it does" if want != "Off"
                        else "Your turn", 3)
+        elif job in ("send", "together"):              # (which of your other Pietatos)
+            self.handoff_cycle(d)
 
     def press_game_menu(self, name, repeat):
         m, run = self.game_menu, self.game
@@ -1013,8 +1152,11 @@ class GameScreen:
             self.game_menu_close()
         elif name == "a" and not repeat:
             waiting, until = m["confirm"]
-            if job in GAME_CONFIRM and (waiting != job or time.monotonic() > until):
+            twice = job in GAME_CONFIRM or (job == "together" and self.together_link())
+            if twice and (waiting != job or time.monotonic() > until):
                 m["confirm"] = (job, time.monotonic() + 4)
+                if job == "together":                  # (where you are now isn't where it starts)
+                    self.toast("The link cable starts from the game's own save, the last time you saved in it", 4)
             else:
                 m["confirm"] = (None, 0.0)
                 self.game_do(job)
@@ -1040,6 +1182,10 @@ class GameScreen:
         elif job == "players":                         # who's who, afresh: in the order they press a button
             self.game_players = {}
             self.toast("Back in the game, press a button on each controller: player 1 first", 4)
+        elif job == "send":
+            self.game_send()
+        elif job == "together":
+            self.together_invite()
         elif job in GAME_CHANGE:
             self.game_change(job, 1)
         elif job == "cheevos":                         # the game's achievements, as a list over the menu
@@ -1057,8 +1203,12 @@ class GameScreen:
                 return
             self.game_menu["list"] = {"rows": got["list"], "sel": 0, "top": 0, "head": got.get("head", "")}
         elif job == "quit":
+            t = self.together_of()
             self.game_end()
-            self.toast("Saved. It picks up there next time", 3)
+            if t is not None and not t.get("host") and not t.get("link"):
+                self.toast(f"You've left {t['with']}'s game", 3)
+            else:
+                self.toast("Saved. It picks up there next time", 3)
 
     def render_game_menu(self):
         F = self.fonts
@@ -1089,6 +1239,8 @@ class GameScreen:
             sysname = ("AI (its model can't see the screen): " if ai.alive() and ai.blind else "AI: ") + \
                       (ai.status if ai.alive() or ai.status.startswith("Stopped") else "Off") + \
                       (" (on its own: your bot's computer isn't answering)" if ai.alive() and ai.offline else "")
+        if self.game is not None and self.together_note():
+            sysname = self.together_note()             # (playing together: who with)
         d.text((mx0 + 22, my0 + 46), self.fit(d, sysname, F["small"], mw - 44), font=F["small"], fill=MUTED,
                anchor="lm")
         waiting, until = m["confirm"]

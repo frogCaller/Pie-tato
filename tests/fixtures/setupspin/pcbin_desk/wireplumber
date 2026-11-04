@@ -1,0 +1,3 @@
+#!/bin/bash
+# stand-in: a desktop's PipeWire session manager is here
+exit 0

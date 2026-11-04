@@ -1,0 +1,10 @@
+#!/bin/bash
+# Stands in for systemctl: stop ends the unit (its program told to go, as systemd does), the rest are noted.
+D="$(cd "$(dirname "$0")/.." && pwd)"
+echo "$*" >> "$D/calls.log"
+if [ "$1" = stop ] && [ -e "$D/unit.pid" ]; then
+  pid=$(cat "$D/unit.pid"); rm -f "$D/unit.pid"
+  kill -TERM "$pid" 2> /dev/null
+  for _ in $(seq 50); do kill -0 "$pid" 2> /dev/null || break; sleep 0.05; done
+fi
+exit 0

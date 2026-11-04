@@ -1,0 +1,18 @@
+#!/bin/bash
+# stand-in for apt-cache policy: Debian's non-free packages (Snes9x, Genesis Plus GX) are there to install only when
+# one of its sources has non-free on; the rest always are
+echo "apt-cache $*" >> "$STUB_LOG"
+[ "$1" = policy ] || exit 0
+pkg="${!#}"
+echo "$pkg:"
+echo "  Installed: (none)"
+case "$pkg" in
+  libretro-snes9x|libretro-genesisplusgx)
+    if grep -rhs -v '^[[:space:]]*#' /etc/apt/sources.list /etc/apt/sources.list.d | grep -qE '[[:space:]:]non-free([[:space:]]|$)'; then
+      echo "  Candidate: 1.63+dfsg-1"
+    else
+      echo "  Candidate: (none)"
+    fi ;;
+  *) echo "  Candidate: 1.0-1" ;;
+esac
+echo "  Version table:"

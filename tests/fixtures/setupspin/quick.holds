@@ -1,0 +1,2 @@
+held 19807 --what=shutdown:sleep:handle-power-key | --mode=block | --who=Pietato setup | --why=Setting up Pietato: leave the Pi on until it says All set
+let go 19807

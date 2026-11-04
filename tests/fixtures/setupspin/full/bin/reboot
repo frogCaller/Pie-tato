@@ -1,0 +1,4 @@
+#!/bin/bash
+# stand-in for reboot: notes it was asked, and does nothing
+echo "reboot $*" >> "$STUB_LOG"
+exit 0

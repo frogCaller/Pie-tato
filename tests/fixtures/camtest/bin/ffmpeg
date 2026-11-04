@@ -1,0 +1,31 @@
+#!/usr/bin/env python3
+"""ffmpeg for a pretend camera: '-f v4l2 -i /dev/videoN' becomes a moving test pattern."""
+import os, sys
+a = sys.argv[1:]
+
+
+def opt(name, default=None):
+    return a[a.index(name) + 1] if name in a else default
+
+
+if "v4l2" not in a:
+    os.execv("/usr/bin/ffmpeg", ["ffmpeg"] + a)
+with open(os.environ.get("FAKE_FFMPEG_LOG", "/tmp/fake_ffmpeg.log"), "a") as f:
+    f.write(" ".join(a) + "\n")
+if os.environ.get("FAKE_NO_MJPEG") and opt("-input_format") == "mjpeg":
+    sys.stderr.write("[video4linux2] Cannot find a proper format for codec 'mjpeg'\n/dev/video0: Invalid argument\n")
+    sys.exit(1)
+if os.environ.get("FAKE_NO_CAMERA"):
+    sys.stderr.write("/dev/video0: No such file or directory\n")
+    sys.exit(1)
+size = opt("-video_size", "640x480")
+rate = opt("-framerate", "15")
+cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin"]
+frames = opt("-frames:v")
+if not frames:
+    cmd += ["-re"]
+cmd += ["-f", "lavfi", "-i", f"testsrc2=size={size}:rate={rate}"]
+if frames:
+    cmd += ["-frames:v", frames]
+cmd += ["-c:v", "mjpeg", "-q:v", "6", "-pix_fmt", "yuvj420p", "-f", "mpjpeg", "-"]
+os.execv("/usr/bin/ffmpeg", cmd)

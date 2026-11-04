@@ -59,6 +59,7 @@ class RestScreen:
         """Something happened (a button, the web page, the bot spoken to): the wait for rest starts again, and a resting
         screen wakes (from another thread: the main loop wakes it, at once)."""
         self.stirred = time.monotonic()
+        self.stirs = getattr(self, "stirs", 0) + 1     # (a game playing by itself sees someone's here)
         if self.resting:
             if threading.current_thread() is threading.main_thread():
                 self.rest_end()

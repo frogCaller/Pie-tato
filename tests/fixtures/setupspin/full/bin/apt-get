@@ -1,0 +1,5 @@
+#!/bin/bash
+# stand-in for apt-get: notes how it was asked, and does nothing (apt-get update fails when APT_FAIL is set)
+echo "apt-get $*" >> "$STUB_LOG"
+if [ "apt-get" = apt-get ] && [ -n "$APT_FAIL" ] && [ "$1" = update ]; then sleep 1; echo "E: no network (pretend)"; exit 100; fi
+exit 0

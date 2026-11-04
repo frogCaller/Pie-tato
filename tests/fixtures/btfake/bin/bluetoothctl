@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""Stand-in for bluetoothctl, kept open as BlueZ's agent: its words and prompts as the real one has them
+(colours, the [bluetooth]# prompt drawn again after each line), scan on and off (the pretend BlueZ's devices
+nearby come and go), and pairing's questions and codes, told it by the pretend busctl."""
+import json
+import os
+import sys
+import threading
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import btstate as B
+
+BLUE, YELLOW, OFF, BOLD = "\x1b[0;94m", "\x1b[0;93m", "\x1b[0m", "\x1b[1;39m"
+PROMPT = BLUE + "[bluetooth]" + OFF + "# "
+out_lock = threading.Lock()
+asking = {"q": None}             # a question waiting for its answer: "confirm" or "pin"
+
+
+def say(text, prompt=True):
+    """A line, as bt_shell_printf has it: the prompt wiped, the line, the prompt again."""
+    with out_lock:
+        sys.stdout.write("\r\x1b[K" + text + "\n" + (PROMPT if prompt else ""))
+        sys.stdout.flush()
+
+
+def ask(text):
+    with out_lock:
+        sys.stdout.write("\r\x1b[K" + YELLOW + "[agent]" + OFF + " " + text + " ")
+        sys.stdout.flush()
+
+
+B.log("bluetoothctl", "start", *sys.argv[1:])
+s = B.read()
+if not s.get("running", True):
+    say("Waiting to connect to bluetoothd...", prompt=False)
+    while True:
+        line = sys.stdin.readline()
+        if not line or line.strip() == "quit":
+            break
+    sys.exit(0)
+time.sleep(0.15)
+say("[" + "\x1b[0;93mNEW" + OFF + "] Controller B8:27:EB:00:00:01 pi [default]")
+if not os.environ.get("BT_NO_AGENT"):
+    say("Agent registered")
+
+
+def agent_loop():
+    try:                                  # (what was told the one before it: not this one's)
+        seen = len(open(os.environ["BT_AGENT_IN"]).read().splitlines())
+    except OSError:
+        seen = 0
+    while True:
+        time.sleep(0.05)
+        try:
+            lines = open(os.environ["BT_AGENT_IN"]).read().splitlines()
+        except OSError:
+            continue
+        for raw in lines[seen:]:
+            ev = json.loads(raw)
+            if ev["event"] == "passkey":
+                code = ev["code"]
+                say(YELLOW + "[agent]" + OFF + " Passkey: " + BOLD + code + OFF)
+                time.sleep(0.4)                       # (as each digit's typed: the code drawn again)
+                say(YELLOW + "[agent]" + OFF + " Passkey: " + "\x1b[1;30m" + code[:3] + BOLD + code[3:] + OFF)
+            elif ev["event"] == "confirm":
+                say("Request confirmation", prompt=False)
+                asking["q"] = "confirm"
+                ask(f"Confirm passkey {ev['code']} (yes/no):")
+                time.sleep(0.3)
+                ask(f"Confirm passkey {ev['code']} (yes/no):")     # (drawn again: answered once all the same)
+            elif ev["event"] == "pin":
+                say("Request PIN code", prompt=False)
+                asking["q"] = "pin"
+                ask("Enter PIN code:")
+        seen = len(lines)
+
+
+threading.Thread(target=agent_loop, daemon=True).start()
+
+
+def nearby_arrive():
+    time.sleep(0.4)
+    with B.State() as st:
+        if not st.get("discovering"):
+            return
+        for addr, d in st.get("nearby", {}).items():
+            st.setdefault("devices", {})[addr] = dict(d)
+            say("[" + "\x1b[0;92mNEW" + OFF + f"] Device {addr} {d.get('name') or addr.replace(':', '-')}")
+        st["nearby"] = {}
+
+
+while True:
+    line = sys.stdin.readline()
+    if not line:
+        break
+    cmd = line.strip()
+    B.log("bluetoothctl", "got", cmd)
+    if asking["q"]:
+        q, asking["q"] = asking["q"], None
+        with open(B.answer_file(), "w") as f:
+            f.write(cmd)
+        continue
+    if cmd == "default-agent":
+        say("Default agent request successful")
+    elif cmd == "scan on":
+        st = B.read()
+        if not st.get("powered", True):
+            say("Failed to start discovery: org.bluez.Error.NotReady")
+            continue
+        with B.State() as st:
+            st["discovering"] = True
+            for d in st.get("devices", {}).values():
+                if not d.get("paired") and d.get("heard_rssi") is not None:
+                    d["rssi"] = d["heard_rssi"]
+        say("Discovery started")
+        say("[" + YELLOW + "CHG" + OFF + "] Controller B8:27:EB:00:00:01 Discovering: yes")
+        threading.Thread(target=nearby_arrive, daemon=True).start()
+    elif cmd == "scan off":
+        with B.State() as st:
+            st["discovering"] = False
+            for d in st.get("devices", {}).values():
+                if d.get("rssi") is not None:
+                    d["heard_rssi"] = d["rssi"]
+                d["rssi"] = None                       # (BlueZ forgets how near they were)
+        say("Discovery stopped")
+    elif cmd == "quit":
+        break
+    elif cmd:
+        say("Invalid command in menu main: " + cmd)
+B.log("bluetoothctl", "end")

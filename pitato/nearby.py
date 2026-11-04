@@ -324,6 +324,16 @@ class PieInk:
         maybe = [u for u in tidy(maybe) if cam_key(u) not in mine]
         return sure + maybe, {cam_key(u) for u in maybe}
 
+    def peer_list(self, within=90):
+        """Your other Pietatos that have said they're there lately, the latest first: [(their web page's address,
+        their name)] (none with sharing off)."""
+        if not self.peers_on():
+            return []
+        now = time.time()
+        with self.lock:
+            return [(u, h["host"]) for u, h in sorted(self.heard.items(), key=lambda kv: -kv[1]["seen"])
+                    if h.get("peer") and now - h["seen"] <= within]
+
     def peers(self):
         """Another Pietato has said it's there lately (and sharing's on)."""
         if not self.peers_on():

@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+"""Stand-in for busctl asking BlueZ: GetManagedObjects as busctl prints it (or as JSON, which, like the real one,
+gives up on the makers' data of devices heard nearby), and Pair, Connect, Disconnect, CancelPairing, RemoveDevice,
+and the Trusted and Powered properties, on a pretend BlueZ (btstate.py's file)."""
+import json
+import os
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import btstate as B
+
+args = [a for a in sys.argv[1:] if not a.startswith("--")]
+opts = [a for a in sys.argv[1:] if a.startswith("--")]
+B.log("busctl", *sys.argv[1:])
+
+
+def fail(msg, lead="Call failed: "):
+    print(lead + msg, file=sys.stderr)
+    sys.exit(1)
+
+
+s = B.read()
+v = lambda t, d: {"type": t, "data": d}
+
+if len(args) > 1 and args[1] == "org.bluealsa":         # BlueALSA: the headphones it plays through (its PCMs)
+    if not s.get("bluealsa", True):
+        fail("The name org.bluealsa was not provided by any .service files")
+    if s.get("bluealsa") == "slow":
+        fail("Connection timed out")
+    if args[:1] == ["call"] and args[-1] == "GetManagedObjects":
+        objs = {"/org/bluealsa": {"org.bluealsa.Manager1": {"Version": v("s", "v4.0.0")}}}
+        for k, p in enumerate(s.get("pcms", [])):
+            if p.get("at", 0) > time.time():           # (not up yet)
+                continue
+            dev = B.path_of(p["addr"])
+            kind = "a2dpsrc" if p.get("transport", "A2DP-source").startswith("A2DP-source") else "other"
+            objs[f"/org/bluealsa/hci0/dev_{p['addr'].replace(':', '_')}/{kind}/{p.get('mode', 'sink')}{k}"] = {
+                "org.bluealsa.PCM1": {"Device": v("o", dev), "Sequence": v("u", p.get("seq", 0)),
+                                      "Transport": v("s", p.get("transport", "A2DP-source")),
+                                      "Mode": v("s", p.get("mode", "sink")), "Format": v("q", 33296),
+                                      "Channels": v("y", 2), "Sampling": v("u", 44100), "Codec": v("q", 0),
+                                      "Delay": v("q", 1500), "SoftVolume": v("b", False)}}
+        print(json.dumps({"type": "a{oa{sa{sv}}}", "data": [objs]}))
+        sys.exit(0)
+    fail("Unknown method")
+
+if not s.get("running", True):
+    fail("The name org.bluez was not provided by any .service files")
+
+if args[:1] == ["get-property"] and len(args) >= 5 and args[3] == "org.bluez.Device1":
+    d = s.get("devices", {}).get(B.addr_of(args[2]))
+    if d is None:
+        fail(f"Unknown object '{args[2]}'.", "Failed to get property " + args[4] + " on interface org.bluez.Device1: ")
+    if args[4] == "Alias":
+        print(json.dumps(v("s", d.get("alias") or d.get("name") or B.addr_of(args[2]).replace(":", "-"))))
+        sys.exit(0)
+    fail("Unknown property")
+
+if args[:1] == ["call"] and args[-1] == "GetManagedObjects":
+    objs = {"/org/bluez": {"org.bluez.AgentManager1": {}, "org.bluez.ProfileManager1": {}}}
+    if s.get("adapter", True):
+        objs["/org/bluez/hci0"] = {"org.freedesktop.DBus.Introspectable": {}, "org.bluez.Adapter1": {
+            "Address": v("s", "B8:27:EB:00:00:01"), "Name": v("s", "pi"), "Alias": v("s", "pi"),
+            "Powered": v("b", s.get("powered", True)), "Discoverable": v("b", False), "Pairable": v("b", True),
+            "Discovering": v("b", s.get("discovering", False)), "UUIDs": v("as", [])}}
+        for addr, d in s.get("devices", {}).items():
+            props = {"Address": v("s", addr), "AddressType": v("s", "public"),
+                     "Alias": v("s", d.get("alias") or d.get("name") or addr.replace(":", "-")),
+                     "Paired": v("b", d.get("paired", False)), "Bonded": v("b", d.get("paired", False)),
+                     "Trusted": v("b", d.get("trusted", False)), "Blocked": v("b", False),
+                     "Connected": v("b", d.get("connected", False)), "LegacyPairing": v("b", False),
+                     "Adapter": v("o", "/org/bluez/hci0"), "UUIDs": v("as", [])}
+            if d.get("name"):
+                props["Name"] = v("s", d["name"])
+            if d.get("icon"):
+                props["Icon"] = v("s", d["icon"])
+            if d.get("rssi") is not None:
+                props["RSSI"] = v("n", d["rssi"])
+                props["TxPower"] = v("n", 4)
+                if d.get("maker", True):              # (most that are heard send their maker's data: a{qv})
+                    props["ManufacturerData"] = v("a{qv}", {0x004C: v("ay", [2, 21, 0x10, 0x05])})
+                    props["AdvertisingFlags"] = v("ay", [6])
+                    props["AdvertisingData"] = v("a{yv}", {0xFF: v("ay", [0x4C, 0x00, 0x10])})
+            objs[B.path_of(addr)] = {"org.freedesktop.DBus.Introspectable": {}, "org.bluez.Device1": props}
+    if "--json=short" in opts:
+        if B.int_keys(objs):      # (as the real one: numbers can't be JSON's keys, so it gives up, saying nothing)
+            sys.exit(1)
+        print(json.dumps({"type": "a{oa{sa{sv}}}", "data": [objs]}))
+    else:
+        print("a{oa{sa{sv}}} " + B.busctl_text("a{oa{sa{sv}}}", objs))
+    sys.exit(0)
+
+if args[:1] == ["set-property"]:
+    _, _, path, iface, name, sig, value = args[:7]
+    on = value == "true"
+    if iface == "org.bluez.Adapter1" and name == "Powered":
+        if on and s.get("blocked"):
+            fail("Blocked through rfkill", "Failed to set property Powered on interface org.bluez.Adapter1: ")
+        with B.State() as st:
+            st["powered"] = on
+            if not on:
+                st["discovering"] = False
+                for d in st.get("devices", {}).values():
+                    d["connected"] = False
+        sys.exit(0)
+    if iface == "org.bluez.Device1" and name == "Trusted":
+        addr = B.addr_of(path)
+        with B.State() as st:
+            if addr not in st.get("devices", {}):
+                fail(f"Unknown object '{path}'.")
+            st["devices"][addr]["trusted"] = on
+        sys.exit(0)
+    fail("Unknown property")
+
+if args[:1] == ["call"]:
+    _, _, path, iface, method = args[:5]
+    if iface == "org.bluez.Adapter1" and method == "RemoveDevice":
+        target = args[6]
+        with B.State() as st:
+            if B.addr_of(target) not in st.get("devices", {}):
+                fail("Does Not Exist")
+            del st["devices"][B.addr_of(target)]
+        sys.exit(0)
+    addr = B.addr_of(path)
+    d = s.get("devices", {}).get(addr)
+    if d is None:
+        fail(f"Unknown object '{path}'.")
+    if not s.get("powered", True):
+        fail("Resource Not Ready")
+    if method == "Pair":
+        how = d.get("pair", "ok")
+        if d.get("paired"):
+            fail("Already Exists")
+        if how == "fail-auth":
+            time.sleep(0.3)
+            fail("Authentication Failed")
+        if how == "timeout":
+            time.sleep(0.5)
+            fail("Page Timeout")
+        if how == "code":
+            B.event("passkey", code=d.get("code", "123456"))
+            time.sleep(float(d.get("typing", 1.2)))       # (you type it in on the keyboard)
+        if how in ("confirm", "pin"):
+            try:
+                os.remove(B.answer_file())
+            except OSError:
+                pass
+            B.event(how, code=d.get("code", "654321"))
+            got = ""
+            for _ in range(60):
+                time.sleep(0.1)
+                try:
+                    got = open(B.answer_file()).read().strip()
+                except OSError:
+                    continue
+                if got:
+                    break
+            if (how == "confirm" and got != "yes") or (how == "pin" and not got.isdigit()):
+                fail("Authentication Rejected")
+            B.log("answered", got)
+        with B.State() as st:
+            st["devices"][addr]["paired"] = True
+            if d.get("connects_itself"):
+                st["devices"][addr]["connected"] = True
+        sys.exit(0)
+    if method == "Connect":
+        how = d.get("connect", "ok")
+        time.sleep(0.2)
+        if d.get("connected"):
+            fail("Already Connected")
+        if how == "profile":
+            fail("br-connection-profile-unavailable")
+        if how == "timeout":
+            fail("Page Timeout")
+        with B.State() as st:
+            st["devices"][addr]["connected"] = True
+            if d.get("a2dp"):                         # (headphones: BlueALSA has them a moment later)
+                st["pcms"] = [p for p in st.get("pcms", []) if p["addr"] != addr] + [
+                    {"addr": addr, "seq": st.get("seq", 0) + 1, "at": time.time() + float(d.get("a2dp_after", 0))}]
+                st["seq"] = st.get("seq", 0) + 1
+        sys.exit(0)
+    if method == "Disconnect":
+        with B.State() as st:
+            st["devices"][addr]["connected"] = False
+            st["pcms"] = [p for p in st.get("pcms", []) if p["addr"] != addr]
+        sys.exit(0)
+    if method == "CancelPairing":
+        sys.exit(0)
+    fail(f"Unknown method {method}")
+fail("Unknown verb")

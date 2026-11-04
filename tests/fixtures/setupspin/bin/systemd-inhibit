@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+"""A stand-in for systemd-inhibit: notes its hold in $HOLD_LOG ("held PID options" as it starts), ignores SIGINT
+as the real one does, and runs the command with its signals reset and a SIGTERM if this one ends."""
+import ctypes, os, signal, sys
+signal.signal(signal.SIGINT, signal.SIG_IGN)
+args = sys.argv[1:]
+opts = []
+while args and args[0].startswith("--"):
+    opts.append(args.pop(0))
+with open(os.environ["HOLD_LOG"], "a") as f:
+    f.write(f"held {os.getpid()} {' | '.join(opts)}\n")
+def let_go(*_):
+    with open(os.environ["HOLD_LOG"], "a") as f:
+        f.write(f"let go {os.getpid()}\n")
+    os._exit(143)
+
+
+signal.signal(signal.SIGTERM, let_go)
+pid = os.fork()
+if pid == 0:
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    ctypes.CDLL(None).prctl(1, signal.SIGTERM)       # PR_SET_PDEATHSIG
+    os.execvp(args[0], args)
+_, st = os.waitpid(pid, 0)
+with open(os.environ["HOLD_LOG"], "a") as f:
+    f.write(f"ended {os.getpid()}\n")
+sys.exit(os.waitstatus_to_exitcode(st) & 0xFF)

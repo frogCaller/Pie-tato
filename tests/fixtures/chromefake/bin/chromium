@@ -1,0 +1,3 @@
+#!/bin/sh
+# Stands in for Chromium's program (only found, never run: systemd-run's a stand-in too)
+exit 0

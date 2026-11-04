@@ -25,8 +25,8 @@ LIBRARY = [
     {"name": "Finance", "type": "finance", "files": [settings_glob("finance.txt")], "empty": ""},
     {"name": "Bot", "type": "friend", "files": [settings_glob("bot.txt")], "empty": ""},
     {"name": "Simulator", "type": "group", "empty": "",
-     "children": ["Clock", "Rock Paper Scissors", "Game of Life", "Forest Fire", "Mandelbrot Set", "cmatrix",
-                  "hollywood", "nyancat", "cacafire", "htop"]},
+     "children": ["Clock", "Rock Paper Scissors", "Game of Life", "Forest Fire", "Mandelbrot Set", "Konami code",
+                  "cmatrix", "hollywood", "nyancat", "cacafire", "htop"]},
     {"name": "Files", "type": "browser", "empty": "This folder is empty"},
     {"name": "System", "type": "system", "empty": ""},
     {"name": "Settings", "type": "settings", "empty": ""},
@@ -71,6 +71,8 @@ LIBRARY = [
      "about": "Trees grow, fires spread", "empty": ""},
     {"name": "Mandelbrot Set", "type": "sim", "sim": "mandel", "parent": "Simulator", "badge": "ZOOM",
      "about": "Dives into the famous fractal", "empty": ""},
+    {"name": "Konami code", "type": "konami", "parent": "Simulator", "badge": "CHEAT",   # (screens/konami.py)
+     "about": "Button codes that do things", "empty": ""},
     # (Linux's own cmatrix, hollywood, nyancat, cacafire and htop: A starts one, on the whole screen)
     {"name": "cmatrix", "type": "prog", "prog": "cmatrix", "parent": "Simulator", "badge": "CODE",
      "about": "Linux's falling code", "empty": ""},

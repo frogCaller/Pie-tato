@@ -1,0 +1,9 @@
+#!/bin/bash
+# stand-in for bluetoothctl: a pretend controller to pair (a scan takes 2 seconds here, not 20)
+echo "bluetoothctl $*" >> "$STUB_LOG"
+case "$*" in
+  *--timeout*) sleep 2 ;;
+  devices) echo "Device 11:22:33:44:55:66 Pretend Pad" ;;
+  "info "*) printf '\tName: Pretend Pad\n\tPaired: yes\n\tTrusted: yes\n\tConnected: yes\n' ;;
+esac
+exit 0

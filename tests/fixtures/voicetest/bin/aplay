@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+"""A pretend aplay: what it was given goes to $FAKE_APLAY_DIR (play-<n>.raw, and its arguments in
+plays.log), taken at $FAKE_APLAY_SPEED times real time; $FAKE_APLAY_FAIL makes it refuse the card."""
+import os, sys, time
+d = os.environ.get("FAKE_APLAY_DIR", "/tmp")
+if os.environ.get("FAKE_APLAY_FAIL"):
+    sys.stderr.write("aplay: main:831: audio open error: Device or resource busy\n")
+    sys.exit(1)
+args = sys.argv[1:]
+rate = int(args[args.index("-r") + 1]) if "-r" in args else 8000
+speed = float(os.environ.get("FAKE_APLAY_SPEED", "4"))
+n = len([f for f in os.listdir(d) if f.startswith("play-")])
+out = os.path.join(d, f"play-{n}.raw")
+open(os.path.join(d, f"start-{n}"), "w").close()          # (when it started)
+with open(os.path.join(d, "plays.log"), "a") as log:
+    log.write(f"{n} {' '.join(args)} uid={os.getuid()}\n")
+got = 0
+with open(out, "wb") as f:
+    while True:
+        chunk = sys.stdin.buffer.read1(4096) if hasattr(sys.stdin.buffer, "read1") else sys.stdin.buffer.read(4096)
+        if not chunk:
+            break
+        f.write(chunk)
+        f.flush()
+        got += len(chunk)
+        time.sleep(len(chunk) / (rate * 2) / speed)
+with open(os.path.join(d, "plays.log"), "a") as log:
+    log.write(f"{n} done {got}\n")

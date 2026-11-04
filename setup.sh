@@ -795,6 +795,41 @@ else
   build_neopop || echo "(Couldn't build Beetle NeoPop: Neo Geo Pocket games won't start.)"
 fi
 
+# The Game Boy's link cable, over your network (two of your Pietatos: Pokémon to trade, or Tetris against each other):
+# gambatte, built here from its source (Debian's may not have its network link), with patches/gambatte-link.patch
+# (the two link up in a moment, not minutes; its port free again straight away; a Pietato that's gone keeps it
+# waiting a second, not minutes; a byte comes across whole even when a game looks at it mid-way). mGBA plays Game
+# Boy games otherwise
+GAMBATTE=77f2567d718b8973d02caa2daa8dce4953faf811
+GAMBATTE_BUILT="$GAMBATTE+link"    # (what's noted once it's built: a new patch builds it again)
+gambatte_source() {  # gambatte_source FOLDER
+  local -x GIT_TERMINAL_PROMPT=0     # (a question from git would wait unseen: an error instead)
+  git init -q "$1/src" \
+    && git -C "$1/src" fetch -q --depth 1 https://github.com/libretro/gambatte-libretro.git "$GAMBATTE" \
+    && git -C "$1/src" -c advice.detachedHead=false checkout -q FETCH_HEAD \
+    && git -C "$1/src" apply "$HERE/patches/gambatte-link.patch"
+}
+build_gambatte() {
+  local jobs tmp
+  jobs=$(nproc 2>/dev/null || echo 1)
+  if [ "$(awk '/MemTotal/ {print int($2 / 1024)}' /proc/meminfo)" -lt 1000 ]; then jobs=1; fi   # (a Pi Zero's 512 MB)
+  apt-get install -y build-essential git || return 1
+  tmp="$(mktemp -d /var/tmp/gambatte-XXXXXX)" || return 1
+  BUILDING="$tmp"
+  working "Downloading" "$tmp/build.log" gambatte_source "$tmp" \
+    && working "Building" "$tmp/build.log" make -C "$tmp/src" -f Makefile.libretro platform=unix -j"$jobs" \
+    || { tail -n 20 "$tmp/build.log"; rm -rf "$tmp"; return 1; }
+  install -d "$CORES" && install -m 644 "$tmp/src/gambatte_libretro.so" "$CORES/" || { rm -rf "$tmp"; return 1; }
+  echo "$GAMBATTE_BUILT" > "$CORES/gambatte.version"
+  rm -rf "$tmp"
+}
+if [ "$(cat "$CORES/gambatte.version" 2>/dev/null)" = "$GAMBATTE_BUILT" ] && [ -f "$CORES/gambatte_libretro.so" ]; then
+  echo "The Game Boy's link cable (gambatte) is built already."
+else
+  step "Building the Game Boy's link cable (gambatte): $(how_long "a few minutes" "a minute or so")"
+  build_gambatte || echo "(Couldn't build gambatte: Game Boy games play, but not linked to another Pietato's.)"
+fi
+
 # Neo Geo: FinalBurn Neo, built here from its source with just its Neo Geo games (all of it would take hours on a
 # Pi), and its error screen's plain letters instead of its big font of Chinese ones (half a GB of memory to build).
 # Its list of the games it knows goes beside it: media mode finds them by their names (mslug.zip). Their BIOS,

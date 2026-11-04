@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+"""A pretend v4l2-ctl for one OBSBOT-like camera: pan, tilt, zoom, MJPEG sizes."""
+import json, os, sys
+STATE = os.environ.get("FAKE_V4L2_STATE", "/tmp/fake_v4l2.json")
+LOG = STATE + ".log"
+def load():
+    try:
+        return json.load(open(STATE))
+    except (OSError, ValueError):
+        return {"pan_absolute": 0, "tilt_absolute": 0, "zoom_absolute": 0}
+args = sys.argv[1:]
+if "--info" in args:
+    print("Driver Info:\n\tDriver name      : uvcvideo\n\tCard type        : OBSBOT Tiny 2 StreamCamera\n"
+          "\tCapabilities     : 0x84a00001\n\t\tVideo Capture\n\t\tMetadata Capture\n\t\tStreaming\n"
+          "\tDevice Caps      : 0x04200001\n\t\tVideo Capture\n\t\tStreaming\n\t\tExtended Pix Format\n"
+          "Media Driver Info:\n\tDriver name      : uvcvideo\n")
+elif "--list-formats-ext" in args:
+    if os.environ.get("FAKE_NO_MJPEG"):
+        print("ioctl: VIDIOC_ENUM_FMT\n\tType: Video Capture\n\n\t[0]: 'YUYV' (YUYV 4:2:2)\n\t\tSize: Discrete 640x480\n")
+    else:
+        print("ioctl: VIDIOC_ENUM_FMT\n\tType: Video Capture\n\n\t[0]: 'MJPG' (Motion-JPEG, compressed)\n"
+              "\t\tSize: Discrete 1920x1080\n\t\t\tInterval: Discrete 0.033s (30.000 fps)\n"
+              "\t\tSize: Discrete 1280x720\n\t\tSize: Discrete 640x480\n\t[1]: 'YUYV' (YUYV 4:2:2)\n"
+              "\t\tSize: Discrete 640x480\n\t\tSize: Discrete 320x240\n")
+elif "--list-ctrls" in args:
+    st = load()
+    print("\nCamera Controls\n\n"
+          f"                   pan_absolute 0x009a0908 (int)    : min=-468000 max=468000 step=3600 default=0 value={st['pan_absolute']}\n"
+          f"                  tilt_absolute 0x009a0909 (int)    : min=-324000 max=324000 step=3600 default=0 value={st['tilt_absolute']}\n"
+          f"                  zoom_absolute 0x009a090d (int)    : min=0 max=100 step=1 default=0 value={st['zoom_absolute']}\n"
+          "         focus_automatic_continuous 0x009a090c (bool)   : default=1 value=1\n"
+          "                 focus_absolute 0x009a090a (int)    : min=0 max=100 step=1 default=0 value=0 flags=inactive\n")
+elif "-c" in args:
+    st = load()
+    for pair in args[args.index("-c") + 1].split(","):
+        k, v = pair.split("=")
+        st[k] = int(v)
+    json.dump(st, open(STATE, "w"))
+    with open(LOG, "a") as f:
+        f.write(args[args.index("-c") + 1] + "\n")
+else:
+    sys.exit(1)

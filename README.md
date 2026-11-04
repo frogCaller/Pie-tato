@@ -35,7 +35,8 @@ It asks if the Pi is in a GPi Case 2W (or, on a Compute Module 4, a GPi Case 2).
 case's screen, sound and power switch: turn the SAFE SHUTDOWN switch behind the cartridge to ON, and
 switching the case off shuts the Pi down safely. If not, it leaves HDMI as it is.
 A small square screen (like Waveshare's 4-inch 720x720) may tell the Pi it's a TV, which squeezes the picture:
-pick 720x720 (square) in Settings > Resolution.
+pick 720x720 (square) in Settings > Resolution. On a touch screen, tap what you want and swipe to move along
+a list.
 In the GPi Case 2's dock, with the TV on, the picture is on the TV: put the case in the dock or take it out
 and the Pi restarts with the picture where it should be. The case's buttons don't work in the dock, so use a
 USB or Bluetooth controller there.
@@ -77,8 +78,8 @@ It starts on a home screen of apps:
 
 - **Home**: a remote for your TVs and your lights (through Home Assistant), a dashboard of your
   Pi-hole's stats (from the Pi-hole itself: add it by its address), and Web, for browsing (see Web below).
-  Put in Home Assistant's IP address and a long-lived token in its Settings, last on its tab, or in the web
-  page's Settings
+  The first time you open the TV Remote or Lights, they ask for Home Assistant's IP address and a long-lived
+  token (Settings > Home changes them later), or you can put them in on the web page's Settings
 - **TV**: Plex (Continue watching, Watchlist, Live TV with news and sports), Jellyfin, about 250 old
   cartoons and 150 old films from the Internet Archive, and your own streams
 - **Music** and **Radio** (on Now playing, SELECT puts on lofi art: a quiet scene on the whole screen),
@@ -98,7 +99,10 @@ It starts on a home screen of apps:
   and the Mandelbrot set, which takes you on dives (or press the d-pad to explore it, A to zoom in and
   Y to zoom out). Press SELECT to watch one full screen. It can also start cmatrix, hollywood, nyancat,
   cacafire and htop without a keyboard: in cmatrix, ◀▶ change its colour and ▲▼ its speed; in htop, ▲▼ move
-  through what's running and X or Y sort it by CPU or memory; and B stops any of them
+  through what's running and X or Y sort it by CPU or memory; and B stops any of them. Konami code saves
+  button codes of your own: hold Home and press any button, then put in ▲▲▼◀▼▶A, say, to turn the TV on.
+  A code can also turn the lights on or off, open an app, play a random song or your last game, or turn the
+  screen off
 - **Games**: Snake (press X and a decision model on your bot's computer plays it for you), and your own
   Game Boy, Game Boy Advance, NES, SNES, Genesis, Master System, Game Gear, Neo Geo, Neo Geo Pocket and
   PlayStation games, N64, PSP, DS and Dreamcast games on a Pi 4 or 5 or a PC, and PlayStation 2, GameCube
@@ -143,7 +147,9 @@ The GPi Case's own buttons, or any USB or Bluetooth game controller (Xbox, PlayS
 ## The web page
 
 Open `http://<your Pi's IP address>:5432` on your phone or computer. Anyone on your WiFi
-can open it, so if you share your WiFi, give it a password in the page's Settings.
+can open it, so if you share your WiFi, give it a password in the page's Settings. On a phone, you can add
+it to your home screen (Share, then Add to Home Screen on an iPhone, or Add to Home screen in Chrome's menu)
+and it opens like an app.
 
 **Screen** is the Pi's screen in media mode, and it works like the Pi: tap something on it to open
 it, and swipe or scroll to move along a list. Back and Home are under it, and the whole remote is
@@ -213,7 +219,8 @@ Put your games in the `Games` folder in your home folder. It has a folder for ea
 `nes`, `snes`, `genesis`, `sms`, `gg`, `ngp`, `ngpc`, `neogeo` and `ps1`, and on a Pi 4 or 5 or a PC, `n64`,
 `psp`, `nds` and `dc`, and on a PC, `ps2`, `gc` and `wii`. You can also drop them on the web page (zips work
 too, for the cartridge ones). They're played by mGBA, Nestopia, Snes9x, Genesis Plus GX, Beetle NeoPop,
-FinalBurn Neo, PCSX ReARMed, Mupen64Plus-Next, PPSSPP, melonDS, Flycast, and on a PC, LRPS2 and Dolphin.
+FinalBurn Neo, PCSX ReARMed, Mupen64Plus-Next, PPSSPP, melonDS, Flycast, and on a PC, LRPS2 and Dolphin
+(and gambatte, for the Game Boy's link cable).
 
 If you have more than a dozen games, the Games tab shows an icon for each console to pick from, plus
 Recently played, Favourites and All games. In a folder, ◀ and ▶ jump by letter, and SELECT adds a game
@@ -242,6 +249,19 @@ next one to press a button is player 2 (an N64, Dreamcast, GameCube or Wii game 
   `mslug.zip`), and they need the Neo Geo's BIOS, `neogeo.zip`, in `Games/BIOS`. SELECT puts in a coin.
 - Other than that, a BIOS isn't needed, but if you have one from your own console, put it in `Games/BIOS`
   and more PlayStation games work (for a Dreamcast, that's `dc_boot.bin`; a few games need it).
+
+If you have two Pietatos, with Settings > Share with other Pietatos on, a game's menu has two more:
+
+- **Play on another Pietato** carries the game on there from the same moment (◀▶ picks which one), and
+  its menu there sends it back. X twice does the same for a video, a song or a station.
+- **Play together** asks the other one to play too. In an NES, SNES, Genesis, Master System or Neo Geo
+  game, it joins as player 2 (if it hasn't got the game, it's copied over). A Game Boy or Game Boy Color
+  game has **Link cable** instead: you each play your own game, linked, to trade or battle Pokémon. It
+  starts from the game's own save, so save in the game first, and what you traded is in your save after.
+
+Left on the home screen for five minutes while it's plugged in, a game plays by itself (Settings >
+Attract mode). With the AI player set up, it plays from where you were, on a copy of your saves;
+otherwise it's the game's own demo. START plays it for real, and any other button goes back.
 
 Press Y on the Games tab to find pictures of your games. If you have a lot of them, press Start to
 search by name (or by console, like `gba`), and B to see them all again.
@@ -273,8 +293,10 @@ pictures go in Pictures, videos in Videos, music in Music, games in Games and th
 
 If you have more than one Pietato on your network, they share what they fetch: coin and stock prices
 and charts, and the weather. Whichever needs something first fetches it, and the others ask it, so
-CoinGecko and Yahoo Finance see one Pietato instead of several. Settings > Share with other Pietatos
-turns it off.
+CoinGecko and Yahoo Finance see one Pietato instead of several. Your game saves follow you too: when you
+stop playing, that Pietato passes the game's saves to the others that are on, and when you start a game,
+it checks the others for a newer save first. A save that gets replaced is kept in `Games/Saves/.replaced`.
+Settings > Share with other Pietatos turns all of this off.
 
 ## Bot
 

@@ -1,0 +1,118 @@
+diff --git a/libgambatte/libretro/net_serial.cpp b/libgambatte/libretro/net_serial.cpp
+index 713cc44..6fdcaba 100644
+--- a/libgambatte/libretro/net_serial.cpp
++++ b/libgambatte/libretro/net_serial.cpp
+@@ -12,10 +12,25 @@
+ #else
+ #include <sys/socket.h>
+ #include <sys/ioctl.h>
++#include <sys/select.h>
+ #include <netinet/in.h>
+ #include <netdb.h>
++#include <fcntl.h>
+ #endif
+ 
++// Milliseconds, of real time (clock() is the time the CPU spent on this program: a game that needs little of it
++// waited minutes to link up)
++static long long nowMs()
++{
++#ifdef _WIN32
++	return (long long)clock() * 1000 / CLOCKS_PER_SEC;
++#else
++	struct timespec ts;
++	clock_gettime(CLOCK_MONOTONIC, &ts);
++	return (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
++#endif
++}
++
+ NetSerial::NetSerial()
+ : is_stopped_(true)
+ , is_server_(false)
+@@ -67,13 +82,13 @@ bool NetSerial::checkAndRestoreConnection(bool throttle)
+ 		return false;
+ 	}
+ 	if (sockfd_ < 0 && throttle) {
+-		clock_t now = clock();
+-		// Only attempt to establish the connection every 5 seconds
+-		if (((now - lastConnectAttempt_) / CLOCKS_PER_SEC) < 5) {
++		// Only attempt to establish the connection every so often: a quarter of a second for a server that's
++		// listening (taking a client that's there waits for nothing), 2 seconds otherwise
++		if (nowMs() - lastConnectAttempt_ < (is_server_ && server_fd_ >= 0 ? 250 : 2000)) {
+ 			return false;
+ 		}
+ 	}
+-	lastConnectAttempt_ = clock();
++	lastConnectAttempt_ = nowMs();
+ 	if (is_server_) {
+ 		if (!startServerSocket()) {
+ 			return false;
+@@ -103,6 +118,11 @@ bool NetSerial::startServerSocket()
+ 			gambatte_log(RETRO_LOG_ERROR, "Error opening socket: %s\n", strerror(errno));
+ 			return false;
+ 		}
++#ifndef _WIN32
++		// Its port again straight after the last time (its old connection, still closing, doesn't keep it)
++		int one = 1;
++		setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
++#endif
+ 
+ 		if (bind(fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+ 			gambatte_log(RETRO_LOG_ERROR, "Error on binding: %s\n", strerror(errno));
+@@ -175,7 +195,30 @@ bool NetSerial::startClientSocket()
+ 		}
+ 
+ 		memmove((char*)&server_addr.sin_addr.s_addr, (char*)server_hostname->h_addr, server_hostname->h_length);
++#ifndef _WIN32
++		// A second at most (a server that's gone would keep the game waiting for minutes)
++		int flags = fcntl(fd, F_GETFL, 0);
++		fcntl(fd, F_SETFL, flags | O_NONBLOCK);
++		int rc = connect(fd, (struct sockaddr*)&server_addr, sizeof(server_addr));
++		if (rc < 0 && errno == EINPROGRESS) {
++			fd_set wfds;
++			struct timeval tv;
++			FD_ZERO(&wfds);
++			FD_SET(fd, &wfds);
++			tv.tv_sec = 1;
++			tv.tv_usec = 0;
++			int err = ETIMEDOUT;
++			socklen_t len = sizeof(err);
++			if (select(fd + 1, NULL, &wfds, NULL, &tv) > 0)
++				getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len);
++			rc = err ? -1 : 0;
++			errno = err;
++		}
++		fcntl(fd, F_SETFL, flags);
++		if (rc < 0) {
++#else
+ 		if (connect(fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
++#endif
+ 			gambatte_log(RETRO_LOG_ERROR, "Error connecting to server: %s\n", strerror(errno));
+ 			close(fd);
+ 			return false;
+diff --git a/libgambatte/libretro/net_serial.h b/libgambatte/libretro/net_serial.h
+index fb0edeb..7fd79fa 100644
+--- a/libgambatte/libretro/net_serial.h
++++ b/libgambatte/libretro/net_serial.h
+@@ -35,7 +35,7 @@ class NetSerial : public gambatte::SerialIO
+ 		int server_fd_;
+ 		int sockfd_;
+ 
+-		clock_t lastConnectAttempt_;
++		long long lastConnectAttempt_;   // (milliseconds, of real time)
+ };
+ 
+ #endif
+diff --git a/libgambatte/src/gambatte-memory.cpp b/libgambatte/src/gambatte-memory.cpp
+index c8790fc..876b505 100644
+--- a/libgambatte/src/gambatte-memory.cpp
++++ b/libgambatte/src/gambatte-memory.cpp
+@@ -201,6 +201,9 @@ void Memory::updateSerial(unsigned long const cc) {
+ 			                                    serialize_is_fastcgb_);
+ 			ioamhram_[0x101] = ((ioamhram_[0x101] << (serialCnt_ - targetCnt)) |
+ 					    (serialize_value_ >> (8 - (serialCnt_ - targetCnt)))) & 0xFF;
++			// (the bits that came across, gone from what's still to come: a game looking mid-way took the
++			// first ones twice)
++			serialize_value_ = (serialize_value_ << (serialCnt_ - targetCnt)) & 0xFF;
+ #else
+                                              ioamhram_[0x102] & isCgb() * 2);
+          ioamhram_[0x101] = (((ioamhram_[0x101] + 1) << (serialCnt_ - targetCnt)) - 1) & 0xFF;

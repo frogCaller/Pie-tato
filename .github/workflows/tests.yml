@@ -1,0 +1,57 @@
+# Pietato's tests (tests/run.py) on every push and pull request, with the Python of Raspberry Pi OS Bookworm (3.11,
+# with the versions of Pillow, numpy and Flask it has) and of Trixie (3.13). They run as root, as Pietato does on a
+# Pi, with no network but the machine's own (--offline). The ones that need big files, servers or the internet
+# (python3 tests/run.py --list) run on your own machine: sudo python3 tests/run.py --all.
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python: "3.11"
+            packages: Pillow==9.4.0 numpy==1.24.2 Flask==2.2.2 Werkzeug==2.2.2
+          - python: "3.13"
+            packages: Pillow==12.3.0 numpy==2.5.3 Flask==3.1.3 Werkzeug==3.1.8 evdev==2.0.0
+    name: Python ${{ matrix.python }}
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: /opt/playwright
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: What Pietato runs (the Simulator's programs, the player, the sound tools...)
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ffmpeg mplayer alsa-utils poppler-utils v4l-utils iw rfkill \
+            device-tree-compiler tmux byobu hollywood cmatrix nyancat htop caca-utils
+
+      - name: Python's packages, and a browser for the web page's tests
+        run: |
+          python -m pip install ${{ matrix.packages }} playwright==1.56.0
+          sudo mkdir -p "$PLAYWRIGHT_BROWSERS_PATH" && sudo chown "$USER" "$PLAYWRIGHT_BROWSERS_PATH"
+          python -m playwright install --with-deps chromium
+
+      - name: The user setup.sh's tests set up for
+        run: sudo useradd -m -G audio gpitest
+
+      - name: Tests
+        run: sudo env "PATH=$PATH" "PLAYWRIGHT_BROWSERS_PATH=$PLAYWRIGHT_BROWSERS_PATH" python tests/run.py --offline --logs "$RUNNER_TEMP/logs"
+
+      - name: Their logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: logs-python-${{ matrix.python }}
+          path: ${{ runner.temp }}/logs

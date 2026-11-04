@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import btstate as B
+B.log("rfkill", *sys.argv[1:])
+if sys.argv[1:] == ["unblock", "bluetooth"]:
+    with B.State() as st:
+        st["blocked"] = False

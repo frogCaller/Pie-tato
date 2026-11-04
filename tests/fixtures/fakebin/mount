@@ -1,0 +1,33 @@
+#!/bin/bash
+# For the tests (this machine's kernel has no CIFS): "mount -t cifs //IP/Share WHERE -o OPTS" opens the test
+# Samba's folder for that share read-only (a bind mount), if OPTS has the right login. Anything else: the real mount.
+D="$PIETATO_TEST_WORK/netsrv"
+LOG="$PIETATO_TEST_WORK/out/fake_cifs.log"
+if [ "$1" = "-t" ] && [ "$2" = "cifs" ]; then
+  unc="$3"; where="$4"; opts="$6"
+  share="${unc##*/}"
+  creds=$(echo "$opts" | tr ',' '\n' | sed -n 's/^credentials=//p')
+  user=""; pass=""
+  if [ -n "$creds" ]; then
+    mode=$(stat -c %a "$creds")
+    user=$(sed -n 's/^username=//p' "$creds"); pass=$(sed -n 's/^password=//p' "$creds")
+    dom=$(sed -n 's/^domain=//p' "$creds")
+  fi
+  echo "unc=$unc where=$where opts=$opts user=$user dom=$dom credmode=$mode" >> $LOG
+  if [ -n "$FAKE_CIFS_OLD" ] && ! echo "$opts" | grep -q 'vers=1.0'; then
+    echo "mount error(95): Operation not supported" >&2; exit 32
+  fi
+  case "$share" in
+    Media) src=$D/media; need=alice ;;
+    Public) src=$D/public; need= ;;
+    *) echo "mount error(2): No such file or directory" >&2; exit 32 ;;
+  esac
+  if [ -n "$user" ] && { [ "$user" != alice ] || [ "$pass" != 'Op3n Sesame!' ]; }; then
+    echo "mount error(13): Permission denied" >&2; exit 32
+  fi
+  if [ -n "$need" ] && [ "$user" != "$need" ]; then echo "mount error(13): Permission denied" >&2; exit 32; fi
+  echo ",$opts," | grep -q ',ro,' || { echo "not read-only!" >&2; exit 99; }
+  /usr/bin/mount --bind "$src" "$where" && /usr/bin/mount -o remount,bind,ro "$where" && exit 0
+  exit 32
+fi
+exec /usr/bin/mount "$@"

@@ -1,0 +1,16 @@
+#!/usr/bin/env python3
+"""A stand-in arecord: a 440 Hz tone, two 16-bit channels at 48 kHz, as it would come (20 ms at a time), till it's stopped."""
+import math, os, struct, sys, time
+open(os.environ.get("SOUNDSTUB_LOG", "/dev/null"), "a").write(" ".join(sys.argv[1:]) + "\n")
+t, n, start = 0, 960, time.monotonic()
+out = sys.stdout.buffer
+k = 0
+while True:
+    frames = b"".join(struct.pack("<hh", int(8000 * math.sin(2 * math.pi * 440 * (t + i) / 48000)), int(8000 * math.sin(2 * math.pi * 440 * (t + i) / 48000))) for i in range(n))
+    t += n
+    try:
+        out.write(frames); out.flush()
+    except (BrokenPipeError, OSError):
+        break
+    k += 1
+    time.sleep(max(0, start + k * 0.02 - time.monotonic()))

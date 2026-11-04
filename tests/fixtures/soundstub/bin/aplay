@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""A stand-in aplay: what it's given, kept in MICSTUB_OUT (and its arguments in SOUNDSTUB_LOG)."""
+import os, sys
+open(os.environ.get("SOUNDSTUB_LOG", "/dev/null"), "a").write("aplay " + " ".join(sys.argv[1:]) + "\n")
+with open(os.environ.get("MICSTUB_OUT", "/dev/null"), "ab") as f:
+    while True:
+        b = sys.stdin.buffer.read(1600)
+        if not b:
+            break
+        f.write(b); f.flush()

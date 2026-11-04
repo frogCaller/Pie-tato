@@ -1,0 +1,9 @@
+#!/bin/bash
+# stand-in for curl: PCSX ReARMed's source (a pretend one, that writes the platform it was built for into its
+# core); anything else: not found
+for a in "$@"; do url="$a"; done
+case "$url" in
+  *pcsx_rearmed/archive/c8816799b50388e61cfe237fe2cdbb7d8175f20a.tar.gz)
+    cat "$PIETATO_TEST_WORK/setupspin/imagebin/pcsx.tar.gz" ;;
+  *) echo "curl: (22) The requested URL returned error: 404" >&2; exit 22 ;;
+esac

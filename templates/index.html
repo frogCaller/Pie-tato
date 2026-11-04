@@ -8,6 +8,12 @@
 <meta name="theme-color" content="#0b0d12" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f3f5f8" media="(prefers-color-scheme: light)">
 <title>Pietato</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Pietato">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%2360aae4'/%3E%3Crect x='7' y='9' width='18' height='12' rx='2.5' fill='none' stroke='white' stroke-width='2'/%3E%3Cpath d='m14 12.5 4 2.5-4 2.5z' fill='white'/%3E%3C/svg%3E">
 <style>
   /* Atkinson Hyperlegible (Braille Institute; SIL Open Font License, static/fonts/OFL.txt):
@@ -36,7 +42,7 @@
     --key: linear-gradient(#36323e, #2c2833);
     --key-edge: 0 1px 0 rgba(255, 255, 255, .07) inset, 0 6px 14px -8px rgba(0, 0, 0, .7);
     --letter: #ff6b5e; --cross: #322e39; --cross-hub: #26232c;   /* the remote's X Y A B, and its d-pad */
-    --top: 64px;
+    --top: calc(64px + env(safe-area-inset-top));   /* (on a phone's home screen: below its clock and battery) */
     --sans: "Hyperlegible", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
   @media (prefers-color-scheme: light) {
@@ -71,7 +77,8 @@
   /* ---- top bar ---- */
   .top {
     position: sticky; top: 0; z-index: 20; height: var(--top); display: flex; align-items: center; gap: 20px;
-    padding: 0 28px; background: rgba(23, 21, 27, .86); background: color-mix(in srgb, var(--room) 86%, transparent);
+    padding: env(safe-area-inset-top) 28px 0; background: rgba(23, 21, 27, .86);
+    background: color-mix(in srgb, var(--room) 86%, transparent);
     -webkit-backdrop-filter: saturate(140%) blur(14px); backdrop-filter: saturate(140%) blur(14px);
     border-bottom: 1px solid var(--line);
   }
@@ -815,9 +822,9 @@
   }
   /* phones and small tablets: one thing at a time, picked from the dock */
   @media (max-width: 900px) {
-    :root { --top: 58px; }
+    :root { --top: calc(58px + env(safe-area-inset-top)); }
     main { padding: 16px 16px calc(96px + env(safe-area-inset-bottom)); }
-    .top { padding: 0 16px; gap: 12px; }
+    .top { padding: env(safe-area-inset-top) 16px 0; gap: 12px; }
     .top .views, .kbd-hint { display: none; }
     .screen { gap: 16px; }
     .col { gap: 22px; width: auto; margin-inline: 0; }

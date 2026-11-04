@@ -85,6 +85,10 @@ from .screens.websettings import WebSettingsScreen
 from .screens.www import WwwScreen
 from .screens.chromium import ChromiumScreen
 from .screens.rest import REST_TICK, RestScreen
+from .screens.handoff import HandoffScreen, SEND_AGAIN
+from .screens.attract import AttractScreen
+from .screens.together import TogetherScreen
+from .screens.konami import KonamiScreen
 
 _SAVING = threading.Lock()     # (state.json written one at a time: the shrinker's and radio's threads save too)
 UPDATE_STEP = 0.233            # seconds between the update screen's dots lighting up, one after another
@@ -95,7 +99,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             RemoteScreen, LightsScreen, CameraScreen, BotScreen, AssistScreen, CoderScreen, SimScreen,
             SnakeScreen, GameScreen, SettingsScreen, BluetoothScreen, ControllerScreen, WeatherScreen, WebScreen,
             ComputersScreen, ProgScreen, PiholeScreen, SysDashScreen, SketchScreen, HaSettingsScreen,
-            WebSettingsScreen, WwwScreen, ChromiumScreen, RestScreen):
+            WebSettingsScreen, WwwScreen, ChromiumScreen, RestScreen, HandoffScreen, AttractScreen, TogetherScreen,
+            KonamiScreen):
     """Media mode: what the screen shows and what the buttons do there. Its state is all here; each
     app's buttons and drawing come from its part (pitato/screens/)."""
 
@@ -283,6 +288,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.pie.own = self.share_id
         self.pie.peers_on = lambda: self.setting("share") != "Off"
         self.sharing = False         # ...saying it's there, every few seconds
+        self.saves_lock = threading.Lock()   # a game's saves from another of them, one at a time (screens/games.py)
         self.crypto = Crypto(self.pie)   # the Finance tab's coins (CoinGecko)
         self.stocks = Stocks(self.pie)   # ...and its stocks (Yahoo Finance; another Pietato asked first)
         self.fin_card = 0            # the card on the Finance tab: its stocks', then its coins'
@@ -343,6 +349,16 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.wx_menu, self.wx_sel = None, 0   # Weather's settings (START): None, "menu", or "location"
         self.ha_menu = None          # Home Assistant's settings, over the page they were opened on: {"sel"}
         self.soon_jobs = collections.deque()   # what another thread wants done on this one (soon: the next tick)
+        self.handoff_to = None                 # the other Pietato a game, a video or a song goes to (screens/handoff.py)
+        self.send_due = 0.0                    # ...X pressed once: X again before this sends what's playing
+        self.attract = None                    # a game playing by itself (Settings > Attract mode: screens/attract.py)
+        self.attract_wait = 0.0                # ...no games to play: not looked for again till then
+        self.stirs = 0                         # how many times something's happened (a button, the web page)
+        self.invite = None                     # another of your Pietatos asking to play a game together (A or B:
+                                               # screens/together.py)
+        self.konami_in = None                  # the box for one of your codes (HOME and a button: screens/konami.py)
+        self.konami_rec = self.konami_pick = None   # ...a new one being put in; what one does, being picked
+        self.konami_ha = None                  # ...the TV a code turned on or off: (when, asked till when)
         self.ha_said = None          # ...what checking it said: ("busy", words), or (whether it worked, words)
         self.loc_results, self.loc_status = [], None   # ...where you are: the towns found, and how it's going
         self.wifi = {"nets": [], "saved": {}, "status": None, "busy": False, "radio": True, "ssid": "",
@@ -596,9 +612,6 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
                 rows.append(dict(item("grp:" + name, name, "child", str(ci),
                                       sub=LIBRARY[ci].get("about", "")),
                                  icon=LIBRARY[ci].get("badge", "")))
-            if tab["name"] == "Home":                      # (its address and token)
-                self.hass.load(self.ha_files())
-                rows.append(dict(item("ha:settings", "Settings", "hasettings", "ha", sub=self.ha_value()), icon="SET"))
             self.items[i] = rows
         elif tab["type"] == "radio":
             if self.radio_stack:
@@ -654,6 +667,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             if self.active and self.tab == i and self.view == "list":
                 self.lights.start()
             self.items[i] = self.lights_rows()
+        elif tab["type"] == "konami":
+            self.items[i] = self.konami_rows()
         elif tab["type"] == "pihole":
             self.pihole.load(tab["files"])
             self.pihole.on_change = self.pihole_changed
@@ -1107,8 +1122,6 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.games_open_dir(it)
         elif kind in ("wwwgo", "wwwsearch", "wwwtype", "wwwchromium", "wwwpage"):
             self.www_open_row(it)
-        elif kind == "hasettings":
-            self.ha_open()
         elif kind == "radiodir":
             self.radio_open(it["src"], it["title"])
         elif kind == "chdir":
@@ -1443,6 +1456,13 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.np_until = 0.0
             if self.active and self.view == "home":
                 self.dirty = True
+        if self.active and self.view in ("home", "list", "game"):
+            self.attract_tick(now)                     # (left idle: a game plays by itself, Settings > Attract mode)
+        if self.invite is not None:
+            self.invite_tick(now)                      # (asked to play together, and not answered: no thanks)
+        if self.konami_in is not None or self.konami_rec is not None or self.konami_pick is not None \
+                or self.konami_ha:
+            self.konami_tick(now)                      # (a code being put in: done once you stop a moment)
         if self.game is not None or self.art_finder is not None:
             self.game_tick(now)
         if self.learn:
@@ -1680,6 +1700,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         if self.resting:                               # (resting: the press wakes the screen, and does nothing else)
             self.stir()
             return None
+        if self.attract_on():                          # (a game playing by itself: START plays it, the rest go back)
+            return self.attract_press(name, repeat)
         self.stir()
         if self.view == "update":                      # (updating: nothing to press till the Pi restarts)
             return None
@@ -1697,6 +1719,10 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             if name == "b" and not repeat:
                 self.cancel_learn()
             return None
+        if self.view == "konami":                      # the box for one of your codes (HOME and another button)
+            return self.press_konami_in(name, repeat)
+        if self.view == "invite":                      # another of your Pietatos asks to play together: A or B
+            return self.press_invite(name, repeat)
         if self.view == "game":                        # the buttons are the game's (HOME: its menu)
             return self.press_game(name, repeat)
         if self.view == "gamemenu":
@@ -1747,6 +1773,10 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
                 self.set_volume(VOLUME_STEP if name == "up" else -VOLUME_STEP)
             elif name == "y" and not repeat:
                 self.next_screen()
+            elif name == "x" and not repeat and self.media_sendable():   # (X twice: on another of your Pietatos)
+                if not self.media_x():
+                    at = f"{clock(self.pos)}   " if self.kind == "video" else ""
+                    self.osd(at + self.media_send_hint(), int(SEND_AGAIN * 1000))
             elif name in PLAYING:
                 self.cmd("pausing_keep " + PLAYING[name])
             return None
@@ -1756,6 +1786,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         if self.view == "keys":
             return self.press_keys(name, repeat)
         if self.view == "help":
+            if name == "x" and not repeat and self.help_from == "now" and self.media_x():
+                return None                            # (X again on Now playing's Controls: sent)
             if not repeat:
                 back = self.help_from
                 self.view = back if back != "now" or self.kind in LISTEN_KINDS else "list"
@@ -1798,6 +1830,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
                 self.shuffle = not self.shuffle
             elif name == "x":
                 self.view, self.help_from = "help", "now"
+                self.media_x()                         # (X again there: on another of your Pietatos)
             elif name == "b":
                 self.view = "home" if self.now_from == "home" else "list"
             self.dirty = True
@@ -1828,6 +1861,10 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
                 return r
         if ttype == "pihole":
             r = self.press_pihole(name, repeat)
+            if r != "pass":
+                return r
+        if ttype == "konami":
+            r = self.press_konami(name, repeat)
             if r != "pass":
                 return r
         if ttype == "www":
@@ -2077,7 +2114,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         if self.view == "update":
             self.update_drawn = time.monotonic()
         draw = {"home": self.render_home, "keys": self.render_keys, "help": self.render_help,
-                "learn": self.render_learn, "gamemenu": self.render_game_menu,
+                "learn": self.render_learn, "gamemenu": self.render_game_menu, "invite": self.render_invite,
+                "konami": self.render_konami_in,
                 "photo": self.render_photo, "keepres": self.render_keep_res,
                 "pdf": self.render_pdf, "update": self.render_update,
                 "text": self.render_text, "sketch": self.render_sketch, "chromenu": self.render_chrome_menu,

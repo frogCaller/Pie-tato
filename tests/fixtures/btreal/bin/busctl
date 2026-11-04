@@ -1,0 +1,3 @@
+#!/bin/sh
+if [ -n "$BT_FAIL" ]; then echo "Call failed: Connection timed out" >&2; exit 1; fi
+exec /usr/bin/busctl --address="$BT_ADDR" "$@"

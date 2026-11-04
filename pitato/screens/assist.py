@@ -22,7 +22,7 @@ from ..tv import channel_row, ia_row, live_pick, SHELVES
 from .games import fold, game_matches
 from .progs import prog_path
 
-COOL_SKIP = ("Clock", "htop")              # the Simulator's that aren't for "show me something cool"
+COOL_SKIP = ("Clock", "htop", "Konami code")   # the Simulator's that aren't for "show me something cool"
 COOL_THE = ("Game of Life", "Mandelbrot Set")   # ("Here's the Game of Life")
 MUSIC_WORDS = ("music", "song", "songs", "album", "albums", "playlist", "tunes", "track", "tracks", "artist", "band",
                "radio", "station", "stations", "fm")

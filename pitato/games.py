@@ -998,14 +998,19 @@ class GameRun:
         self.cond = threading.Condition()
         self.writing = threading.Lock()              # (a line at a time: an AI player sends from its own thread)
         self.ended = False                           # it's gone (quit, or it stopped)
+        self.net_news = []                           # two Pietatos playing it together: what's happened (the other
+                                                     # joined, left, ended it), for media mode to say
+        self.together = None                         # ...and who with, how (screens/together.py)
 
     def start(self, core, sound="", volume=80, picture="Fit", fb="/dev/fb0", resume=True, options=(), turn=0,
-              cheevos=True):
+              cheevos=True, saves=None, net=""):
         """options: the emulator's settings ("key=value"), over what it'd have otherwise (a DS game's screens).
         turn: degrees the screen's picture is turned clockwise (a screen on its side: Settings > Rotate screen).
-        cheevos: its achievements, if you've signed in to RetroAchievements."""
+        cheevos: its achievements, if you've signed in to RetroAchievements. saves: a folder of its own for its saves
+        (attract mode's, apart from yours), instead of Games/Saves. net: ADDRESS:PORT:KEY, another Pietato's game,
+        joined as player 2 (pitato/netplay.py)."""
         exts = ",".join(system(self.game["system"])[3])
-        saves = os.path.join(games_dir(), SAVES_FOLDER)
+        saves = saves or os.path.join(games_dir(), SAVES_FOLDER)
         own = self.game["system"] in OWN_FILES          # (Mupen64Plus: its settings, its shaders)
         sysdir = (os.path.join(CACHE_DIR, "games", self.game["system"]) if own
                   else os.path.join(games_dir(), BIOS_FOLDER))
@@ -1033,6 +1038,8 @@ class GameRun:
                "--volume", str(int(volume)), "--picture", picture]
         if resume:
             cmd.append("--resume")
+        if net:
+            cmd += ["--net", net]
         if turn:
             cmd += ["--turn", str(int(turn))]
         for o in options:
@@ -1072,7 +1079,9 @@ class GameRun:
                             self.cheevos = (got, total) if total > 0 else None
                         except ValueError:
                             self.cheevos = None
-                    if what not in ("cheevos", "cheevo"):    # (news, not answers)
+                    if what in ("netjoined", "netleft", "netgone"):
+                        self.net_news.append((what, rest))
+                    elif what not in ("cheevos", "cheevo"):    # (news, not answers)
                         self.answers.append((what, rest))
                     self.cond.notify_all()
                 self.on_change()

@@ -1,0 +1,11 @@
+#!/bin/bash
+# Stands in for systemd-run (--wait): its arguments noted; its unit's program the console's hold (vt_session.py, as
+# logind's for cage's session), till systemctl stop; or it fails at once (a file "fail" there says so).
+D="$(cd "$(dirname "$0")/.." && pwd)"
+printf '%s\n' "$@" > "$D/run.args"
+echo run >> "$D/calls.log"
+if [ -e "$D/fail" ]; then echo "Job for pietato-chromium.service failed" >&2; exit 1; fi
+python3 "$D/vt_session.py" "$(cat "$D/vt")" "$D/vt.log" &
+echo $! > "$D/unit.pid"
+wait
+exit 0

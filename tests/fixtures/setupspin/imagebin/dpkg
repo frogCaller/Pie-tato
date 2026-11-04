@@ -1,0 +1,4 @@
+#!/bin/bash
+# stand-in for dpkg: a 64-bit ARM Raspberry Pi OS, as an image's is
+if [ "$1" = --print-architecture ]; then echo arm64; exit 0; fi
+exec /usr/bin/dpkg "$@"

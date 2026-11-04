@@ -63,6 +63,8 @@ class WebScreen:
             return "Settings › Controller"
         if self.view == "sketch":
             return "Your drawing"
+        if self.view == "konami":
+            return "Konami code"                   # (the box for one of your codes: HOME and another button)
         names = []
         p = self.parent_of(self.tab)
         if p is not None:
@@ -286,6 +288,27 @@ class WebScreen:
         if c == "scroll":
             return self.web_scroll(max(-SWIPE_MOST, min(SWIPE_MOST, round(y)))), {"ok": True}
         return [], {"error": "Unknown request"}
+
+    def touch_cmd(self, gesture):
+        """A tap or a swipe on the touch screen (inputs.py's Touch: where, or which way, as a share of the screen,
+        its own way round) as one on the web page's copy of it: on the picture, as it's turned (Settings > Rotate
+        screen) and placed (black edges round it on a screen of another shape). None off the picture."""
+        fb = self.fb
+        if fb is None:
+            return None
+        dw, dh = getattr(fb, "dev_w", fb.w), getattr(fb, "dev_h", fb.h)    # the screen's own pixels
+        tw, th = getattr(fb, "tw", fb.w), getattr(fb, "th", fb.h)          # the picture's, on the screen as seen
+        ox, oy = getattr(fb, "ox", 0), getattr(fb, "oy", 0)
+        turn = getattr(fb, "turn", 0)
+        kind, a, b = gesture
+        if kind == "tap":
+            x, y = a * dw, b * dh
+            x, y = {90: (y, dw - x), 180: (dw - x, dh - y), 270: (dh - y, x)}.get(turn, (x, y))
+            x, y = (x - ox) / tw, (y - oy) / th
+            return {"cmd": "tap", "x": x, "y": y} if 0 <= x <= 1 and 0 <= y <= 1 else None
+        x, y = a * dw, b * dh
+        x, y = {90: (y, -x), 180: (-x, -y), 270: (-y, x)}.get(turn, (x, y))
+        return {"cmd": "swipe", "x": x / tw, "y": y / th}
 
     def taps_now(self):
         """Where a tap does what on the screen's picture now ([] if that picture wasn't drawn as the menus are: a
@@ -706,6 +729,10 @@ class WebScreen:
         c = cmd.get("cmd")
         if self.view == "update":                      # (nothing goes on the screen over the update)
             return {"error": "The Pi is updating. It restarts when it's done"}
+        if c == "handoff":                             # (another of your Pietatos sends what it's playing)
+            return self.web_peer_handoff(cmd)
+        if c == "together":                            # (...or asks to play a game together)
+            return self.web_together(cmd)
         if c == "open":
             app = str(cmd.get("app") or "")
             if app == "Terminal":

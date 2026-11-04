@@ -10,6 +10,10 @@ Media mode starts it (pitato/games.py) and tells it what to do, a line at a time
     save / load          its save state, made or put back
     reset                the game from the start
     keep                 in-game saves written now
+    badge /dev/shm/x.png a small picture over the picture's bottom right corner, every frame (- : none again)
+    notice Some words    ...or a few words at the top, for a few seconds
+    nethost 5442 KEY IP  open for another Pietato to join (from that address, with that key), as player 2
+                         (pitato/netplay.py); netstop: not any more (or not together any more)
     volume 80            how loud (0 to 100)
     picture Fit          as big as fits (Fit), whole pixels only (Sharp), or the whole screen (Fill: stretched to it)
     disc 2               another disc in (a game on more than one): the tray opens, then shuts a moment later
@@ -22,7 +26,9 @@ Media mode starts it (pitato/games.py) and tells it what to do, a line at a time
 It answers on a channel of its own (cores print what they like on its output): ready new|resumed,
 disc 1 3 (the disc in, of how many), paused, resumed, saved, loaded, nostate, reset, error <why>, failed <why>
 (the game ended itself as it started: a PSP game that won't boot), peek 7 <hex>... (- for memory it hasn't),
-mem ok|none, shot ok|none, bye.
+mem ok|none, shot ok|none, badge ok|none, nethost ok PORT|error <why>, netstopped, and news of playing
+together: netjoined <who>, netleft <why> (player 1: the other's gone), netgone <why> (player 2: the host's game's
+ended, and so has this one), bye.
 
 Run as: python3 -m pitato.emulator --core CORE --game GAME --saves FOLDER [--resume] [--turn 90] ...
 (--turn: a screen on its side, Settings > Rotate screen: the pictures go onto it turned that far clockwise.)"""
@@ -48,6 +54,7 @@ import zlib
 import numpy as np
 
 from .discs import cue_fixed
+from . import netplay
 from .gpu import CONTEXT_GLES_VERSION, CORE_CB, GPU, GPUError, HWRender, ON_GPU, wanted_version
 from . import screen as screens
 from .screen import TURNS, fb_geometry, slow_pi, turn_block, turn_pixels, turned, unturn_pixels
@@ -58,7 +65,7 @@ EXP = 0x10000
 JOYPAD, ANALOG = 1, 5
 MASK = 256
 FMT_0RGB1555, FMT_XRGB8888, FMT_RGB565 = 0, 1, 2
-SAVE_RAM, RTC = 0, 1
+SAVE_RAM, RTC, SYSTEM_RAM, VIDEO_RAM = 0, 1, 2, 3
 BUTTON_IDS = {"b": 0, "y": 1, "select": 2, "start": 3, "up": 4, "down": 5, "left": 6, "right": 7,
               "a": 8, "x": 9, "l": 10, "r": 11, "l2": 12, "r2": 13, "l3": 14, "r3": 15}
 STICKS = {"lx": 0, "ly": 1, "rx": 2, "ry": 3}
@@ -452,6 +459,8 @@ class Screen:
         self.notes = []                               # notices waiting their turn over the picture: lines of text
         self.note = None                              # the one up: its lines, until, and as drawn (pixels, mask,
                                                       # where in the band's view, what was under it)
+        self.badge = None                             # a picture over the picture's bottom right corner, for as
+                                                      # long as it's there (attract mode's: the Bot's face)
 
     def native(self, fmt):
         """The core's pixels go straight onto the screen."""
@@ -552,8 +561,46 @@ class Screen:
         """A notice over the picture for a few seconds (after any before it): lines of text."""
         self.notes.append([str(t) for t in lines if t])
 
+    def set_badge(self, path):
+        """A small picture (a PNG, its own see-through corners) over the picture's bottom right corner, every frame
+        till it's taken away (path None)."""
+        if not path:
+            self.badge = None
+            return
+        from PIL import Image
+        with Image.open(path) as im:
+            self.badge = {"img": im.convert("RGBA"), "plan": None, "drawn": None}
+
+    def badge_drawn(self, p):
+        """The badge for this picture: its pixels as the screen's, which of them it covers, and where it goes in the
+        band's view (the picture's bottom right corner, as it's seen; smaller, on a small picture)."""
+        img = self.badge["img"]
+        dw, dh = p["size"]
+        k = min(max(1, dh // 480), dw / 3 / img.width, dh / 3 / img.height)   # (bigger on a big screen; at most a
+        if k != 1:                                                             #  third of the picture)
+            img = img.resize((max(1, int(img.width * k)), max(1, int(img.height * k))))
+        rgba = np.asarray(img)
+        mask = rgba[..., 3] >= 128
+        pix = self.pack(rgba[..., 0], rgba[..., 1], rgba[..., 2])
+        gap = max(4, dw // 80)
+        x, y = dw - img.width - gap, dh - img.height - gap
+        pix, mask = turn_pixels(pix, self.turn), turn_pixels(mask, self.turn)
+        x0, y0 = (self.w - dw) // 2, (self.h - dh) // 2
+        px, py, _, _ = turn_block(self.turn, self.dev_w, self.dev_h, x0, y0, dw, dh)
+        nx, ny, _, _ = turn_block(self.turn, self.dev_w, self.dev_h, x0 + x, y0 + y, img.width, img.height)
+        return np.ascontiguousarray(pix), np.ascontiguousarray(mask), (ny - py, nx - px)
+
     def stamp(self, p):
-        """The notice up, onto the picture's rows before they're written (what's under it kept, to put back)."""
+        """The badge and the notice up, onto the picture's rows before they're written (what's under the notice
+        kept, to put back)."""
+        b = self.badge
+        if b is not None:
+            if b["plan"] is not p:
+                b["plan"], b["drawn"] = p, self.badge_drawn(p)
+            pix, mask, (y0, x0) = b["drawn"]
+            part = p["view"][y0:y0 + pix.shape[0], x0:x0 + pix.shape[1]]
+            if part.shape == pix.shape:
+                part[mask] = pix[mask]
         note = self.note
         if note is None:
             if not self.notes:
@@ -610,6 +657,18 @@ class Screen:
         """The last picture, written again (something was over it: the game's picture may not change for a while)."""
         if self.plan is not None:
             os.pwrite(self.f.fileno(), self.plan["band"], self.plan["at"])
+
+    def notice_now(self):
+        """The next notice up at once, over the last picture (the game's stopped: no frame to wait for), till the
+        game goes on (the one up before it, gone first)."""
+        p = self.plan
+        if p is None or not self.notes:
+            return
+        if self.note is not None:
+            self.note["until"] = 0.0
+            self.notice_tick()
+        self.stamp(p)
+        os.pwrite(self.f.fileno(), p["band"], p["at"])
 
     def shot(self, path, most=SHOT_MOST):
         """The game's last picture, as it is on the screen (not the black either side; as it's seen), one of the
@@ -795,6 +854,7 @@ class Core:
         info = SystemInfo()
         L.retro_get_system_info(C.byref(info))         # (asked before it starts: libretro allows that)
         self.library = (info.library_name or b"").decode(errors="replace")
+        self.version = (info.library_version or b"").decode(errors="replace")
         self.scratch = None                            # (a zipped game unzipped, a .cue put right: while it plays)
         if info.need_fullpath:                         # a disc (or a Genesis game): the emulator reads it from its file
             kinds = [k for k in (info.valid_extensions or b"").decode(errors="replace").lower().split("|") if k]
@@ -1203,6 +1263,9 @@ class Core:
 
 class Session:
     """One game, from starting up to quitting: the core, the screen, the sound, the buttons, the saves."""
+    net = net_wait = None                             # (not together: as it is till it's asked, and in a session made
+    net_key = net_who = ""                            #  without its start, as the tests make one)
+    net_asked = net_paused = False
 
     def __init__(self, args, chan):
         self.args, self.chan = args, chan
@@ -1251,6 +1314,12 @@ class Session:
         self.ra = None                                # its achievements (RetroAchievements), if you're signed in
         self.ra_said = None                           # ...how many are yours, as media mode was last told
         self.cheevos_start()
+        self.net = None                               # two Pietatos playing it together (pitato/netplay.py): the link
+        self.net_wait = None                          # ...this one's game waiting for the other to join (nethost)
+        self.net_key, self.net_who = "", ""           # ...the key the other has to give; who the other is
+        self.net_sums = {}                            # ...this one's sums of its game (player 2's), till the host's come
+        self.net_asked = False                        # ...player 2's asked for the host's game again
+        self.net_paused = False                       # ...the other's menu's up (said so on the picture)
 
     def slow(self):
         """It's been behind (frames left undrawn) a good share of the last few hundred frames."""
@@ -1273,6 +1342,192 @@ class Session:
         else:
             self.screen.show(a, fmt, aspect)
         self.stats[3] += time.perf_counter() - t
+
+    # -- two Pietatos playing it together (pitato/netplay.py) ----------------------------------------------------
+    def net_about(self, key=""):
+        """What this game's side says it is: the same emulator and the same game, or they can't play together."""
+        game = getattr(self, "net_game", None)
+        if game is None:                              # (its sum: worked out once, before it's asked, as it's opened
+            try:                                      #  to the other, so the other's never kept waiting for it)
+                import hashlib
+                h = hashlib.sha1()
+                with open(self.args.game, "rb") as f:
+                    for chunk in iter(lambda: f.read(1 << 20), b""):
+                        h.update(chunk)
+                game = h.hexdigest()
+            except OSError:
+                game = ""
+            self.net_game = game
+        return {"v": 1, "core": f"{self.core.library} {self.core.version}", "game": game,
+                "who": os.uname().nodename, "key": key}
+
+    def net_host(self, port, key, allow=None):
+        """This game's open for the other to join (it plays on meanwhile): player 1."""
+        self.net_stop()
+        self.net_about()                              # (its game's sum, ready)
+        self.net_wait = netplay.Listener(port, allow=allow, key=key)
+        self.net_key = key
+        return self.net_wait.port
+
+    def net_join(self, spec):
+        """Player 2: the host's game joined, and taken up as it is now (its state). False: it couldn't be."""
+        self.net_about()                              # (its game's sum, ready before the host's kept waiting)
+        try:
+            addr, port, key = spec.rsplit(":", 2)
+            link = netplay.Link(netplay.join(addr, int(port)), host=False)
+        except (OSError, ValueError) as ex:
+            self.say("failed", f"Couldn't reach the other Pietato's game ({ex})")
+            return False
+        try:
+            other = link.other()
+            mine = self.net_about(key)
+            if other.get("core") != mine["core"]:
+                raise netplay.Gone("its emulator is another version than this one's: update both Pietatos")
+            if other.get("game") != mine["game"]:
+                raise netplay.Gone("its copy of the game isn't the same as this one's")
+            link.say_hello(mine)
+            frame, state = link.first_state()
+            for port in (0, 1):
+                self.core.plug(port)
+            if not self.core.unserialize(state):
+                raise netplay.Gone("its game wouldn't load here")
+        except netplay.Gone as ex:
+            link.bye()
+            self.say("failed", f"Couldn't play together: {ex}")
+            return False
+        link.begin(frame)
+        self.frame, self.net, self.net_who = frame, link, other.get("who", "")
+        return True
+
+    def net_stop(self, why=None):
+        """Not together any more: the other's told (or it's gone already)."""
+        if self.net_wait is not None:
+            self.net_wait.close()
+            self.net_wait = None
+        link, self.net = self.net, None
+        if getattr(self, "net_sums", None):
+            self.net_sums.clear()
+        self.net_asked = self.net_paused = False
+        if link is not None:
+            link.bye()
+            if why is not None:
+                self.say("netleft" if link.host else "netgone", why)
+
+    def net_frame(self):
+        """Before a frame, playing together: the other let in (if it's come), its pause, a check that both games are
+        the same, and both players' buttons for this frame put in the game (this one's as they're held, kept to put
+        back after). None: not together (the frame's as ever); False: no frame now (the other's menu is up, or it's
+        just gone)."""
+        if self.net_wait is not None:
+            conn = self.net_wait.take()
+            if conn is None or not self.net_welcome(conn):
+                return None                            # (not yet: this frame's as ever)
+        link = self.net                                # (...and the frame it joined at, the two together already)
+        if link is None:
+            return None
+        if link.gone is not None:
+            self.net_end(link.gone)
+            return False
+        if link.paused:
+            if not self.net_paused:
+                self.net_paused = True
+                self.screen.notice([f"Paused on {self.net_who or 'the other Pietato'}"])
+                self.screen.notice_now()               # (no frame till it's back: said now)
+            return False
+        self.net_paused = False
+        try:
+            if link.host:
+                again = link.asked_again()
+                if again is not None:                  # (player 2 got out of step: the game as it is here, again)
+                    data = self.core.serialize()
+                    if data:
+                        self.core.unserialize(data)    # (this one from it too: the two alike from here)
+                        link.send_state(self.frame, data)
+            else:
+                new = link.new_state()
+                if new is not None and self.core.unserialize(new[1]):
+                    self.frame = new[0]
+                    self.net_asked = False
+                    self.net_sums.clear()
+                    link.fill(self.frame, self.core.buttons[0])
+                    print(f"game: in step again, from frame {self.frame}", file=sys.stderr, flush=True)
+            if self.frame % netplay.NET_CHECK == 0:
+                total = self.net_sum()
+                if total is None:
+                    pass                               # (nothing to check with: not checked)
+                elif link.host:
+                    link.send_sum(self.frame, total)
+                else:
+                    self.net_sums[self.frame] = total
+            if not link.host:
+                for f in list(self.net_sums):
+                    theirs = link.their_sum(f)
+                    if theirs is not None:
+                        if theirs != self.net_sums.pop(f) and not self.net_asked:
+                            self.net_asked = True      # (out of step: the host's game again, once)
+                            link.ask_again(f)
+                            print(f"game: out of step with {self.net_who or 'the other Pietato'} at frame {f}: its "
+                                  f"game again", file=sys.stderr, flush=True)
+                    elif f < self.frame - 10 * netplay.NET_CHECK:
+                        del self.net_sums[f]
+            live = list(self.core.buttons)
+            got = link.buttons(self.frame, live[0])
+        except netplay.Gone as ex:
+            self.net_end(str(ex))
+            return False
+        if got is None:
+            return False
+        self.core.buttons[0], self.core.buttons[1] = got
+        return live
+
+    def net_sum(self):
+        """A sum of the game as it is, to tell whether the two are the same: of its own memory (its state isn't
+        the same twice for some emulators: Genesis Plus GX's has its own addresses in it). None: it hasn't said
+        where its memory is (no checking)."""
+        data = self.core.read_memory(SYSTEM_RAM) + self.core.read_memory(VIDEO_RAM)
+        return netplay.game_sum(data) if data else None
+
+    def net_welcome(self, conn):
+        """The other's come: it says it's the right one (the key) with the same emulator and game; then it takes
+        this game as it is now (its state), and from this frame they're in step. False: it wasn't (still open to it)."""
+        link = netplay.Link(conn, host=True)
+        try:
+            link.say_hello(self.net_about())
+            other = link.other()
+            if other.get("key") != self.net_key:
+                raise netplay.Gone("it didn't give the key")
+            mine = self.net_about()
+            if other.get("core") != mine["core"] or other.get("game") != mine["game"]:
+                raise netplay.Gone("its emulator or its game isn't the same")
+            for port in (0, 1):
+                self.core.plug(port)
+            data = self.core.serialize()
+            if not data:
+                raise netplay.Gone("this emulator can't hand its game over")
+            self.core.unserialize(data)                # (this one takes it up again too: an emulator's state isn't
+            link.begin(self.frame)                     #  all of it, for some (Genesis Plus GX's: where it is in a
+            link.send_state(self.frame, data)          #  frame), so the two start alike)
+        except netplay.Gone as ex:
+            link.bye()
+            print(f"game: the other Pietato didn't join ({ex})", file=sys.stderr, flush=True)
+            return False
+        self.net_wait.close()
+        self.net_wait = None
+        self.net, self.net_who = link, other.get("who", "")
+        self.screen.notice([f"{self.net_who or 'The other Pietato'} joined: player 2"])
+        self.say("netjoined", self.net_who or "-")
+        return True
+
+    def net_end(self, why):
+        """The other's gone: player 1 plays on alone; player 2's game ends (it was the host's)."""
+        host = self.net is not None and self.net.host
+        who = self.net_who or "The other Pietato"
+        self.net_stop(why)
+        self.core.buttons[1] = 0
+        if host:
+            self.screen.notice([f"{who} left the game"])
+        else:
+            self.quit = True
 
     # -- saves -------------------------------------------------------------------------
     def load_saves(self):
@@ -1549,7 +1804,21 @@ class Session:
             if not self.paused:
                 self.core.plug(port)
                 self.core.sticks[port][STICKS[arg]] = int(v * 32767 / 127)
+        elif what == "nethost":                        # open for another Pietato to join, as player 2
+            try:
+                port = self.net_host(int(arg), words[2] if len(words) > 2 else "",
+                                     allow=words[3] if len(words) > 3 else None)
+                self.say("nethost", "ok", port)
+            except (OSError, ValueError, IndexError) as ex:
+                self.say("nethost", "error", str(ex))
+        elif what == "netstop":
+            self.net_stop()
+            self.say("netstopped")
+        elif what == "notice":                         # a few words over the picture, for a few seconds
+            self.screen.notice([" ".join(words[1:])[:80]])
         elif what == "pause":
+            if self.net is not None:
+                self.net.pause(True)                   # (the other's paused too)
             if not self.paused:
                 self.paused = True
                 self.core.buttons = [0] * PLAYERS
@@ -1559,6 +1828,8 @@ class Session:
                 self.keep()
             self.say("paused", "slow" if self.slow() else "ok")
         elif what == "resume":
+            if self.net is not None:
+                self.net.pause(False)
             if self.paused:
                 self.paused = False
                 self.screen.clear()
@@ -1587,6 +1858,13 @@ class Session:
             self.say("cheevolist", "ok" if ok else "none")
         elif what == "keep":
             self.keep()
+        elif what == "badge":                          # a picture over the picture's corner (attract mode's)
+            try:
+                self.screen.set_badge(None if arg in ("", "-") else " ".join(words[1:]))
+                ok = True
+            except (OSError, ValueError):
+                ok = False
+            self.say("badge", "ok" if ok else "none")
         elif what == "volume":
             try:
                 self.sound.volume = max(0, min(100, int(arg)))
@@ -1647,8 +1925,10 @@ class Session:
         self.load_saves()
         if self.first_disc and self.core.discs()[0] != self.first_disc[0]:
             self.core.swap(self.first_disc[0], close=True)   # (an emulator that can't start on it: in it goes)
+        if self.args.net and not self.net_join(self.args.net):   # (player 2: the host's game, joined)
+            return
         resumed = False
-        if self.args.resume:
+        if self.args.resume and self.net is None:
             ok = self.load_state(".state.auto")
             if ok is False and self.core.library in LATE_STATES:
                 for _ in range(RESUME_TRIES):          # (an N64's takes it only once it's running)
@@ -1660,7 +1940,7 @@ class Session:
             resumed = bool(ok)
         self.screen.clear()
         self.sound.start()
-        self.say("ready", "resumed" if resumed else "new")
+        self.say("ready", "net" if self.net is not None else "resumed" if resumed else "new")
         i, n = self.core.discs()
         if n > 1:
             self.say("disc", i + 1, n)
@@ -1672,6 +1952,10 @@ class Session:
                 self.commands(0.25)
                 if self.ra is not None:               # (its asking of RetroAchievements goes on meanwhile)
                     self.cheevos_frame(idle=True)
+                if self.net_wait is not None:         # (the other, let in meanwhile: told it's paused here)
+                    conn = self.net_wait.take()
+                    if conn is not None and self.net_welcome(conn):
+                        self.net.pause(True)
                 continue
             for (port, name), at in list(self.letgo.items()):
                 if self.frame >= at:
@@ -1686,12 +1970,18 @@ class Session:
                 self.sound = Sound(self.args.sound, rate, self.sound.volume)
                 self.sound.start()
             period = 1.0 / (self.core.av.timing.fps or 60.0)
+            live = self.net_frame() if self.net is not None or self.net_wait is not None else None
+            if live is False:                         # (together: no frame now, the other's menu up, say)
+                self.commands(0.02)
+                continue
             now = time.monotonic()
             if now - self.beat > 0.25:                # a long stall (the Pi busy): start the beat again
                 self.beat = now
             self.core.draw = now - self.beat < period or skipped >= SKIP_MOST   # behind: this one isn't drawn
             t = time.perf_counter()
             self.core.run()
+            if live:
+                self.core.buttons = live              # (back to what's held here)
             if self.ra is not None:
                 self.cheevos_frame()
             self.stats[2] += time.perf_counter() - t
@@ -1736,6 +2026,7 @@ class Session:
             return
         self.closed = True
         self.sound.stop()
+        self.net_stop()                               # (the other's told: it's left)
         try:
             if self.insert_at is not None:
                 self.core.shut_tray()
@@ -1766,6 +2057,7 @@ def main(argv=None):
     ap.add_argument("--turn", type=int, default=0, choices=TURNS, help="degrees the screen's picture is turned "
                     "clockwise (a screen on its side)")
     ap.add_argument("--resume", action="store_true")
+    ap.add_argument("--net", default="", help="ADDRESS:PORT:KEY: join another Pietato's game there, as player 2")
     ap.add_argument("--option", action="append", default=[], help="an emulator's setting: key=value")
     args = ap.parse_args(argv)
     chan = os.fdopen(os.dup(1), "w", buffering=1)     # (to media mode)

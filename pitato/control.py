@@ -131,6 +131,11 @@ def serve_control(media, control, port=CONTROL_PORT, key=None):
                     return self.reply(200, media.web_friend())
                 if u.path == "/shared":                # (what it has fetched, for your other Pietatos)
                     return self.reply(200, media.web_shared())
+                if u.path == "/saves":                 # (a game's saves, for your other Pietatos)
+                    return self.reply(200, media.web_saves(q.get("game")))
+                if u.path == "/handoff/file":          # (the file a key opens, for another of your Pietatos)
+                    path = media.web_handoff_file(q.get("token", ""))
+                    return self.reply(200, {"path": path}) if path else self.reply(404, {"error": "No such file"})
                 if u.path == "/computers":             # (asks a computer: here, not on the screen's thread)
                     return self.reply(200, media.web_computers(q.get("addr", "")))
                 if u.path == "/coder":
@@ -218,6 +223,12 @@ def serve_control(media, control, port=CONTROL_PORT, key=None):
             if not isinstance(cmd, dict):
                 return self.reply(400, {"error": "Bad request"})
             cmd["cmd"] = u.path.strip("/")
+            if cmd["cmd"] == "savenews":               # another of your Pietatos has played a game: answered at once
+                try:
+                    return self.reply(200, media.web_saves_news(cmd))
+                except Exception as ex:
+                    print(f"saves: {ex!r}", flush=True)
+                    return self.reply(500, {"error": "Something went wrong on the Pi"})
             if cmd["cmd"] == "computer":               # another computer's files: it can take a while, so here
                 try:
                     return self.reply(200, media.web_computer(cmd))

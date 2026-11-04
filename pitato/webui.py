@@ -303,6 +303,8 @@ def host_ok():
 
 PAGE_ONLY = {"state", "catalog", "channels", "radio", "cameras", "friend", "computers",
              "bluetooth", "settings", "places"}   # (pictures load without it)
+PEER_PATHS = ("/api/shared", "/api/saves", "/api/saves/file", "/api/saves/news",   # your other Pietatos ask these
+              "/api/handoff", "/api/handoff/file", "/api/together")
 
 
 def coder_path():
@@ -346,8 +348,11 @@ def check_password():
     if (request.method in ("GET", "HEAD") and request.path.startswith("/api/pi/")
             and request.path[8:] in PAGE_ONLY and request.headers.get("X-Pitato-Page") != "1"):
         return Response("Only the page asks for that", 403)
-    if request.path == "/api/shared":                  # (prices and the weather, for your other Pietatos: no password,
-        return None if on_my_network(request.remote_addr) else Response("Your network only", 403)   # your network)
+    if request.path in PEER_PATHS:                     # (prices, the weather and game saves, for your other Pietatos:
+        return None if on_my_network(request.remote_addr) else Response("Your network only", 403)   # no password,
+                                                                                                    # your network)
+    if request.path in APP_FILES:                      # (the page as an app on a phone's home screen: its name and
+        return None                                    #  icon, nothing private, asked for before any password is)
     pw = settings().get("password")
     if not pw or request.path == "/coder_hooks.py":    # (that script has nothing private in it)
         return None
@@ -436,6 +441,62 @@ def page_file(path, mimetype=None):
 def index():
     resp = page_file(PAGE)
     resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
+# ---- the page as an app: on a phone's home screen (Share > Add to Home Screen, or Add to Home screen), its own name
+# and icon, opening on the whole screen without the browser's bars --------------------------------------------------
+APP_BLUE = (0x60, 0xAA, 0xE4)        # (the page's own icon's, as in its tab)
+APP_ICONS = {"/apple-touch-icon.png": (180, "square"), "/icon-192.png": (192, "round"), "/icon-512.png": (512, "round"),
+             "/icon-maskable.png": (512, "square")}
+APP_FILES = ("/manifest.webmanifest",) + tuple(APP_ICONS)
+_app_icons = {}
+
+
+def app_icon(size, shape):
+    """The page's icon (a screen with a play sign on it, as in its tab), size pixels across, as a PNG: round, its
+    corners rounded off; square, to the edges (a phone rounds it itself, or cuts it to its own shape: what's on it
+    is well inside)."""
+    key = (size, shape)
+    if key not in _app_icons:
+        import io
+        from PIL import Image, ImageDraw
+        k = size * 4 / 32                              # (drawn 4 times bigger, then made smaller: smooth edges)
+        big = Image.new("RGBA", (size * 4, size * 4), (0, 0, 0, 0))
+        d = ImageDraw.Draw(big)
+        if shape == "round":
+            d.rounded_rectangle((0, 0, size * 4 - 1, size * 4 - 1), radius=int(9 * k), fill=APP_BLUE)
+        else:
+            d.rectangle((0, 0, size * 4, size * 4), fill=APP_BLUE)
+        d.rounded_rectangle((7 * k, 9 * k, 25 * k, 21 * k), radius=int(2.5 * k), outline="white", width=int(2 * k))
+        d.polygon([(14 * k, 12.5 * k), (18 * k, 15 * k), (14 * k, 17.5 * k)], fill="white")
+        out = io.BytesIO()
+        img = big.resize((size, size), Image.LANCZOS)
+        (img if shape == "round" else img.convert("RGB")).save(out, "PNG")
+        _app_icons[key] = out.getvalue()
+    return _app_icons[key]
+
+
+@app.get("/manifest.webmanifest")
+def app_manifest():
+    icons = [{"src": path, "sizes": f"{n}x{n}", "type": "image/png", **({"purpose": "maskable"} if "maskable" in path
+                                                                       else {})}
+             for path, (n, _) in APP_ICONS.items() if path != "/apple-touch-icon.png"]
+    body = {"id": "/", "name": "Pietato", "short_name": "Pietato", "start_url": "/", "scope": "/",
+            "display": "standalone", "background_color": "#0b0d12", "theme_color": "#0b0d12", "icons": icons}
+    resp = Response(json.dumps(body), mimetype="application/manifest+json")
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
+
+
+@app.get("/apple-touch-icon.png")
+@app.get("/icon-192.png")
+@app.get("/icon-512.png")
+@app.get("/icon-maskable.png")
+def app_icon_file():
+    size, shape = APP_ICONS[request.path]
+    resp = Response(app_icon(size, shape), mimetype="image/png")
+    resp.headers["Cache-Control"] = "public, max-age=86400"
     return resp
 
 
@@ -903,6 +964,108 @@ def shared():
     resp = Response(got[1], 200, content_type="application/json")
     resp.headers["Cache-Control"] = "no-store"
     return resp
+
+
+# ---- game saves that follow you from Pi to Pi (pitato/savesync.py asks these of your other Pietatos) -----------
+SAVE_EXTS = (".srm", ".rtc", ".state", ".state.cheevos", ".state.auto", ".state.auto.cheevos")   # (savesync.py's)
+
+
+def saves_here(game):
+    """What media mode says of a game's saves here (Settings > Share with other Pietatos on, the game not being
+    played here now), with the folder they're in; None when it isn't answering."""
+    got = ask_pi("GET", "/saves?" + urllib.parse.urlencode({"game": game}), timeout=15)
+    if got is None or got[0] != 200:
+        return None
+    try:
+        st = json.loads(got[1])
+    except ValueError:
+        return None
+    return st if isinstance(st, dict) else None
+
+
+@app.get("/api/saves")
+def saves():
+    """A game's saves here, for your other Pietatos: how big, how old, and their sums."""
+    st = saves_here(request.args.get("game", "")[:300])
+    if st is None:
+        return jsonify(ok=False, error="Pietato isn't answering"), 503
+    st.pop("folder", None)
+    resp = jsonify(st)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.get("/api/saves/file")
+def saves_file():
+    """One of a game's saves, for another of your Pietatos: only one media mode has just listed."""
+    game, ext = request.args.get("game", "")[:300], request.args.get("ext", "")
+    st = saves_here(game)
+    if st is None:
+        return jsonify(ok=False, error="Pietato isn't answering"), 503
+    files, folder = st.get("files"), st.get("folder")
+    if (not st.get("on") or st.get("playing") or ext not in SAVE_EXTS or not isinstance(files, dict)
+            or ext not in files or not isinstance(folder, str)):
+        return jsonify(ok=False, error="No such save"), 404
+    path = os.path.join(folder, game + ext)
+    if os.path.dirname(os.path.realpath(path)) != os.path.realpath(folder) or not os.path.isfile(path):
+        return jsonify(ok=False, error="No such save"), 404
+    return send_file(path, mimetype="application/octet-stream", max_age=0, conditional=False)
+
+
+@app.post("/api/saves/news")
+def saves_news():
+    """Another of your Pietatos has just played a game: this one takes its saves."""
+    body = request.get_json(silent=True)
+    game = body.get("game") if isinstance(body, dict) else None
+    if not isinstance(game, str) or len(game) > 300:
+        return jsonify(ok=False, error="Which game?"), 400
+    return pi_reply(ask_pi("POST", "/savenews", {"game": game, "from": request.remote_addr}, timeout=10))
+
+
+# ---- what you're playing, sent from one of your Pietatos to another (pitato/handoff.py) -----------------------------
+HANDOFF_KEYS = ("kind", "check", "file", "system", "rel", "name", "title", "size", "sum", "media", "src", "pos")
+
+
+@app.post("/api/handoff")
+def handoff():
+    """Another of your Pietatos asks whether this one can take a game, or sends one (or a video, a song, a station)."""
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or body.get("kind") not in ("game", "media"):
+        return jsonify(ok=False, error="What's that?"), 400
+    cmd = {k: body[k] for k in HANDOFF_KEYS if k in body}
+    cmd["from"] = request.remote_addr
+    return pi_reply(ask_pi("POST", "/handoff", cmd, timeout=12))
+
+
+# ---- a game played together, on two of your Pietatos (pitato/screens/together.py) ----------------------------------
+TOGETHER_KEYS = ("kind", "link", "yes", "port", "key", "file", "system", "rel", "name", "title", "size", "sum")
+
+
+@app.post("/api/together")
+def together():
+    """Another of your Pietatos asks whether this one can play a game with it, asks it to play, or answers."""
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or body.get("kind") not in ("ask", "invite", "answer"):
+        return jsonify(ok=False, error="What's that?"), 400
+    cmd = {k: body[k] for k in TOGETHER_KEYS if k in body}
+    cmd["from"] = request.remote_addr
+    return pi_reply(ask_pi("POST", "/together", cmd, timeout=12))
+
+
+@app.get("/api/handoff/file")
+def handoff_file():
+    """A file of this Pi's that media mode gave another of your Pietatos a key to (a game it hasn't got, or the video or
+    song it's carrying on with): only that file, while the key's good. (A video's played from it as it comes, so it
+    can be read from anywhere in it.)"""
+    got = ask_pi("GET", "/handoff/file?" + urllib.parse.urlencode({"token": request.args.get("token", "")[:100]}),
+                 timeout=10)
+    try:
+        path = json.loads(got[1]).get("path") if got is not None and got[0] == 200 else None
+    except (ValueError, AttributeError):
+        path = None
+    if not isinstance(path, str) or not os.path.isfile(path):
+        return jsonify(ok=False, error="No such file"), 404
+    return send_file(path, mimetype="application/octet-stream", max_age=0, conditional=True)
 
 
 @app.get("/api/pi/<what>")

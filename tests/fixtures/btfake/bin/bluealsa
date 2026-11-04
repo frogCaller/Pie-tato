@@ -1,0 +1,3 @@
+#!/bin/sh
+# stand-in: BlueALSA is installed (bt_outputs looks for it on PATH)
+exit 0

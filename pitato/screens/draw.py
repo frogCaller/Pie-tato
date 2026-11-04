@@ -425,6 +425,8 @@ class DrawScreen:
             return self.lights_right(it)
         if kind == "info":
             return it["sub"], WARN if it.get("warn") else TEXT, None
+        if kind in ("konami", "konaminew", "konamido"):    # (your codes: what each does)
+            return it.get("sub", ""), ACCENT if it.get("lit") else MUTED, None
         if kind == "action":
             if self.confirm[0] == it["src"]:
                 return "press A again", ACCENT, None
@@ -445,8 +447,6 @@ class DrawScreen:
             return year + (clock(length) if length else ""), MUTED, None
         if kind in ("child", "game", "gamedir", "wwwgo", "wwwsearch", "wwwtype", "wwwchromium", "wwwpage"):
             return it.get("sub", ""), MUTED, None
-        if kind == "hasettings":                       # (the Home tab's: where it is, or set it up)
-            return it.get("sub", ""), MUTED if self.hass.configured else ACCENT, None
         if kind == "plexwant":
             return "not on your server", MUTED, None
         if kind in ("plexdir", "jfdir"):
@@ -518,6 +518,8 @@ class DrawScreen:
             return self.lights_hints(items[sel] if items and sel < len(items) else None)
         if ttype == "pihole":
             return self.pihole_hints(items[sel] if items and sel < len(items) else None)
+        if ttype == "konami":
+            return self.konami_hints(items[sel] if items and sel < len(items) else None)
         if ttype == "www":
             it = items[sel] if items and sel < len(items) else {}
             kept = it.get("key", "").startswith(("www:mark:", "www:past:"))
@@ -633,6 +635,8 @@ class DrawScreen:
             return self.render_weather()
         if ttype == "pihole" and self.pihole.configured:
             return self.render_pihole()
+        if ttype == "konami" and self.konami_rec is not None:
+            return self.render_konami_rec()
         if ttype == "system" and self.sys_dash():
             return self.render_sysdash()
         if ttype == "www" and self.www_on_page():
@@ -664,12 +668,16 @@ class DrawScreen:
                 crumbs += "  ›  " + self.chan_stack[self.tab][-1]["title"]
             elif ttype == "lights" and self.lights_scenes:
                 crumbs += "  ›  Scenes"
+            elif ttype == "konami":
+                crumbs += self.konami_crumb()
             if ttype == "channels":
                 d.text((W - 20, self.LIST_TOP + 10), self.channels_note(), font=F["small"],
                        fill=MUTED, anchor="rm")
             elif ttype == "www" and self.www_wait is not None:
                 d.text((W - 20, self.LIST_TOP + 10), f"Loading {self.www_wait['host']}…", font=F["small"],
                        fill=ACCENT, anchor="rm")
+            elif ttype == "konami" and self.konami_note():   # (how a code's put in)
+                d.text((W - 20, self.LIST_TOP + 10), self.konami_note(), font=F["small"], fill=MUTED, anchor="rm")
             d.text((20, self.LIST_TOP + 10), crumbs, font=F["small"], fill=MUTED, anchor="lm")
         elif ttype == "radio" and self.radio_stack:
             crumbs = "Radio  ›  " + self.radio_stack[-1]["title"]
@@ -892,11 +900,13 @@ class DrawScreen:
                                          ("Y", "Mixed speeds"), ("SELECT", "Rainbow"), ("B", "Stop")]),
             ]
         elif self.help_from == "now":
+            target = self.handoff_target() if self.media_sendable() else None
             cols = [
                 ("Music & radio", [("A", "Pause / play"), ("◀▶", "Seek / station"),
                                    ("L R", "Prev / next"), ("▲▼", "Volume"), ("Y", "Shuffle")]),
-                ("", [("SELECT", "Lofi art"), ("B", "Back to the list"), ("HOME", "Terminal"),
-                      ("", "Music keeps playing in"), ("", "the terminal")]),
+                ("", ([("X", f"Play it on {target[1]}")] if target else [])
+                 + [("SELECT", "Lofi art"), ("B", "Back to the list"), ("HOME", "Terminal"),
+                    ("", "Music keeps playing in"), ("", "the terminal")]),
             ]
         else:
             cols = [

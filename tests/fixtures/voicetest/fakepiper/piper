@@ -1,0 +1,18 @@
+#!/usr/bin/env python3
+"""A Piper that misbehaves ($FAKE_PIPER): "dies" makes the first sentence and stops; "fifo" says a
+pipe is its WAV. The WAV it makes is $FAKE_PIPER_WAV."""
+import os, shutil, sys, time
+args = sys.argv[1:]
+out = args[args.index("-d") + 1]
+how = os.environ.get("FAKE_PIPER", "dies")
+line = sys.stdin.readline()
+if how == "fifo":
+    path = os.path.join(out, "1.wav")
+    os.mkfifo(path)
+else:
+    path = os.path.join(out, "1.wav")
+    shutil.copy(os.environ["FAKE_PIPER_WAV"], path)
+print(path, flush=True)
+if how == "fifo":
+    time.sleep(30)
+sys.exit(0)
