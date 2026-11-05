@@ -224,18 +224,35 @@ class HandoffScreen:
     # -- sending what's playing, from HOME's menu: a video, a song or a station -------------------------------------
     def media_home(self):
         """HOME on a video's picture, or on Now playing, while another of yours is on: its menu (Play on another
-        Pietato, ◀▶ for which one), as a picture's has; from the menu, back to it. False: HOME as ever."""
+        Pietato, ◀▶ for which one), as a picture's has; from the menu, back to it. On a song picked in your Music
+        list: the same, for that song (and Send to another Pietato). False: HOME as ever."""
         if self.view == "mediamenu":
             self.media_menu_close()
             return True
         video = self.kind in SCREEN_KINDS and self.proc_owns_screen()
-        if not (video or (self.view == "now" and self.kind in LISTEN_KINDS)) or not self.media_sendable():
-            return False
-        self.media_menu_open(video)
-        return True
+        if (video or (self.view == "now" and self.kind in LISTEN_KINDS)) and self.media_sendable():
+            self.media_menu_open(video)
+            return True
+        row = self.song_row()
+        if row is not None and self.handoff_target() is not None:
+            self.media_menu_open(False, row=row)
+            return True
+        return False
+
+    def song_row(self):
+        """The song picked in your Music list (a file of yours), or None."""
+        if not (self.active and self.view == "list" and self.tab_type() == "files"
+                and LIBRARY[self.tab].get("kind") == "audio"):
+            return None
+        items, sel = self.tab_items(), self.sels.get(self.tab, 0)
+        it = items[sel] if 0 <= sel < len(items) else None
+        return it if it and it.get("kind") == "audio" and os.path.isfile(str(it.get("src") or "")) else None
 
     def media_menu_items(self):
         m = getattr(self, "media_menu", None) or {}
+        if m.get("row") is not None:                   # (a song picked in your Music list)
+            return [("back", "Back to the list"), ("send", "Play on another Pietato"),
+                    ("keep", "Send to another Pietato")]
         back = ("Back to the video" if m.get("video") else "Back to the station" if self.kind == "radio"
                 else "Back to the music")
         keep = [("keep", "Send to another Pietato")] if self.media_keepable() else []   # (a song of yours, a copy)
@@ -247,8 +264,9 @@ class HandoffScreen:
         source = self.media_source() if self.kind == "audio" else None
         return bool(source and source[1])
 
-    def media_menu_open(self, video):
-        """The menu, over what's playing: a video paused under it (its picture, dimmed, behind it), music playing on."""
+    def media_menu_open(self, video, row=None):
+        """The menu, over what's playing: a video paused under it (its picture, dimmed, behind it), music playing on.
+        row: a song picked in your Music list, the menu for it (over the list)."""
         was_paused = bool(self.paused)
         if video and not was_paused:
             self.cmd("pause")
@@ -269,7 +287,8 @@ class HandoffScreen:
                 bg = made_fine(ImageEnhance.Brightness(pic).enhance(0.3), s)
         except (OSError, ValueError, AttributeError, ImportError):
             bg = None
-        self.media_menu = {"sel": 0, "view": self.view, "bg": bg, "video": video, "was_paused": was_paused}
+        self.media_menu = {"sel": 0, "view": self.view, "bg": bg, "video": video, "was_paused": was_paused,
+                           "row": dict(row) if row is not None else None}
         self.view = "mediamenu"
         self.dirty = True
 
@@ -289,7 +308,8 @@ class HandoffScreen:
 
     def press_media_menu(self, name, repeat):
         m = getattr(self, "media_menu", None)
-        if m is None or not self.proc:                 # (what was playing is over)
+        row = (m or {}).get("row")
+        if m is None or (row is None and not self.proc):   # (what was playing is over)
             self.media_menu_close()
             return None
         menu = self.media_menu_items()
@@ -302,6 +322,12 @@ class HandoffScreen:
             self.handoff_cycle(1 if name == "right" else -1)
         elif name == "b" or (name == "a" and job == "back"):
             self.media_menu_close()
+        elif name == "a" and row is not None:          # (a song picked in your Music list: back to the list, and it
+            self.media_menu_close()                    #  goes: to play there, or a copy to keep)
+            if job == "keep":
+                self.media_keep(row["src"])
+            else:
+                self.song_send(row)
         elif name == "a" and job == "keep":
             self.media_menu_close()                    # (back to Now playing: it plays on here, a copy goes)
             self.media_keep()
@@ -314,12 +340,13 @@ class HandoffScreen:
         self.dirty = True
         return None
 
-    def media_keep_what(self):
-        """The song playing, as another of your Pietatos is told of it to keep: (its file, what it's told), or why it
-        can't go, in words."""
-        if not self.media_keepable():
-            return "It can't go to another Pietato"
-        path = self.media_source()[1]
+    def media_keep_what(self, path=None):
+        """The song playing (or the one at path: picked in your Music list), as another of your Pietatos is told of it
+        to keep: (its file, what it's told), or why it can't go, in words."""
+        if path is None:
+            if not self.media_keepable():
+                return "It can't go to another Pietato"
+            path = self.media_source()[1]
         title = os.path.basename(path)
         if web_private(title):
             return "That one stays on this Pi"
@@ -333,15 +360,15 @@ class HandoffScreen:
             return "It's too big to send"
         return path, {"view": "music", "title": title, "size": size}
 
-    def media_keep(self):
-        """The song playing, sent for the one picked to keep: a copy in its own Music, named as it is here. It plays
-        on here."""
+    def media_keep(self, path=None):
+        """The song playing (or the one at path: picked in your Music list), sent for the one picked to keep: a copy
+        in its own Music, named as it is here. What's playing here plays on."""
         target = self.handoff_target()
         if target is None:
             self.toast("None of your other Pietatos is on", 3)
             return
         url, host = target
-        got = self.media_keep_what()
+        got = self.media_keep_what(path)
         if isinstance(got, str):
             self.toast(got, 4)
             return
@@ -366,6 +393,34 @@ class HandoffScreen:
             return
         self.toast(f"Sending it to {host}, for its {said.get('folder') or 'Music'}", 5)
 
+    def song_send(self, row):
+        """A song picked in your Music list, to play on the one picked, from its start. The one playing here (that
+        one): it carries on there from where it is, and stops here, as from Now playing."""
+        if self.proc and self.kind == "audio" and (self.cur or {}).get("src") == row.get("src"):
+            self.media_send()
+            return
+        target = self.handoff_target()
+        if target is None:
+            self.toast("None of your other Pietatos is on", 3)
+            return
+        url, host = target
+        path = str(row.get("src") or "")
+        if web_private(os.path.basename(path)):
+            self.toast("That one stays on this Pi", 4)
+            return
+        if not os.path.isfile(path):
+            self.toast("Couldn't read it", 3)
+            return
+        self.toast(f"Sending it to {host}…", 3)
+        self.flush()                                   # (said before it waits for the answer)
+        key = self.handoff_keys().issue(path)
+        said = handoff_post(url, {"kind": "media", "media": "audio", "title": row.get("title") or os.path.basename(path),
+                                  "src": "", "file": key, "pos": 0.0}, HANDOFF_GO)
+        if said is None or not said.get("ok"):
+            self.toast(f"{host} didn't take it ({(said or {}).get('error') or 'it isn’t answering'})", 4)
+            return
+        self.toast(f"Playing on {host} now", 4)
+
     def media_where(self):
         """How far through what's playing it is, in words (in HOME's menu, under its name)."""
         if self.kind == "radio":
@@ -376,21 +431,39 @@ class HandoffScreen:
     # -- sending what you're looking at: a picture, a PDF or a document, some text ----------------------------------
     def file_home(self):
         """HOME on a picture, a PDF or a document, or some text, while another of yours is on: its menu (View on
-        another Pietato), or from the menu, back to it. False: HOME as ever."""
+        another Pietato), or from the menu, back to it. On a picture picked in your Photos: the same, for it. False:
+        HOME as ever."""
         if self.view == "filemenu":
             self.file_menu_close()
             return True
-        if self.view not in FILE_VIEWS or self.v.get("type") != self.view or self.handoff_target() is None:
+        if self.handoff_target() is None:
             return False
-        self.file_menu_open()
-        return True
+        if self.view in FILE_VIEWS and self.v.get("type") == self.view:
+            self.file_menu_open()
+            return True
+        row = self.photo_row()
+        if row is not None:
+            self.file_menu_open(row=row)
+            return True
+        return False
+
+    def photo_row(self):
+        """The picture picked in your Photos (their grid): its row, with where it is among them; or None."""
+        if not (self.active and self.view == "list" and self.tab_type() == "photos") or getattr(self, "picking", None):
+            return None                                # (picking one, for the background say: HOME as ever)
+        items, sel = self.tab_items(), self.sels.get(self.tab, 0)
+        it = items[sel] if 0 <= sel < len(items) else None
+        if not it or it.get("kind") != "image" or not os.path.isfile(str(it.get("src") or "")):
+            return None
+        return dict(it, at=sel, of=len(items))
 
     def file_menu_items(self):
         m = getattr(self, "file_menu", None) or {}
-        return [("back", FILE_BACK.get(m.get("view") or self.v.get("type"), "Back to it")),
-                ("send", "View on another Pietato"), ("keep", "Send to another Pietato")]
+        back = ("Back to the pictures" if m.get("row") is not None
+                else FILE_BACK.get(m.get("view") or self.v.get("type"), "Back to it"))
+        return [("back", back), ("send", "View on another Pietato"), ("keep", "Send to another Pietato")]
 
-    def file_menu_open(self):
+    def file_menu_open(self, row=None):
         bg, last = None, getattr(self.fb, "last", None)
         if last is not None and detail(last) == scale() and last.size == (self.fb.w, self.fb.h):
             try:
@@ -399,7 +472,7 @@ class HandoffScreen:
                 bg = made_fine(ImageEnhance.Brightness(pic.convert("RGB")).enhance(0.3), scale())
             except (OSError, ValueError, AttributeError):
                 bg = None
-        self.file_menu = {"sel": 0, "view": self.view, "bg": bg}
+        self.file_menu = {"sel": 0, "view": self.view, "bg": bg, "row": row}   # (row: a picture picked in Photos)
         self.view = "filemenu"
         self.dirty = True
 
@@ -407,12 +480,12 @@ class HandoffScreen:
         """Back to what you're looking at (or, if it's gone, the list)."""
         m = getattr(self, "file_menu", None)
         self.file_menu = None
-        self.view = m["view"] if m and self.v.get("type") == m["view"] else "list"
+        self.view = m["view"] if m and (m.get("row") is not None or self.v.get("type") == m["view"]) else "list"
         self.dirty = True
 
     def press_file_menu(self, name, repeat):
         m = getattr(self, "file_menu", None)
-        if m is None or self.v.get("type") != m["view"]:
+        if m is None or (m.get("row") is None and self.v.get("type") != m["view"]):
             self.file_menu_close()
             return None
         menu = self.file_menu_items()
@@ -433,6 +506,9 @@ class HandoffScreen:
         return None
 
     def file_title(self):
+        row = (getattr(self, "file_menu", None) or {}).get("row")
+        if row is not None:                            # (a picture picked in your Photos)
+            return os.path.basename(row["src"])
         v = self.v
         if v.get("type") == "photo" and v.get("items"):
             return os.path.basename(v["items"][v["i"] % len(v["items"])])
@@ -440,6 +516,9 @@ class HandoffScreen:
 
     def file_where(self):
         """Where you are in what you're looking at, in words (under its name, in its menu)."""
+        row = (getattr(self, "file_menu", None) or {}).get("row")
+        if row is not None:
+            return f"Picture {row['at'] + 1} of {row['of']}" if row["of"] > 1 else "A picture"
         v = self.v
         if v.get("type") == "pdf":
             return f"Page {v['page']} of {v['pages']}"
@@ -454,9 +533,13 @@ class HandoffScreen:
         or why it can't go, in words. keep: for it to keep (Send to another Pietato): a document as it is, not just
         its words, and some text with no file of its own as a .txt."""
         v = self.v
-        kind = v.get("type")
+        row = (getattr(self, "file_menu", None) or {}).get("row")
+        kind = "photo" if row is not None else v.get("type")
         try:
-            if kind == "photo":
+            if row is not None:                        # (a picture picked in your Photos: as it is)
+                path = row["src"]
+                title, place = os.path.basename(path), {"rot": 0}
+            elif kind == "photo":
                 path = v["items"][v["i"]]
                 title, place = os.path.basename(path), {"rot": v.get("rot", 0)}
             elif kind == "pdf":
@@ -543,11 +626,14 @@ class HandoffScreen:
         if said is None or not said.get("ok"):
             self.toast(f"{host} didn't take it ({(said or {}).get('error') or 'it isn’t answering'})", 5)
             return
-        self.file_menu = None
-        if self.v.get("type") == "photo":
-            self.photo_back()
+        if (self.file_menu or {}).get("row") is not None:
+            self.file_menu_close()                     # (a picture picked in your Photos: still picked, here)
         else:
-            self.close_viewer()
+            self.file_menu = None
+            if self.v.get("type") == "photo":
+                self.photo_back()
+            else:
+                self.close_viewer()
         self.toast(f"Showing on {host} now. HOME there sends it back", 5)
 
     def file_keep(self):
@@ -592,8 +678,14 @@ class HandoffScreen:
         """HOME on a video's picture or Now playing: its menu, over it (Back to it; Play on another Pietato ◀ ● name
         ▶). What was playing over: back to where you were."""
         m = getattr(self, "media_menu", None)
-        if m is None or not self.proc:
+        row = (m or {}).get("row")
+        if m is None or (row is None and not self.proc):
             self.media_menu_close()
+            return
+        if row is not None:                            # (a song picked in your Music list: its name, and how long it is)
+            length = self.length(row) or 0
+            where = clock(length) if length else os.path.basename(os.path.dirname(str(row.get("src") or "")))
+            self.render_send_menu(m, self.media_menu_items(), row.get("title") or "", where, "media_menu")
             return
         title = (self.cur or {}).get("title") or "" if m.get("video") else self.lofi_words()[0]
         self.render_send_menu(m, self.media_menu_items(), title, self.media_where(), "media_menu")

@@ -313,7 +313,19 @@
   .fbtn[data-b="y"] { left: 0; top: 31%; }
   .fbtn[data-b="a"] { right: 0; top: 31%; }
   .fbtn[data-b="b"] { left: 31%; bottom: 0; }
-  .mid { grid-area: mid; align-self: end; display: flex; gap: calc(4px * var(--k)); }
+  .mid { grid-area: mid; align-self: end; display: grid; justify-items: center; gap: calc(8px * var(--k)); }
+  .mid .pills { display: flex; gap: calc(4px * var(--k)); }
+  .hk {                                   /* the Hotkey: HOME, as the Pi's controller has it (a game's menu, say) */
+    display: grid; justify-items: center; gap: calc(6px * var(--k)); padding: 0; border: 0; background: none;
+    color: var(--muted); font-size: calc(11.5px * var(--k)); font-weight: 650;
+  }
+  .hk i {
+    display: block; width: calc(30px * var(--k)); aspect-ratio: 1; border-radius: 50%;
+    background: var(--key); box-shadow: var(--key-edge), 0 0 0 1px var(--line-2) inset;
+  }
+  .hk:hover { color: var(--text); }
+  .hk.held { color: var(--accent); }
+  .hk.held i { background: rgba(var(--accent-rgb), .5); }
   .pill {
     display: grid; justify-items: center; gap: calc(9px * var(--k)); width: calc(48px * var(--k)); padding: calc(8px * var(--k)) 0 0;
     border: 0; background: none; color: var(--muted); font-size: calc(11.5px * var(--k)); font-weight: 650;
@@ -1032,8 +1044,12 @@
             <span class="hub" aria-hidden="true"></span>
           </div>
           <div class="mid">
-            <button class="rk pill" type="button" data-b="select"><i aria-hidden="true"></i>Select</button>
-            <button class="rk pill" type="button" data-b="start"><i aria-hidden="true"></i>Start</button>
+            <button class="rk hk" type="button" data-b="hotkey"
+                    title="Hotkey (HOME, as on the Pi): a game's menu, and the rest HOME does there"><i aria-hidden="true"></i>Hotkey</button>
+            <div class="pills">
+              <button class="rk pill" type="button" data-b="select"><i aria-hidden="true"></i>Select</button>
+              <button class="rk pill" type="button" data-b="start"><i aria-hidden="true"></i>Start</button>
+            </div>
           </div>
           <div class="abxy">
             <button class="rk fbtn" type="button" data-b="x" title="X: the controls for this page">X</button>
@@ -1594,7 +1610,9 @@ function press(name, repeat) {
   if (repeat && inFlight) return;                       // held down: don't pile them up
   SCR.touchedAt = Date.now();
   inFlight++;
-  chain = chain.then(() => pi("press", { button: name, repeat: !!repeat, here: HERE.on }))
+  const button = name === "hotkey" ? "home" : name;      // (the Hotkey's HOME, as on the Pi; Home under the screen is
+                                                          //  the home screen)
+  chain = chain.then(() => pi("press", { button, repeat: !!repeat, here: HERE.on }))
     .then(handedOver)
     .catch((e) => { if (!repeat) toast(e.message); })
     .finally(() => { inFlight--; kick(150); });
@@ -2299,11 +2317,12 @@ function drawPads(list, learning) {
     };
     sw.disabled = busy;
     li.append(ic, el("span", "pn", name),
-      el("span", "k", p.swap ? "A and B swapped" : p.learned ? "Your buttons" : "Standard buttons"), sw);
+      el("span", "k", p.swap ? "A and B swapped" : p.kind === "pilot" ? "Another Pietato's buttons"
+        : p.learned ? "Your buttons" : "Standard buttons"), sw);
     ul.append(li);
   }
   const lb = $("#learnBtn");
-  lb.hidden = !list.length && !busy;
+  lb.hidden = !list.some((p) => p.kind !== "pilot") && !busy;   // (another Pietato's buttons come named already)
   lb.textContent = busy ? "Stop" : "Set up buttons";
   $("#resetBtn").hidden = busy || !list.some((p) => p.learned || p.swap);
   const box = $("#learnBox");

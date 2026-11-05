@@ -468,7 +468,7 @@ class DrawScreen:
             if it.get("watched"):
                 return "✓ " + year + clock(length), DONE, None
             return year + (clock(length) if length else ""), MUTED, None
-        if kind in ("child", "game", "gamedir", "wwwgo", "wwwsearch", "wwwtype", "wwwchromium", "wwwpage"):
+        if kind in ("child", "game", "gamedir", "wwwgo", "wwwsearch", "wwwtype", "wwwchromium", "wwwpage", "pilot"):
             return it.get("sub", ""), MUTED, None
         if kind == "plexwant":
             return "not on your server", MUTED, None
@@ -541,6 +541,8 @@ class DrawScreen:
             return self.lights_hints(items[sel] if items and sel < len(items) else None)
         if ttype == "pihole":
             return self.pihole_hints(items[sel] if items and sel < len(items) else None)
+        if ttype == "pilot":
+            return self.pilot_hints()
         if ttype == "konami":
             return self.konami_hints(items[sel] if items and sel < len(items) else None)
         if ttype == "www":
@@ -658,6 +660,8 @@ class DrawScreen:
             return self.render_weather()
         if ttype == "pihole" and self.pihole.configured:
             return self.render_pihole()
+        if ttype == "pilot" and self.pilot_on():
+            return self.render_pilot()
         if ttype == "konami" and self.konami_rec is not None:
             return self.render_konami_rec()
         if ttype == "system" and self.sys_dash():
@@ -719,8 +723,8 @@ class DrawScreen:
             d.text((20, self.LIST_TOP + 10), self.fit(d, crumbs, F["small"], W - 60 - rw),
                    font=F["small"], fill=MUTED, anchor="lm")
 
-        if not n and ttype == "lights":
-            self.empty_state(d, *self.lights_empty())
+        if not n and ttype in ("lights", "pilot"):
+            self.empty_state(d, *(self.lights_empty() if ttype == "lights" else self.pilot_empty()))
             self.footer(d, self.list_hints())
             self.fb.show(img)
             return
@@ -774,6 +778,8 @@ class DrawScreen:
                 tx = self.badge(d, tx, mid, it)
             elif ttype == "lights":
                 tx = self.lights_art(d, tx, mid, it)
+            elif ttype == "pilot":
+                tx = self.pilot_art(d, tx, mid, it)
             elif (ttype in ("plex", "jellyfin", "group", "games", "www") or (ttype == "radio" and not self.radio_stack)
                   or kind in ("chdir", "chsearch", "chplex", "chretry", "chwait")) and kind != "action":
                 tx = self.plex_art(img, d, tx, mid, it, slot)

@@ -81,6 +81,7 @@ class RestScreen:
                                          or self.on_mandel_page()))
             or (self.view == "photo" and self.v.get("slideshow")) or (self.now_art() and not self.paused)
             or getattr(self, "remote_pad", None) is not None
+            or getattr(self, "pilot_out", None) is not None   # (controlling another of yours: its buttons go there)
             or self.voice.speaking or now < getattr(self, "web_mic_until", 0.0)
             or now - self.web_watched < REST_WATCHED or now < self.halting)
 

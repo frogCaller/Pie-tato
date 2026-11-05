@@ -570,6 +570,50 @@ try:
     check("...sent again: kept again, beside it, a number on its name", until_kept(TV + "/Pictures/beach-2.jpg", n)
           and open(TV + "/Pictures/beach-2.jpg", "rb").read() == open(PIC1, "rb").read())
     m.close_viewer()
+
+    # ---- HOME on a picture picked in your Photos: the same menu, for it -----------------------------------------------
+    pt = m.tab_index("photos")
+    was_pdirs = g.LIBRARY[pt]["dirs"]
+    g.LIBRARY[pt]["dirs"] = [HOME + "/Pictures"]       # (this test's home folder's, not /home/*'s)
+    m.tab, m.view = pt, "list"
+    m.load_tab(pt)
+    srcs = [r["src"] for r in m.items[pt]]
+    m.sels[pt] = srcs.index(PIC1)
+    took = m.file_home()
+    m.dirty = True
+    m.flush()
+    check(f"HOME on a picture picked in your Photos: its menu, for it ({m.file_menu_items()}, {m.file_where()})",
+          took and m.view == "filemenu" and m.file_title() == "beach.jpg"
+          and m.file_where() == f"Picture {srcs.index(PIC1) + 1} of {len(srcs)}"
+          and m.file_menu_items() == [("back", "Back to the pictures"), ("send", "View on another Pietato"),
+                                      ("keep", "Send to another Pietato")])
+    m.press("b")
+    check("...B: back to the pictures, it still picked", m.view == "list" and m.tab == pt
+          and m.items[pt][m.sels[pt]]["src"] == PIC1)
+    toasts.clear()
+    home_send()
+    end = time.time() + 15
+    while True:
+        st = tv_state()
+        shown = os.path.basename((st["viewer"].get("items") or [""])[0])
+        if (st["view"] == "photo" and shown == "beach.jpg") or time.time() > end:
+            break
+        time.sleep(0.2)
+    check(f"...View on another Pietato, A: on the TV ({shown}); here, the pictures, it still picked ({toasts[-1:]})",
+          st["view"] == "photo" and shown == "beach.jpg" and m.view == "list" and m.tab == pt
+          and m.items[pt][m.sels[pt]]["src"] == PIC1 and toasts[-1:] == ["Showing on tv now. HOME there sends it back"])
+    m.sels[pt] = srcs.index(PIC2)
+    n = tv_lines()
+    home_keep()
+    check(f"...Send to another Pietato, A: a copy kept in the TV's Pictures; here, the pictures ({toasts[-1:]})",
+          until_kept(TV + "/Pictures/hills.jpg", n) and open(TV + "/Pictures/hills.jpg", "rb").read()
+          == open(PIC2, "rb").read() and m.view == "list" and toasts[-1:] == ["Sending it to tv, for its Pictures"])
+    heard = dict(m.pie.heard)
+    m.pie.heard.clear()
+    check("...with no other Pietato on: HOME as ever (the terminal)", m.file_home() is False and m.view == "list")
+    m.pie.heard.update(heard)
+    g.LIBRARY[pt]["dirs"] = was_pdirs
+    m.close_viewer()
     m.open_pdf(PDF)
     n = tv_lines()
     home_keep()
@@ -630,6 +674,52 @@ try:
           f"on still picked ({os.path.basename(rows[m.sels[mi]])}, {toasts[-1:]})",
           HOME + "/Music/Beach Song.mp3" in rows and rows[m.sels[mi]] == HOME + "/Music/Zebra Song.mp3"
           and toasts[-1:] == ["Beach Song.mp3 from tv, in Music"])
+
+    # ---- HOME on a song picked in your Music list: the same menu, for that song ---------------------------------------
+    ZEBRA = HOME + "/Music/Zebra Song.mp3"
+    took = m.media_home()
+    m.dirty = True
+    m.flush()
+    check(f"HOME on a song picked in your Music list: its menu, for that song ({m.media_menu_items()})",
+          took and m.view == "mediamenu" and m.media_menu["row"]["src"] == ZEBRA
+          and m.media_menu_items() == [("back", "Back to the list"), ("send", "Play on another Pietato"),
+                                       ("keep", "Send to another Pietato")])
+    m.press("b")
+    check("...B: back to the list, the song still picked", m.view == "list" and m.tab == mi
+          and m.items[mi][m.sels[mi]]["src"] == ZEBRA)
+    n = tv_lines()
+    toasts.clear()
+    m.media_home()
+    m.press("down")
+    m.press("a")
+    played = tv_said("play", n)
+    check(f"...Play on another Pietato, A: it plays on the TV, from its start; here, the list as it was "
+          f"({played and played['kind']}, {toasts[-1:]})",
+          played is not None and played["kind"] == "audio" and "/api/handoff/file?token=" in played["play"]
+          and "-ss" not in played["args"] and m.view == "list" and m.proc is None
+          and toasts[-1:] == ["Playing on tv now"])
+    n = tv_lines()
+    m.media_home()
+    m.press("down")
+    m.press("down")
+    m.press("a")
+    check(f"...Send to another Pietato, A: a copy kept in the TV's Music ({toasts[-1:]})",
+          until_kept(TV + "/Music/Zebra Song.mp3", n) and open(TV + "/Music/Zebra Song.mp3", "rb").read() == b"ID3"
+          and m.view == "list")
+    m.play([{"kind": "audio", "src": ZEBRA, "title": "Zebra Song", "key": ZEBRA}], 0)
+    m.view, m.pos = "list", 12.0
+    n = tv_lines()
+    m.media_home()
+    m.press("down")
+    m.press("a")
+    played = tv_said("play", n)
+    check(f"...the song playing here, picked: it carries on there from where it is, and stops here "
+          f"({played and played['args'][-2:]}, {m.proc})", played is not None and played["kind"] == "audio"
+          and m.proc is None and m.view == "list")
+    heard = dict(m.pie.heard)
+    m.pie.heard.clear()
+    check("...with no other Pietato on: HOME as ever (the terminal)", m.media_home() is False and m.view == "list")
+    m.pie.heard.update(heard)
     g.LIBRARY[mi]["dirs"] = was_dirs
     check("...a song sent just to be shown: not taken (it goes only to be kept)",
           m.handoff_take_file({"view": "music", "title": "x.mp3", "size": 3, "file": "a" * 32}, "http://10.0.0.9",

@@ -2,14 +2,16 @@
 its own home folder, its web page and control server on ports of their own, and its main loop, in a process of its own.
 Its emulator and player are stand-ins: what it starts, plays and says goes in a log (JSON, a line each), and its
 emulator's saves are written as the real one writes them when a game ends (in its folder of saves: a game played
-together has its own).
+together has its own). With presses, what's pressed and let go of in media mode (and from which controller), and the
+terminal's keys, go in the log too (another Pietato controlling this one: pilot.py).
 
-    python3 peer_pietato.py HOME LOG NAME PEER_URL PEER_NAME [slow]
+    python3 peer_pietato.py HOME LOG NAME PEER_URL PEER_NAME [slow] [presses]
 
 It prints READY <its web page's address> once it's answering; then takes a line at a time: state (what's on its
 screen, as JSON), press BUTTON (pressed, on its main loop), home (HOME on a picture, a PDF or some text: its menu),
 news WHAT WHY (its emulator says WHAT, then ends: netgone, say), expire (another's asking to play together, not answered
-in time), peer URL NAME, quit."""
+in time), peer URL NAME, set KEY VALUE (a setting), pilots (the controllers another Pietato's working it with, as
+JSON), quit. PITATO_PILOT_GONE: seconds of nothing before one controlling it is taken to have gone."""
 import json
 import os
 import sys
@@ -18,6 +20,7 @@ import time
 
 HOME, LOG, NAME, PEER_URL, PEER_NAME = sys.argv[1:6]
 SLOW = "slow" in sys.argv[6:]
+PRESSES = "presses" in sys.argv[6:]
 TESTS = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.environ.get("PITATO_ROOT") or os.path.dirname(TESTS)
 sys.path.insert(0, TESTS)
@@ -60,6 +63,8 @@ import pitato.screens.together as together  # noqa: E402
 together.link_core = lambda: "/fake/gambatte_libretro.so"   # (its Game Boy link cable's emulator, there)
 if SLOW:
     g.slow_pi = lambda: True
+if os.environ.get("PITATO_PILOT_GONE"):
+    g.PILOT_GONE = float(os.environ["PITATO_PILOT_GONE"])
 
 
 # ---- its emulator: started, and its saves written as it ends -------------------------------------------------------
@@ -135,6 +140,20 @@ m = g.Media()
 m.enter()
 was_toast = m.toast
 m.toast = lambda text, secs=4: (log(toast=text), was_toast(text, secs))[1]
+if PRESSES:                                      # (what's pressed in media mode, and by which controller)
+    was_press, was_release = m.press, m.release
+
+    def press(name, repeat=False):
+        pad = m.input_pad
+        log(pressed=name, repeat=repeat, pad=pad.path if pad is not None else None, view=m.view,
+            guard=m.web_guard, t=time.monotonic())
+        return was_press(name, repeat)
+
+    def release(name):
+        pad = m.input_pad
+        log(released=name, pad=pad.path if pad is not None else None, t=time.monotonic())
+        return was_release(name)
+    m.press, m.release = press, release
 m.pie.heard[PEER_URL] = {"host": PEER_NAME, "seen": time.time() + 3600, "peer": True}
 control = g.Control()
 server = g.serve_control(m, control, port=0, key="k" * 32)
@@ -153,7 +172,9 @@ from werkzeug.serving import make_server  # noqa: E402
 web = make_server("127.0.0.1", 0, webui.app, threaded=True)
 threading.Thread(target=web.serve_forever, daemon=True).start()
 done = threading.Event()
-threading.Thread(target=lambda: g.run(type("UI", (), {"write": lambda *a: None, "syn": lambda *a: None})(), m,
+TERM = type("UI", (), {"write": (lambda self, t, c, v: log(key=c, value=v)) if PRESSES else (lambda *a: None),
+                       "syn": lambda *a: None})()   # (the terminal's keys)
+threading.Thread(target=lambda: g.run(TERM, m,
                                       control, stop=done.is_set), daemon=True).start()
 print(f"READY http://127.0.0.1:{web.server_port}", file=SAY, flush=True)
 try:
@@ -168,6 +189,16 @@ try:
             m.pie.heard.clear()
             m.pie.heard[url] = {"host": name, "seen": time.time() + 3600, "peer": True}
             print("ok", file=SAY, flush=True)
+        elif words[0] == "set":                         # a setting, as Settings sets it
+            key, value = words[1].split(None, 1)
+            m.set_setting(key, value.strip())
+            print("ok", file=SAY, flush=True)
+        elif words[0] == "pilots":                      # the controllers another Pietato's working it with
+            pads = list(m.pads.by_path.values()) if m.pads else []
+            print(json.dumps({"active": m.active, "view": m.view, "home_sel": m.home_sel, "guard": m.web_guard,
+                              "pads": [{"name": p.dev.name, "kind": p.kind, "path": p.path, "down": sorted(p.down),
+                                        "swapped": p.swapped} for p in pads if p.kind == "pilot"]}),
+                  file=SAY, flush=True)
         elif words[0] == "state":
             run = m.game
             inv = m.invite or {}

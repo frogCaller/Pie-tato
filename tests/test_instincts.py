@@ -623,6 +623,99 @@ check(f"the model not answering: the title screen sat still, so it pressed on (S
       f"instinct ({race.z:.0f} m; {[e['event'] for e in io.logged if 'answering' in str(e.get('event'))][:1]})",
       not race.title and race.z > 100 and any("isn't answering" in str(e.get("event")) for e in io.logged))
 
+# ---- a game from its start: past its title screen (Start), whatever the model says ---------------------------------------
+class TitledLevel(Level):
+    """The platformer from its start: its title screen first (its logo over the level, the player standing in it, and
+    now and then its own demo: the level going by by itself), where only Start does anything; then a moment of black
+    (WORLD 1-1), and the level. In the level, Start pauses it (the picture still), and Start again plays on."""
+
+    def __init__(self):
+        super().__init__()
+        self.title, self.demo, self.black, self.paused, self.pauses, self.begun, self.was = True, 0, 0, False, 0, False, 0
+
+    def step(self):
+        start = "start" in self.held
+        edge, self.was = start and not self.was, start
+        if self.title:
+            self.demo += 1
+            self.frames += 1
+            return
+        if not self.begun:
+            self.begun, self.black = True, 30
+        if self.black:
+            self.black -= 1
+            self.frames += 1
+            return
+        if edge:
+            self.paused = not self.paused
+            self.pauses += 1
+        if self.paused:
+            self.frames += 1
+            return
+        super().step()
+
+    def frame(self):
+        if self.black:
+            img = np.zeros((self.H, self.W, 3), np.uint8)
+            img[100:116, 90:170] = (255, 255, 255)
+            return Image.fromarray(img)
+        if self.title:
+            x = self.x
+            if (self.demo // 60) % 4 >= 2:                   # (its own demo: the level going by)
+                self.x = x + (self.demo % 120) * 3.0
+            img = np.asarray(super().frame()).copy()
+            self.x = x
+            img[40:90, 48:208] = (200, 60, 30)               # (its logo)
+            return Image.fromarray(img)
+        return super().frame()
+
+
+def sure_its_playing(game, choices, fallback):
+    time.sleep(0.2)                                   # (a level, it thinks: the title screen looks like one)
+    return ("go_right" if "go_right" in choices else fallback), "model"
+
+
+lvl = TitledLevel()
+io = LiveIO(lvl, sure_its_playing)
+io.most = 12.0
+p = AG.AnyGame({"title": "Super Mario Bros. (World)", "system": "nes"}, io)
+try:
+    p.play()
+except A.emerald.Stop:
+    pass
+said = [e["event"] for e in io.logged if "Start" in str(e.get("event")) or "went somewhere" in str(e.get("event"))]
+check(f"a game from its start, its title screen like a level with a demo of its own, the model sure it's playing: "
+      f"Start pressed a few seconds in ({io.taps}), into the game, and on through the level ({lvl.best:.0f} px; "
+      f"{said[:2]})", io.taps[:1] == ["start"] and not lvl.title and not lvl.paused and lvl.best > 3 * 16 + 150
+      and any("went somewhere" in e for e in said))
+
+lvl = TitledLevel()
+lvl.title = False                                     # (going already: Start pauses it)
+io = LiveIO(lvl, sure_its_playing)
+io.most = 10.0
+p = AG.AnyGame({"title": "Super Mario Bros. (World)", "system": "nes"}, io)
+try:
+    p.play()
+except A.emerald.Stop:
+    pass
+check(f"...a game going already: Start paused it, so it pressed Start again, and played on ({io.taps}, "
+      f"{lvl.pauses} pauses, {lvl.best:.0f} px)", io.taps == ["start", "start"] and lvl.pauses == 2
+      and not lvl.paused and lvl.best > 3 * 16 + 100)
+
+lvl = TitledLevel()
+lvl.title = False
+io = LiveIO(lvl, sure_its_playing)
+io.run = type("Run", (), {"resumed": True})()        # (from where you were in it: a save of yours)
+io.most = 7.0
+p = AG.AnyGame({"title": "Super Mario Bros. (World)", "system": "nes"}, io)
+try:
+    p.play()
+except A.emerald.Stop:
+    pass
+check(f"...a game it carries on from where you were: no Start ({io.taps})", "start" not in io.taps
+      and lvl.pauses == 0)
+
+
 # ---- the decision model's thread: an answer that's no longer wanted; a pick from another kind's choices ----------------
 class SlowIO:
     def __init__(self):

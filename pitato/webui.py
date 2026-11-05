@@ -305,6 +305,8 @@ PAGE_ONLY = {"state", "catalog", "channels", "radio", "cameras", "friend", "comp
              "bluetooth", "settings", "places"}   # (pictures load without it)
 PEER_PATHS = ("/api/shared", "/api/saves", "/api/saves/file", "/api/saves/news",   # your other Pietatos ask these
               "/api/handoff", "/api/handoff/file", "/api/together")
+PEER_LOCKED = ("/api/pilot",)   # ...and this one from your network only, and with the page's password if it has one
+                                # (another of yours controlling this one can do what the page's remote can)
 
 
 def coder_path():
@@ -351,6 +353,8 @@ def check_password():
     if request.path in PEER_PATHS:                     # (prices, the weather and game saves, for your other Pietatos:
         return None if on_my_network(request.remote_addr) else Response("Your network only", 403)   # no password,
                                                                                                     # your network)
+    if request.path in PEER_LOCKED and not on_my_network(request.remote_addr):
+        return Response("Your network only", 403)
     if request.path in APP_FILES:                      # (the page as an app on a phone's home screen: its name and
         return None                                    #  icon, nothing private, asked for before any password is)
     pw = settings().get("password")
@@ -1070,6 +1074,23 @@ def together():
     cmd = {k: body[k] for k in TOGETHER_KEYS if k in body}
     cmd["from"] = request.remote_addr
     return pi_reply(ask_pi("POST", "/together", cmd, timeout=12))
+
+
+# ---- another of your Pietatos controlling this one with its buttons (pitato/pilot.py) --------------------------------
+@app.post("/api/pilot")
+def pilot():
+    """Another of your Pietatos asks to control this one (ask: answered with the port and key its buttons come in
+    with), or lets go of it (end)."""
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or body.get("kind") not in ("ask", "end"):
+        return jsonify(ok=False, error="What's that?"), 400
+    cmd = {"kind": body["kind"]}
+    if isinstance(body.get("key"), str):
+        cmd["key"] = body["key"][:100]
+    if isinstance(body.get("has"), list):
+        cmd["has"] = [b for b in body["has"][:32] if isinstance(b, str) and len(b) <= 12]
+    cmd["from"] = request.remote_addr
+    return pi_reply(ask_pi("POST", "/pilot", cmd, timeout=12))
 
 
 @app.get("/api/handoff/file")

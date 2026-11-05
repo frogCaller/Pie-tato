@@ -3,9 +3,11 @@
 Pietato starts on a home screen of apps:
 
 - **Home**: a remote for your TVs and your lights (through Home Assistant), a dashboard of your
-  Pi-hole's stats (from the Pi-hole itself: add it by its address), and Web, for browsing ([Web](#web), below).
-  The first time you open the TV Remote or Lights, they ask for Home Assistant's IP address and a long-lived
-  token (Settings > Home changes them later), or you can put them in on the web page's Settings
+  Pi-hole's stats (from the Pi-hole itself: add it by its address), Web, for browsing ([Web](#web), below), and
+  Control another Pietato, to work another of yours with this one's buttons
+  ([Another Pietato](controllers.md#another-pietato)). The first time you open the TV Remote or Lights, they ask
+  for Home Assistant's IP address and a long-lived token (Settings > Home changes them later), or you can put them
+  in on the web page's Settings
 - **TV**: Plex (Continue watching, Watchlist, Live TV with news and sports), Jellyfin, about 250 old
   cartoons and 150 old films from the Internet Archive, and your own streams
 - **Music** and **Radio** (on Now playing, SELECT puts on lofi art: a quiet scene on the whole screen),

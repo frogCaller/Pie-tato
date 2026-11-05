@@ -8,10 +8,11 @@ from .config import move_old_places
 from .handheld import profile as handheld_profile
 from .library import MENU_RATE, MENU_REPEAT, SCREEN_KINDS
 from .inputs import (
-    BUTTONS, CHORD_WAIT, Keys, MEDIA_TOGGLE, NAME, Pads, PowerKey, REPEAT, REPEAT_DELAY, REPEAT_RATE, STAR, STAR_TAP,
-    TERMINAL, Touch)
+    AB, BUTTONS, CHORD_WAIT, Keys, MEDIA_TOGGLE, NAME, Pads, PowerKey, REPEAT, REPEAT_DELAY, REPEAT_RATE, STAR,
+    STAR_TAP, TERMINAL, Touch)
 from .control import Control, control_key, serve_control
 from .media import Media
+from .pilot import changes, PILOT_MOST, Pilots
 
 
 NEVER = float("inf")
@@ -29,6 +30,18 @@ def run(ui, media, control=None, stop=None):
     star = {}        # pad -> [when its star went down, whether another button went with it]
     hot = {}         # HOME down in the menus: {"at": when, "used": another button went with it (Konami code)}
     was = {"learning": False, "keys": False}
+    pilots = Pilots()                 # your other Pietatos controlling this one (pilot.py)
+    via = {"from": None}              # where the button being handled now is from: "here" (a controller or keyboard of
+                                      # this one's), "pilot" (another of yours controlling this one: never sent on)
+
+    def sent_on(name, down):
+        """Controlling another of your Pietatos (Home > Control another Pietato): a button from a controller or a
+        keyboard here goes to it instead (True). One from another of yours controlling this one never does (two
+        controlling each other would send it round and round), nor does one from the web page's remote or a touch."""
+        if via["from"] != "here" or not media.pilot_on():
+            return False
+        media.pilot_press(name, down)
+        return True
 
     def key_down(name):
         keys = TERMINAL[name]
@@ -64,7 +77,10 @@ def run(ui, media, control=None, stop=None):
         """HOME: media mode on or off; in a game, the game's menu (or back to the game); cmatrix or hollywood
         stops; Chromium's menu (or back to Chromium); on a picture, a PDF or some text, or a video or Now playing,
         its menu while another of your Pietatos is on (or back to it). The screen resting: it wakes, and that's
-        all."""
+        all. Controlling another of yours: a press of HOME there."""
+        if sent_on(MEDIA_TOGGLE, True):               # (the GPi Case's star, tapped: HOME, there)
+            sent_on(MEDIA_TOGGLE, False)
+            return
         if media.active and media.resting:            # (TURBO tapped, or SELECT and START: as HOME)
             media.stir()
             return
@@ -77,7 +93,9 @@ def run(ui, media, control=None, stop=None):
     def hotkey(down):
         """HOME (or SELECT and START together). In the menus it does its thing as you let go of it, unless another
         button's pressed with it: that's Konami code's (the box for one of your codes), and HOME does nothing else.
-        Anywhere else, as it goes down."""
+        Anywhere else, as it goes down. Controlling another of yours: its HOME (held long, it lets go of it)."""
+        if sent_on(MEDIA_TOGGLE, down):
+            return
         if down:
             hot.clear()
             if media.active and media.konami_hotkey_ok():
@@ -92,6 +110,8 @@ def run(ui, media, control=None, stop=None):
 
     def button(name, down, pad=None):
         """A button, from a controller (pad: which, for a game's players) or the web page's remote."""
+        if name != MEDIA_TOGGLE and sent_on(name, down):   # (controlling another of yours: its, not this one's)
+            return
         if down and media.active and media.resting:   # (the screen resting: a press wakes it, and does nothing else)
             media.stir()
             return
@@ -261,6 +281,7 @@ def run(ui, media, control=None, stop=None):
 
     def keyboard_gone(kb):
         hot.clear()                                    # (its HOME, if it was held: nothing more)
+        media.pilot_let_go()
         pads.drop(kb)
         print(f"{'mouse' if kb.mouse else 'keyboard'} gone: {kb.dev.name}", flush=True)
         for name in kb.let_go():
@@ -280,8 +301,18 @@ def run(ui, media, control=None, stop=None):
                 named = [d for d in new if not getattr(d, "mouse", False)] or new   # (a keyboard and its trackpad:
                 media.toast(f"{named[-1].dev.name} connected", 2)                  # the keyboard's name)
 
+    def here(fn, *args):
+        """fn(*args) for a controller or keyboard of this one's: what it presses goes to another of yours, while this
+        one's controlling it."""
+        via["from"] = "here"
+        try:
+            fn(*args)
+        finally:
+            via["from"] = None
+
     def lost(pad):
         hot.clear()                                    # (its HOME, if it was held: nothing more)
+        media.pilot_let_go()                           # (controlling another: what it held, let go of there too)
         pads.drop(pad)
         print(f"controller gone: {pad.dev.name}", flush=True)
         mine = {k for k in list(pending) + list(chorded) if k[0] == pad.path}
@@ -297,6 +328,96 @@ def run(ui, media, control=None, stop=None):
             media.cancel_learn("The controller was unplugged")
         found([])
         media.dirty = True
+
+    # -- another of your Pietatos controlling this one (pilot.py): a controller of its own here ----------------------
+    def pilot_button(pad, name, down):
+        """A button from another of yours controlling this one: as one from a controller plugged in here (its
+        player's, in a game). But as the web page's remote's, it works media mode only, never the terminal (HOME
+        brings media mode back), and it can't answer your coding agent."""
+        media.web_guard = "pilot"
+        learn_check()
+        if not media.active and name != MEDIA_TOGGLE:
+            return
+        if down and time.monotonic() < media.halting:
+            return                                     # (shutting down: let go of things, no more)
+        if pad.swapped:
+            name = AB.get(name, name)                  # (Settings > Swap A and B, on it)
+        if down:
+            pad.down.add(name)
+            media.pad_used = pad                       # (the one in hand: Settings > Swap A and B's)
+        else:
+            pad.down.discard(name)
+        if media.game_sticks():
+            name = media.game_pad_button(pad, name)    # (an N64 game: the d-pad's the stick)
+            if name is None:
+                return
+        via["from"] = "pilot"
+        try:
+            button(name, down, pad)
+        finally:
+            via["from"] = None
+
+    def pilot_gone(sess, why):
+        """One of yours has stopped controlling this one (why: "bye"; "gone", quiet too long; "again", asking again):
+        what it held let go of, and its controller gone."""
+        pilots.remove(sess)
+        holding = sess.holding()
+        if MEDIA_TOGGLE in holding:
+            hot.clear()                                # (its HOME, if it was held: nothing more)
+        sess.held, sess.lost = set(), True
+        for name, down in changes(holding, sess.counts, set(), sess.counts):
+            pilot_button(sess.pad, name, down)
+        pads.by_path.pop(sess.pad.path, None)
+        media.keyreader.exclude = set(pads.by_path)
+        if not pilots.sessions and pilots.sock is not None:
+            try:
+                sel.unregister(pilots.sock)
+            except (KeyError, ValueError):
+                pass
+            pilots.close()
+        media.pilot_ended(sess.name, why, not pilots.sessions)
+
+    def pilot_take(events):
+        for what in events:
+            sess = what[1]
+            if sess not in pilots.sessions:
+                continue                               # (gone a moment ago)
+            if what[0] == "press":
+                pilot_button(sess.pad, what[2], what[3])
+            else:
+                pilot_gone(sess, what[0])
+
+    def pilot_ask(cmd):
+        """Another of your Pietatos asks to control this one: the port and key for its buttons (a controller of its
+        own here, from now). Or it lets go of this one (end)."""
+        may = media.pilot_may(cmd)
+        if "addr" not in may:
+            return may
+        addr, name = may["addr"], may["name"]
+        if cmd.get("kind") == "end":
+            sess = pilots.find(cmd.get("key"), addr)
+            if sess is not None:
+                pilot_gone(sess, "bye")
+            return {"ok": True}
+        old = pilots.of(addr)
+        if old is not None:
+            pilot_gone(old, "again")                   # (asking again: restarted, say)
+        has = cmd.get("has")
+        sess = pilots.add(addr, name, has if isinstance(has, list) else None, time.monotonic())
+        if sess is None:
+            return {"ok": False, "error": f"{PILOT_MOST} of your Pietatos are controlling it already"}
+        try:
+            if pilots.open():
+                sel.register(pilots.sock, selectors.EVENT_READ, pilots)
+        except OSError as ex:
+            pilots.remove(sess)
+            print(f"pilot: no port for its buttons ({ex})", flush=True)
+            return {"ok": False, "error": "It couldn't open a port for the buttons"}
+        sess.pad.apply(pads.saved.get(sess.pad.ident))  # (Settings > Swap A and B on it, kept from before)
+        pads.by_path[sess.pad.path] = sess.pad
+        media.keyreader.exclude = set(pads.by_path)
+        media.pilot_began(name, len(pilots.sessions) == 1)
+        return {"ok": True, "port": pilots.port, "key": sess.key}
 
     def handle(cmd):
         """One request from the web page. It works media mode, never the terminal."""
@@ -333,6 +454,8 @@ def run(ui, media, control=None, stop=None):
             finally:
                 out = media.here_end({"ok": True})
             return out
+        if c == "pilot":                               # (another of yours: to control this one, or not any more)
+            return pilot_ask(cmd)
         if c == "mode":
             to = cmd.get("to")
             if to not in ("media", "terminal"):
@@ -378,7 +501,7 @@ def run(ui, media, control=None, stop=None):
     try:
         while not (stop and stop()):
             nxt = min([t for _, t in held.values()] + list(menu_held.values()) + list(pending.values())
-                      + [pads.next_scan])
+                      + [pads.next_scan, pilots.next_due()])
             timeout = max(0.0, nxt - time.monotonic())
             if media.active or media.proc or media.learn:
                 timeout = min(timeout, media.tick_limit())
@@ -399,6 +522,9 @@ def run(ui, media, control=None, stop=None):
                         finally:
                             control.done(job, out)
                     continue
+                if key.data is pilots:                 # (another of yours controlling this one: its buttons)
+                    pilot_take(pilots.take(time.monotonic()))
+                    continue
                 if isinstance(key.data, Keys):
                     kb = key.data
                     if pads.keyboards.get(kb.path) is not kb:
@@ -411,7 +537,7 @@ def run(ui, media, control=None, stop=None):
                         keyboard_gone(kb)
                         continue
                     for ev in events:
-                        keyboard_event(kb, ev)
+                        here(keyboard_event, kb, ev)
                     continue
                 if isinstance(key.data, Touch):
                     touch = key.data
@@ -453,10 +579,12 @@ def run(ui, media, control=None, stop=None):
                     lost(pad)
                     continue
                 for ev in events:
-                    pad_event(pad, ev)
+                    here(pad_event, pad, ev)
 
             keys_check()
             found(pads.scan(time.monotonic()))
+            if pilots.sessions:
+                pilot_take(pilots.check(time.monotonic()))   # (one gone quiet: what it held let go of; then it's gone)
             media.tick()
             learn_check()
 
@@ -464,7 +592,7 @@ def run(ui, media, control=None, stop=None):
             for k, t in list(pending.items()):
                 if now >= t:                          # SELECT or START alone: out it goes
                     del pending[k]
-                    button(k[1], True, pads.by_path.get(k[0]))
+                    here(button, k[1], True, pads.by_path.get(k[0]))
             for item in held.values():
                 if now >= item[1]:
                     ui.write(e.EV_KEY, item[0][-1], 2)
@@ -483,6 +611,7 @@ def run(ui, media, control=None, stop=None):
         for pad in (list(pads.by_path.values()) + list(pads.power.values()) + list(pads.keyboards.values())
                     + list(pads.touches.values())):
             pads.drop(pad)
+        pilots.close()
         sel.close()
 
 

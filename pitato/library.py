@@ -10,7 +10,8 @@ from .tv import ia_best
 RENAMED = {"Simulator": "Apps"}   # what an app was called before: asked for by that name (a code kept from then, the web
                                   # page's address for it), it opens as it's called now
 LIBRARY = [
-    {"name": "Home", "type": "group", "empty": "", "children": ["TV Remote", "Lights", "Pi-hole", "Web"]},
+    {"name": "Home", "type": "group", "empty": "",
+     "children": ["TV Remote", "Lights", "Pi-hole", "Web", "Control another Pietato"]},
     {"name": "TV", "type": "group", "empty": "",
      "children": ["Plex", "Jellyfin", "Cartoons", "Free Movies", "News", "Sports", "Streams"]},
     {"name": "Music", "type": "files", "dirs": ["/home/*/Music"],
@@ -59,6 +60,8 @@ LIBRARY = [
      "about": "Your Pi-hole's numbers", "files": [settings_glob("pihole.txt")], "empty": ""},
     {"name": "Web", "type": "www", "parent": "Home", "badge": "WEB",   # (Pietato's own browser: pitato/www.py)
      "about": "Search and read the web", "empty": ""},
+    {"name": "Control another Pietato", "type": "pilot", "parent": "Home", "badge": "PAD",   # (pitato/pilot.py)
+     "about": "Use these buttons on another one", "empty": ""},
     # inside the Games tab
     {"name": "Snake", "type": "sim", "sim": "snake", "parent": "Games", "badge": "EAT", "title": "Snake",
      "about": "Eat the apples, don't crash", "empty": ""},

@@ -223,7 +223,7 @@ hai = next(i for i, t in enumerate(g.LIBRARY) if t["name"] == "Home")
 m.tab, m.view = hai, "list"
 m.load_tab(hai)
 menu = [(x["title"], x.get("icon")) for x in m.tab_items()]
-check([t for t, _ in menu] == ["TV Remote", "Lights", "Pi-hole", "Web"],
+check([t for t, _ in menu] == ["TV Remote", "Lights", "Pi-hole", "Web", "Control another Pietato"],
       f"Pi-hole is in the Home Assistant menu ({menu})")
 go("Pi-hole")
 m.press("a")

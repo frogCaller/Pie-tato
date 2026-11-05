@@ -169,8 +169,9 @@ class CoderScreen:
         if name == "x":
             self.prompts.hide(ask["id"])
             self.toast("Left for the computer to answer", 3)
-        elif self.web_guard:
-            self.toast("Answer it on the Pi itself, not with the web page's remote", 4)
+        elif self.web_guard:                           # (or another of your Pietatos controlling this one: the same)
+            self.toast("Answer it on the Pi itself, not from another Pietato" if self.web_guard == "pilot"
+                       else "Answer it on the Pi itself, not with the web page's remote", 4)
         elif self.prompts.answer(ask["id"], "allow" if name == "a" else "deny"):
             self.toast(f"Allowed: {ask['tool']}" if name == "a" else f"Denied: {ask['tool']}", 3)
             self.coder.ask("thinking" if name == "a" else "shrug", agent=False)

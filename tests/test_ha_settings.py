@@ -179,7 +179,8 @@ m.go_home()
 m.tab, m.view = ha_tab, "list"
 m.load_tab(ha_tab)
 items = m.tab_items(ha_tab)
-check([it["title"] for it in items] == ["TV Remote", "Lights", "Pi-hole", "Web"], f"the Home tab: its apps, no "
+check([it["title"] for it in items] == ["TV Remote", "Lights", "Pi-hole", "Web", "Control another Pietato"],
+      f"the Home tab: its apps, no "
       f"Settings of its own ({[it['title'] for it in items]})")
 draw("tab")
 

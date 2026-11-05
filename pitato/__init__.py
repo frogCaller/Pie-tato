@@ -58,6 +58,7 @@
   coach.py          ...and your Bot's model coaching it: the kind of game, what to aim for and how, kept
   emerald.py        ...Pokémon Emerald: from the game's memory too (emerald_maps.py: its maps' names)
   inputs.py         controllers, keys, the power switch (a GPi Case's buttons looked for again if they don't come on)
+  pilot.py          one of your Pietatos controlling another: its buttons as a controller plugged into the other one
   control.py        the web page's requests
   term.py           the Pi's terminal on the web page: its console as it is, typed into, after your Pi password
   media.py          media mode: class Media

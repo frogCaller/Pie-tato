@@ -227,8 +227,8 @@ home = next(i for i, t in enumerate(g.LIBRARY) if t["name"] == "Home")
 m.tab, m.view = home, "list"
 m.load_tab(home)
 rows = [r["title"] for r in m.tab_items()]
-check(rows == ["TV Remote", "Lights", "Pi-hole", "Web"],
-      f"the Home tab: Web after the TV Remote, Lights and Pi-hole ({rows})")
+check(rows == ["TV Remote", "Lights", "Pi-hole", "Web", "Control another Pietato"],
+      f"the Home tab: Web after the TV Remote, Lights and Pi-hole, then Control another Pietato ({rows})")
 m.sels[home] = 3
 draw("home_tab")
 m.press("a")

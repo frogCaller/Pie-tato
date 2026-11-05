@@ -21,3 +21,19 @@ The GPi Case's own buttons, or any USB or Bluetooth game controller (Xbox, PlayS
   stays on the controller. In the console, and in a box you're typing into, it types as usual.
 - A trackpad (like the BB9900's) or a mouse works too: swipe to move, one step for a short swipe and a
   few for a long one, and press it to pick. The right button goes back.
+
+## Another Pietato
+
+One Pietato's buttons can work another of yours, as if they were a controller plugged into it: a Pietato on
+the TV that has no controller, say, from your GPi Case. On the one in your hand, open Home > Control another
+Pietato and pick the other one with A. From then on your buttons are the other one's, held ones too, so its
+games play as they should. The screen in your hand shows which one it's controlling and lights up the buttons
+you press. To have your buttons back, hold Home (or Select and Start together) for two seconds.
+
+- Both need Settings > Share with other Pietatos on, and it only works on your own network. If the other one's
+  web page has a password, you type it once, the first time.
+- If the WiFi drops for a moment, what you're holding is let go of over there, and it carries on when the WiFi's
+  back.
+- Like the web page's remote, it can't use the other one's terminal (Home brings its menus back) or answer your
+  coding agent.
+- Up to four can control the same one at once, each a player of its own in a game.

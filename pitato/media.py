@@ -92,6 +92,7 @@ from .screens.notes import NotesScreen
 from .screens.fortune import FortuneScreen
 from .screens.together import TogetherScreen
 from .screens.konami import KonamiScreen
+from .screens.pilot import PilotScreen
 
 _SAVING = threading.Lock()     # (state.json written one at a time: the shrinker's and radio's threads save too)
 UPDATE_STEP = 0.233            # seconds between the update screen's dots lighting up, one after another
@@ -103,7 +104,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             SnakeScreen, GameScreen, SettingsScreen, BluetoothScreen, ControllerScreen, WeatherScreen, WebScreen,
             ComputersScreen, ProgScreen, PiholeScreen, SysDashScreen, SketchScreen, HaSettingsScreen,
             WebSettingsScreen, WwwScreen, ChromiumScreen, RestScreen, HandoffScreen, AttractScreen, TogetherScreen,
-            KonamiScreen, NotesScreen, FortuneScreen):
+            KonamiScreen, NotesScreen, FortuneScreen, PilotScreen):
     """Media mode: what the screen shows and what the buttons do there. Its state is all here; each
     app's buttons and drawing come from its part (pitato/screens/)."""
 
@@ -444,10 +445,11 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.fine_look = 0.0         # when the main loop next looks at how finely to draw (a page showing it big)
         self.web_radio_cache = {}   # Radio Browser lists the web page asked for
         self.web_icons = {}
-        self.web_guard = False      # the web page is at the controls: your home folder only
+        self.web_guard = False      # the web page is at the controls: your home folder only ("pilot": another of
+                                    # your Pietatos controlling this one, the same)
         self.lock = threading.Lock()
         self.state = {"pos": {}, "dur": {}, "settings": {}, "radio": {}, "cam_turn": {}, "cam_flip": {},
-                      "cam_flip_v": {}, "www": {}}
+                      "cam_flip_v": {}, "www": {}, "pilot": {}}   # (pilot: another's web page password, by its address)
         self.fonts = None
         self.load_state()
         self.camera.turns = self.state["cam_turn"]   # (a camera's picture turned: kept with the rest)
@@ -589,6 +591,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         """How long the input loop may wait before the next tick."""
         if self.resting:
             return REST_TICK                           # (resting: a look around once a second)
+        if self.pilot_on():                            # (controlling another of yours: HOME's ring, as it's held)
+            return self.pilot_tick_limit()
         if self.view == "update":
             return max(0.0, min(0.25, self.update_next - time.monotonic()))   # (its dots' next step)
         if self.now_art():
@@ -681,6 +685,9 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.items[i] = self.lights_rows()
         elif tab["type"] == "konami":
             self.items[i] = self.konami_rows()
+        elif tab["type"] == "pilot":                   # Home > Control another Pietato: which of yours are on
+            self.items[i] = self.pilot_rows()
+            self.pilot_looked = time.monotonic()
         elif tab["type"] == "pihole":
             self.pihole.load(tab["files"])
             self.pihole.on_change = self.pihole_changed
@@ -1121,7 +1128,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         kind = it["kind"]
         if (self.web_guard and kind in FILE_KINDS and str(it.get("src", "")).startswith("/")
                 and not self.web_may_see(it["src"])):
-            self.toast("The web page can't open that", 3)
+            self.toast("Another Pietato can't open that" if self.web_guard == "pilot"
+                       else "The web page can't open that", 3)
             return
         if (kind in FILE_KINDS and kind not in ("dir", "up") and self.is_net(str(it.get("src", "")))
                 and not self.net_answers(it["src"])):
@@ -1136,6 +1144,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         elif kind == "child":
             self.tab = int(it["src"])
             self.load_tab(self.tab)
+        elif kind == "pilot":                          # (Home > Control another Pietato: this one)
+            self.pilot_start(it)
         elif kind == "gamedir":
             self.games_open_dir(it)
         elif kind in ("wwwgo", "wwwsearch", "wwwtype", "wwwchromium", "wwwpage"):
@@ -1465,6 +1475,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.notes_tick(now)                       # (Notes: the keyboard types into it while it's up; kept)
         if self.view == "list" and self.tab_type() == "sim" and LIBRARY[self.tab].get("sim") == "fortune":
             self.fortune_tick(now)                     # (the Fortune Cookie: read out loud, or not)
+        if self.pilot_on() or (self.view == "list" and self.tab_type() == "pilot"):
+            self.pilot_tick(now)                       # (Home > Control another Pietato)
         if self.prog is not None:
             self.prog_tick()
         if self.chromium is not None:
@@ -1920,6 +1932,10 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             r = self.press_pihole(name, repeat)
             if r != "pass":
                 return r
+        if ttype == "pilot":
+            r = self.press_pilot(name, repeat)
+            if r != "pass":
+                return r
         if ttype == "konami":
             r = self.press_konami(name, repeat)
             if r != "pass":
@@ -2099,7 +2115,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             if n and items[sel]["kind"] == "netpc" and not repeat:
                 self.net_forget(items[sel])
         elif name == "y" and ttype == "browser" and self.web_guard:
-            self.toast("Hidden files stay hidden from the web page", 3)
+            self.toast("Hidden files stay hidden from " + ("another Pietato" if self.web_guard == "pilot" else
+                                                            "the web page"), 3)
         elif name == "y" and ttype == "browser":
             self.show_hidden = not self.show_hidden
             self.browse(self.cwd)

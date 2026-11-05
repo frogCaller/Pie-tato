@@ -111,7 +111,8 @@ m.press("a")
 ha = m.tab
 check(f"A: the Home Assistant menu ({[x['title'] for x in m.tab_items()]})", m.tab_type() == "group"
       and g.LIBRARY[ha]["name"] == "Home"
-      and [x["title"] for x in m.tab_items()] == ["TV Remote", "Lights", "Pi-hole", "Web"])
+      and [x["title"] for x in m.tab_items()] == ["TV Remote", "Lights", "Pi-hole", "Web",
+                                                  "Control another Pietato"])
 check("where the web page says", m.where_text() == "Home")
 m.press("a")
 check(f"A on TV Remote: it opens ({m.where_text()})", m.tab_type() == "remote" and m.where_text() == "Home › TV Remote")

@@ -222,8 +222,8 @@ m.fb = FB()
 names = [t["name"] for t in g.LIBRARY]
 hi = names.index("Home")
 check("the tab's called Home (not Home Assistant, nor House)", "Home Assistant" not in names and "House" not in names
-      and g.LIBRARY[hi]["children"] == ["TV Remote", "Lights", "Pi-hole", "Web"]
-      and all(g.LIBRARY[names.index(c)]["parent"] == "Home" for c in ("TV Remote", "Lights", "Pi-hole", "Web")))
+      and g.LIBRARY[hi]["children"] == ["TV Remote", "Lights", "Pi-hole", "Web", "Control another Pietato"]
+      and all(g.LIBRARY[names.index(c)]["parent"] == "Home" for c in g.LIBRARY[hi]["children"]))
 check("Settings > Home", ("homeassistant", "Home", None) in g.SETTINGS)
 m.tab, m.view = hi, "list"; m.load_tab(hi)
 check("where the web page says: Home", m.where_text() == "Home")
@@ -232,7 +232,7 @@ check("the web page's Home screen: the home screen", r == {"ok": True} and m.vie
 r = m.web_command({"cmd": "open", "app": "Home"})
 check("...its Home app: the Home tab", r == {"ok": True} and m.view == "list" and m.tab == hi)
 check(f"...its apps, and no Settings of its own (Settings > Home has them) ({[it['title'] for it in m.tab_items()]})",
-      [it["title"] for it in m.tab_items()] == ["TV Remote", "Lights", "Pi-hole", "Web"])
+      [it["title"] for it in m.tab_items()] == ["TV Remote", "Lights", "Pi-hole", "Web", "Control another Pietato"])
 si = m.tab_index("settings")
 m.tab, m.view, m.set_page = si, "list", "root"
 m.load_tab(si)

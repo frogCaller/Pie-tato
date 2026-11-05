@@ -61,7 +61,9 @@ pick a decision model. Your buttons wait while it plays. In racing games, platfo
 and shooters it plays by instinct, many times a second: it holds the gas and steers along the road,
 runs and jumps over gaps and enemies, attacks and blocks, or keeps firing, and the model says when to
 play like that and when to press through a menu. In other games it looks at the screen and picks the
-next button to press, while the game goes on at its own speed.
+next button to press, while the game goes on at its own speed. From a game's title screen it presses
+Start to get going, even when the title screen looks like a level or plays a demo of its own, and it
+does again if it ends up back there after a game over.
 
 It plays Pokémon Emerald (the English cartridge) best, as there it reads the game's memory too. It
 knows the story (out of the truck, the clock, your rival, Professor Birch, and on badge by badge) and
