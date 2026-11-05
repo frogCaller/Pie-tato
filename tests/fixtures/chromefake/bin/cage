@@ -1,0 +1,8 @@
+#!/bin/sh
+# Stands in for cage 0.1.5: what it says when asked (-h, -v). Only asked, never run: systemd-run's a stand-in too.
+# (So whether this machine has a cage of its own, and which, makes no difference: GitHub's has none.)
+case "$1" in
+  -v) echo "Cage version 0.1.5" ;;
+  -h) printf 'Usage: cage [OPTIONS] [--] APPLICATION\n\n -d\t Don'"'"'t draw client side decorations, when possible\n -h\t Display this help message\n -m extend Extend the display across all connected outputs (default)\n -m last Use only the last connected output\n -s\t Allow VT switching\n -v\t Show the version number and exit\n\n Use -- when you want to pass arguments to APPLICATION\n' ;;
+esac
+exit 0

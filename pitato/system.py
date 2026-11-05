@@ -122,7 +122,8 @@ def read_file(path, default=""):
 
 
 PI_MODEL = "/proc/device-tree/model"            # a Pi's model ("Raspberry Pi 4 Model B Rev 1.4")
-DMI = "/sys/class/dmi/id"                      # a PC's description of itself, from its firmware (none on a Pi)
+DMI = os.environ.get("PITATO_DMI") or "/sys/class/dmi/id"   # a PC's description of itself, from its firmware (none
+                                                            # on a Pi). The tests' stand-in, when it's set
 DESKTOP = "/etc/systemd/system/display-manager.service"   # a desktop it can start (Ubuntu's, Debian's), if there's one
 PC_WORDS = re.compile(r"\b([Tt]he|[Tt]his|[Yy]our|[Aa]) Pi\b(?![-\w]| \d| Zero| OS| Case)")
 NO_NAME = re.compile(r"to be filled|default string|system product name|system manufacturer|not specified|"

@@ -20,8 +20,11 @@ Pietato starts on a home screen of apps:
   through Ollama on another computer. It sees through your camera and takes pictures, and talks out loud if
   you give it a voice. At work, it acts out what your coding agent is doing, rings a bell when it's done,
   and sends it prompts you type
-- **Apps**: a Clock with the time and the date (A switches between a dial and big figures, ▲▼ change
-  its colour, ◀▶ its background, X turns its seconds on or off and Y the date), Rock Paper Scissors (pick a winner before the first capture), Game of Life, Forest Fire
+- **Apps**: a Clock with the time and the date (A goes from a dial to big figures, then through a dozen
+  fonts, ▲▼ change its colour, ◀▶ its background, X turns its seconds on or off and Y the date), Notes
+  (type with a USB or Bluetooth keyboard: ▲▼ change the words' colour, ◀▶ the background, A the font, Y adds
+  a glow, a rainbow or a shadow, X reads it out loud in your Bot's voice, and L and R go through your notes,
+  kept in Documents/Notes), Rock Paper Scissors (pick a winner before the first capture), Game of Life, Forest Fire
   and the Mandelbrot set, which takes you on dives (or press the d-pad to explore it, A to zoom in and
   Y to zoom out). Press SELECT to watch one full screen. It can also start cmatrix, hollywood, nyancat,
   cacafire and htop without a keyboard: in cmatrix, ◀▶ change its colour and ▲▼ its speed; in htop, ▲▼ move
@@ -32,7 +35,8 @@ Pietato starts on a home screen of apps:
 - **Games**: Snake (press X and a decision model on your bot's computer plays it for you), and your own
   Game Boy, Game Boy Advance, NES, SNES, Genesis, Master System, Game Gear, Neo Geo, Neo Geo Pocket and
   PlayStation games, N64, PSP, DS and Dreamcast games on a Pi 4 or 5 or a PC, and PlayStation 2, GameCube
-  and Wii games on a PC. Two can play on two controllers
+  and Wii games on a PC. Two can play on two controllers. Its icon on the home screen shows one of the
+  consoles you have games for, a different one each time you come back to the home screen
 - **System**: a dashboard of the Pi's temperature, how busy it is, its memory, storage and network. SELECT
   shows it as a list instead, with Update software, Reboot and Shut down
 - **Settings**: WiFi, Bluetooth, the home screen's style, background, colours, video size, a TV or monitor's

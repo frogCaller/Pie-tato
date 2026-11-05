@@ -1,10 +1,13 @@
 """Buttons and keys: game controllers, the keys they stand for in terminal mode, a real keyboard (its keys as the
 buttons in media mode, and typing while the on-screen one is up), a trackpad or mouse (its swipes the d-pad in media
-mode), a touch screen (tapped and swiped in media mode), and the GPi Case's power switch."""
+mode), a touch screen (tapped and swiped in media mode), and the GPi Case's power switch, and its own buttons (looked
+for again when they don't come on as it starts)."""
 import json
 import os
+import re
 import selectors
 import signal
+import subprocess
 import threading
 import time
 from evdev import ecodes as e, InputDevice, list_devices
@@ -465,6 +468,102 @@ class Touch:
 CHORD_WAIT = 0.25   # no HOME button: how long SELECT or START waits to see if the other comes
 SCAN_EVERY = 2.0    # seconds between looks for controllers plugged in
 
+# a GPi Case's own buttons are a USB controller inside it, and now and then they don't come on as the Pi starts
+# (switching it off and on again brings them back). Not there a while after start-up: the case's USB is unplugged and
+# plugged in again, as the kernel can, and what was there is written to the log, to see why
+BUS_USB = 0x03
+CASE_WAIT = 10.0    # seconds after start-up with no USB controller in a GPi Case before its USB is plugged in again...
+CASE_TRIES = 2      # ...this many times at most, CASE_WAIT apart
+REPLUG_GAP = 1.0    # seconds it's left unplugged
+USB_DEVICES = "/sys/bus/usb/devices"
+INPUT_LIST = "/proc/bus/input/devices"
+
+
+def bus_of(dev):
+    """How it's connected (BUS_USB, Bluetooth's 0x05, BUS_HOST...), or None."""
+    return getattr(getattr(dev, "info", None), "bustype", None)
+
+
+def usb_buses():
+    """The USB buses' root hubs in sysfs (usb1, usb2...): everything on USB is on one of them."""
+    try:
+        names = [n for n in os.listdir(USB_DEVICES) if re.fullmatch(r"usb\d+", n)]
+    except OSError:
+        return []
+    return [os.path.join(USB_DEVICES, n) for n in sorted(names, key=lambda n: int(n[3:]))]
+
+
+def usb_replug():
+    """Everything on USB unplugged and plugged in again, as pulling its plug out would: each bus's root hub turned off
+    and on (its "authorized"), and the kernel looks at what's on it afresh. True if it could."""
+    off = []
+    for bus in usb_buses():
+        try:
+            with open(os.path.join(bus, "authorized"), "w") as f:
+                f.write("0")
+            off.append(bus)
+        except OSError as ex:
+            print(f"couldn't unplug {os.path.basename(bus)}: {ex}", flush=True)
+    if off:
+        time.sleep(REPLUG_GAP)
+    ok = bool(off)
+    for bus in off:
+        for left in (2, 1, 0):                         # (never left unplugged: tried again, a moment later)
+            try:
+                with open(os.path.join(bus, "authorized"), "w") as f:
+                    f.write("1")
+                break
+            except OSError as ex:
+                if not left:
+                    ok = False
+                    print(f"couldn't plug {os.path.basename(bus)} in again: {ex}", flush=True)
+                else:
+                    time.sleep(0.5)
+    return ok
+
+
+def read_line(path):
+    try:
+        with open(path, errors="replace") as f:
+            return f.readline().strip()
+    except OSError:
+        return ""
+
+
+def usb_report():
+    """What's on USB, for the log: "usb1 1d6b:0002 DWC OTG Controller; 1-1 ..." (or "nothing")."""
+    try:
+        names = sorted(n for n in os.listdir(USB_DEVICES) if ":" not in n)   # (n:c.i are a device's interfaces)
+    except OSError:
+        return "no USB"
+    out = []
+    for n in names:
+        d = os.path.join(USB_DEVICES, n)
+        vid, pid, product = (read_line(os.path.join(d, k)) for k in ("idVendor", "idProduct", "product"))
+        if vid:
+            out.append(f"{n} {vid}:{pid}" + (f" {product}" if product else ""))
+    return "; ".join(out) or "nothing"
+
+
+def input_report():
+    """The input devices the kernel has, by name, for the log."""
+    try:
+        with open(INPUT_LIST, errors="replace") as f:
+            names = [line.split("=", 1)[1].strip().strip('"') for line in f if line.startswith("N: Name=")]
+    except OSError:
+        return "?"
+    return ", ".join(names) or "none"
+
+
+def kernel_usb(most=4):
+    """The kernel's last few words about USB (a device that didn't answer, say), for the log."""
+    try:
+        out = subprocess.run(["dmesg"], capture_output=True, text=True, timeout=3, stdin=subprocess.DEVNULL).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    lines = [line.strip() for line in (out or "").splitlines() if "usb" in line.lower()]
+    return " | ".join(lines[-most:])
+
 
 def pad_kind(dev):
     """'gamepad' for the standard layout (Xbox, PlayStation, 8BitDo, the GPi Case...),
@@ -657,6 +756,9 @@ class Pads:
         self.power_told = False
         self.next_scan = 0.0
         self.saved = self.load()     # model -> the buttons set up for it
+        self.case_next = time.monotonic() + CASE_WAIT if self.gpi else None   # (a GPi Case: its own buttons looked
+        self.case_tries = 0                                                   # for: case_check)
+        self.notice = None           # something to say on the screen (the case's buttons looked for again)
 
     @staticmethod
     def load():
@@ -778,7 +880,36 @@ class Pads:
             self.power_told = True
             print("power switch: not found (setup.sh's GPi Case settings work once the Pi has "
                   "restarted)", flush=True)
+        self.case_check(now)
         return new
+
+    def case_check(self, now):
+        """A GPi Case: no USB controller (its own buttons are one, inside it) a while after start-up, and the case's USB
+        is unplugged and plugged in again, as the kernel can (on a thread: it takes a moment), CASE_TRIES times at most.
+        What was there goes to the log first, to see why. One there, and it's done."""
+        if self.case_next is None or now < self.case_next:
+            return
+        if any(bus_of(p.dev) == BUS_USB for p in self.by_path.values()):
+            self.case_next = None
+            return
+        if self.case_tries >= CASE_TRIES:
+            self.case_next = None
+            print("the case's buttons: still not there. Switching it off and on again should bring them back",
+                  flush=True)
+            self.notice = "The case's buttons still aren't on: switch it off and on again"
+            return
+        self.case_tries += 1
+        self.case_next = now + CASE_WAIT
+        if self.case_tries == 1:
+            self.notice = "The case's buttons didn't come on: looking for them again"
+        threading.Thread(target=self.case_replug, args=(self.case_tries,), daemon=True, name="case-usb").start()
+
+    @staticmethod
+    def case_replug(tries):
+        print(f"the case's buttons: not there (input: {input_report()}; USB: {usb_report()}; kernel: "
+              f"{kernel_usb() or '-'}). Its USB plugged in again ({tries} of {CASE_TRIES})", flush=True)
+        if not usb_replug():
+            print("the case's buttons: its USB couldn't be plugged in again", flush=True)
 
     def drop(self, pad):
         if isinstance(pad, PowerKey):

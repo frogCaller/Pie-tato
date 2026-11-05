@@ -1,4 +1,5 @@
 """The home screen: its grid of apps, and opening one."""
+import random
 import time
 
 from ..theme import ACCENT, BG, BODY, co_mix, LINE, MUTED, ROW, TEXT
@@ -132,13 +133,27 @@ class HomeScreen:
 
     def home_icon(self, name, lit=False):
         style, s = self.home_style(), scale()
-        key = (style, name, lit, s)
+        face = self.games_face() if name == "Games" else None
+        key = (style, name, lit, s, face)
         if key not in self.icons:                      # (as finely as the screen's drawn: fine.py)
             size = self.home_geometry()[0]
-            self.icons[key] = made_fine(draw_glyph(name, self.GLYPH * s) if style == "Cards" else
-                                        draw_bright_icon(name, size * s) if style == "Bright" else
-                                        draw_icon(name, size * s, lit=lit, fine=s))
+            self.icons[key] = made_fine(draw_glyph(name, self.GLYPH * s, face=face) if style == "Cards" else
+                                        draw_bright_icon(name, size * s, face=face) if style == "Bright" else
+                                        draw_icon(name, size * s, lit=lit, fine=s, face=face))
         return self.icons[key]
+
+    def games_face(self):
+        """The console the Games icon shows now: one you have games for (None: you have none, and it's the
+        controller, as ever)."""
+        return getattr(self, "games_face_key", None)
+
+    def games_face_next(self):
+        """You've come to the home screen (not just had it drawn again): the Games icon moves on to the next console
+        you have games for, in the Games list's order (the first time, any of them)."""
+        have = self.games_systems()
+        was = self.games_face()
+        self.games_face_key = (have[(have.index(was) + 1) % len(have)] if was in have
+                               else random.choice(have) if have else None)
 
     def home_wall(self):
         """The home screen's background, made again only when it changes."""
@@ -188,11 +203,12 @@ class HomeScreen:
         """Glass: a soft light round a tile (the picked one: in its colour) or a shadow under it, made once."""
         from ..fine import Image, ImageDraw
         from PIL import ImageFilter
-        key = ("glow", name if kind == "glow" else None, kind, self.TILE, scale())
+        face = self.games_face() if name == "Games" else None
+        key = ("glow", name if kind == "glow" else None, kind, self.TILE, scale(), face)
         if key not in self.icons:
             pad = 14
             im = Image.new("RGBA", (self.TILE + 2 * pad, self.TILE + 2 * pad), (0, 0, 0, 0))
-            colour = tile_tint(name) + (150,) if kind == "glow" else (0, 0, 0, 120)
+            colour = tile_tint(name, face) + (150,) if kind == "glow" else (0, 0, 0, 120)
             ImageDraw.Draw(im).rounded_rectangle((pad, pad, pad + self.TILE, pad + self.TILE),
                                                  radius=int(self.TILE * 0.23), fill=colour)
             self.icons[key] = (im.filter(ImageFilter.GaussianBlur(7 if kind == "glow" else 5)), pad)
@@ -240,7 +256,8 @@ class HomeScreen:
         """The background with every tile on it, unpicked: kept until something about it changes."""
         from ..fine import ImageDraw
         style = self.home_style()
-        key = (style, self.wall[0], tuple(a for a, _ in apps), cols, first, rows_fit, self.fb.w, self.fb.h)
+        key = (style, self.wall[0], tuple(a for a, _ in apps), cols, first, rows_fit, self.fb.w, self.fb.h,
+               self.games_face())
         if self.home_base[0] != key:
             base = self.wall[1].copy()
             bd = ImageDraw.Draw(base)

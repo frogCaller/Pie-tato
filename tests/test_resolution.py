@@ -342,8 +342,11 @@ m.set_page, m.set_sel = "root", m.settings_root_index("friend")
 m.press("a"); m.press("b")
 check(f"Bot: back to it ({keys(m)[m.set_sel]})", m.set_page == "root" and keys(m)[m.set_sel] == "friend")
 m.set_page, m.set_sel = "root", m.settings_root_index("start")
+starts = {k: c for k, _, c in g.SETTINGS}["start"]
+was = m.setting("start")
 m.press("right")
-check(f"At start-up still changes with Resolution above it ({m.setting('start')})", m.setting("start") == "Home screen")
+check(f"At start-up still changes with Resolution above it ({was}, then {m.setting('start')})",
+      m.setting("start") == starts[(starts.index(was) + 1) % len(starts)] != was)
 
 # ---- setup.sh: no question about 720p (the screen's own size stays; Settings > Resolution changes it) ----------
 setup = open(ROOT + "/setup.sh").read()

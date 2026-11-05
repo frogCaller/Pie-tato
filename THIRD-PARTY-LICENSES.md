@@ -33,8 +33,9 @@ available from Raspberry Pi OS and Debian (`apt-get source <package>`).
 
 ## In this repository
 
-- The fonts in `static/fonts` (Atkinson Hyperlegible Next and Inter): SIL Open Font License 1.1, in
-  `static/fonts/OFL.txt`
+- The fonts in `static/fonts` (Atkinson Hyperlegible Next, Inter, and for Notes and the Clock: Courier Prime,
+  Caveat, Comic Neue, Press Start 2P, VT323, Pacifico, Orbitron, Righteous, Bebas Neue and Monoton): SIL Open
+  Font License 1.1, in `static/fonts/OFL.txt`
 - The console pictures in `pitato/icons/consoles`: RetroArch's, under CC BY 4.0, in
   `pitato/icons/consoles/CREDITS.txt`
 

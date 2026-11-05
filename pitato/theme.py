@@ -42,6 +42,26 @@ FONT_THIN = bundled_font("InterDisplay-Light.otf", FONT)
 FONT_UI = bundled_font("Inter-Regular.otf", FONT)
 FONT_UI_BOLD = bundled_font("Inter-SemiBold.otf", FONT_BOLD)
 
+# typefaces to pick from, in Notes and the Clock (static/fonts, free: their OFL.txt): the name each goes by, its file,
+# and how big it's set beside Inter for its small letters to look as big (a pixel font: its own sizes, notes.py's)
+TYPEFACES = (("Clean", "Inter-Regular.otf", 1.0), ("Thin", "InterDisplay-Light.otf", 1.0),
+             ("Bold", "Inter-SemiBold.otf", 1.0), ("Handwriting", "Caveat-Variable.ttf", 1.45),
+             ("Typewriter", "CourierPrime-Regular.ttf", 1.2), ("Pixel", "PressStart2P-Regular.ttf", 0.62),
+             ("Terminal", "VT323-Regular.ttf", 1.35), ("Comic", "ComicNeue-Regular.ttf", 1.1),
+             ("Script", "Pacifico-Regular.ttf", 1.1), ("Future", "Orbitron-Variable.ttf", 0.92),
+             ("Retro", "Righteous-Regular.ttf", 1.05), ("Poster", "BebasNeue-Regular.ttf", 1.2),
+             ("Neon", "Monoton-Regular.ttf", 1.0))
+
+
+def typeface(name):
+    """A typeface by the name it goes by: (its file, how big it's set beside Inter). One that isn't there (an older
+    fonts folder): DejaVu Sans, as big."""
+    for n, f, k in TYPEFACES:
+        if n == name:
+            path = bundled_font(f, "")
+            return (path, k) if path else (FONT, 1.0)
+    return FONT_UI, 1.0
+
 
 # PiE-ink's colour-screen palette
 PI_BG, PI_FG, PI_DIM, PI_ACCENT = (0, 0, 0), (255, 255, 255), (150, 150, 150), (98, 210, 255)

@@ -88,6 +88,7 @@ from .screens.chromium import ChromiumScreen
 from .screens.rest import REST_TICK, RestScreen
 from .screens.handoff import HandoffScreen, SEND_AGAIN
 from .screens.attract import AttractScreen
+from .screens.notes import NotesScreen
 from .screens.together import TogetherScreen
 from .screens.konami import KonamiScreen
 
@@ -101,7 +102,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             SnakeScreen, GameScreen, SettingsScreen, BluetoothScreen, ControllerScreen, WeatherScreen, WebScreen,
             ComputersScreen, ProgScreen, PiholeScreen, SysDashScreen, SketchScreen, HaSettingsScreen,
             WebSettingsScreen, WwwScreen, ChromiumScreen, RestScreen, HandoffScreen, AttractScreen, TogetherScreen,
-            KonamiScreen):
+            KonamiScreen, NotesScreen):
     """Media mode: what the screen shows and what the buttons do there. Its state is all here; each
     app's buttons and drawing come from its part (pitato/screens/)."""
 
@@ -251,6 +252,12 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.games_q = None          # what you typed to find a game (START on the Games tab), while it's finding it
         self.games_dir = None        # the Games tab's folder open: a console's (sys:gba), recent, fav, all; or None
         self.games_all = []          # every game (find_games), as the Games tab was last loaded
+        self.home_drawn = None       # the view drawn last (the home screen come to anew: the Games icon moves on)
+        self.note_path = None        # Notes: the note on its page (None: a new one, not kept yet: screens/notes.py)
+        self.note_changed = None     # ...when you last typed in it, till it's kept
+        self.notes_reading = False   # ...a keyboard types into it (its page is up)
+        self.notes_kbs = frozenset()  # ...the keyboards that do
+        self.notes_aloud = False     # ...it's being read out loud
         self.sim_opts = None         # a sim's START card: the row picked on it, or None
         self.sim_t = None            # when the sim on screen last moved on
         self.lofi = None             # Now playing's lofi art (pitato/lofi.py), once it's been on
@@ -867,6 +874,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.fb = None
             return
         self.active = True
+        self.home_drawn = None                         # (the home screen, when it's drawn, come to anew)
         self.stirred = time.monotonic()                # (just come: a while before the screen may rest)
         self.hush_stop()                               # (media mode needs no silence to keep its speaker quiet)
         self.camera.listen()                           # PiE-inks say they're there: asked first for what they have
@@ -903,6 +911,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         if not self.active:
             return
         self.rest_end()                                # (the screen on again, for the terminal)
+        self.notes_save()                              # (what you typed in Notes, kept)
         self.chromium_close()                          # (its console's: media mode's in front again first)
         self.prog_stop()
         if self.learn:                                 # the controller's buttons go back to keys
@@ -944,6 +953,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         screen_out.terminal_turn_now()                 # (the terminal turned as the screen is: in text mode now)
 
     def shutdown(self):
+        self.notes_save()                              # (what you typed in Notes, kept first)
         self.rest_end()                                # (the screen on again: "Shutting down" goes on it)
         self.chromium_close(wait=True)                 # (first, as it's on a console of its own: it goes too)
         self.prog_stop()                               # (first: "Shutting down" can't go over it)
@@ -1450,6 +1460,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.net_tick()
         if self.net_saving or self.net_saved:
             self.net_save_tick(now)
+        if self.notes_reading or self.note_changed is not None or self.notes_shown():
+            self.notes_tick(now)                       # (Notes: the keyboard types into it while it's up; kept)
         if self.prog is not None:
             self.prog_tick()
         if self.chromium is not None:
@@ -2155,6 +2167,9 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.dirty = self.cam_fresh = self.update_step = self.face_step = False
         if self.view == "update":
             self.update_drawn = time.monotonic()
+        if self.view == "home" and self.home_drawn != "home":
+            self.games_face_next()                     # (come to the home screen: the Games icon, its next console)
+        self.home_drawn = self.view
         draw = {"home": self.render_home, "keys": self.render_keys, "help": self.render_help,
                 "learn": self.render_learn, "gamemenu": self.render_game_menu, "invite": self.render_invite,
                 "konami": self.render_konami_in, "filemenu": self.render_file_menu, "mediamenu": self.render_media_menu,

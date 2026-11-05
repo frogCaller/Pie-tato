@@ -1,12 +1,12 @@
 """Apps' Clock: the time and the date in the middle of the screen, on a dial (Analogue) or in big figures
 (Digital), in the colour and on the background you pick (up and down, left and right), with or without its seconds (X)
-and the date (Y)."""
+and the date (Y), its figures in the font you pick (A goes from the dial to the figures, then through the fonts)."""
 import math
 import time
 
 from .sims import Sim
 from .fine import detail
-from .theme import BG, BODY, co_mix, FONT_THIN, FONT_UI, FONT_UI_BOLD, MUTED, TEXT
+from .theme import BG, BODY, co_mix, FONT_UI, FONT_UI_BOLD, MUTED, TEXT, typeface
 
 
 # ---- the Clock --------------------------------------------------------------------------------------------
@@ -16,6 +16,8 @@ from .theme import BG, BODY, co_mix, FONT_THIN, FONT_UI, FONT_UI_BOLD, MUTED, TE
 # how far it is from a hand's middle line (numpy): quick enough for a Pi Zero. The figures and words are kept as
 # pictures too, so a frame is mostly pasting.
 CLOCK_LOOKS = ("Analogue", "Digital")
+CLOCK_FONTS = ("Thin", "Bold", "Pixel", "Terminal", "Future", "Neon", "Poster", "Retro", "Script", "Handwriting",
+               "Typewriter", "Comic")          # its figures' (and the dial's 12, 3, 6 and 9): theme.py's typefaces
 CLOCK_COLOURS = (("Blue", (96, 170, 228)), ("Teal", (64, 200, 184)), ("Green", (116, 204, 128)),
                  ("Gold", (230, 190, 80)), ("Orange", (240, 150, 84)), ("Red", (236, 104, 104)),
                  ("Pink", (236, 128, 176)), ("Purple", (166, 138, 236)), ("White", (236, 239, 243)))
@@ -66,12 +68,14 @@ def capsule(a, ax, ay, bx, by, r, colour):
 
 class Clock(Sim):
     """The time and the date, in the middle of its room: a dial with three hands (Analogue) or big figures
-    (Digital). A switches between them, up and down change its colour, left and right its background, X turns its
-    seconds on or off, Y the date; START has them all."""
+    (Digital), in one font or another. A goes from the dial to the figures, then on through the fonts, and back to the
+    dial; up and down change its colour, left and right its background, X turns its seconds on or off, Y the date;
+    START has them all."""
     key = "clock"
     blurb = "The time and the date, on a dial or in big figures. Every button changes something."
     poke_label = None
     options = (("look", "Look", CLOCK_LOOKS, "Analogue"),
+               ("font", "Font", CLOCK_FONTS, "Thin"),
                ("seconds", "Seconds", ("On", "Off"), "On"),
                ("date", "Date", ("On", "Off"), "On"),
                ("colour", "Colour", tuple(n for n, _ in CLOCK_COLOURS), "Blue"),
@@ -98,9 +102,40 @@ class Clock(Sim):
 
     def hints(self):
         """Its buttons, along the bottom (on a screen wider than the GPi Case's, SELECT's and START's too)."""
-        out = [("A", "Analogue" if self.values.get("look") == "Digital" else "Digital"), ("▲▼", "Colour"),
+        out = [("A", self.a_does()), ("▲▼", "Colour"),
                ("◀▶", "Background"), ("X", "Seconds"), ("Y", "Date")]
         return out + [("SELECT", "Full screen"), ("START", "More")] if self.w >= 800 else out
+
+    def a_does(self):
+        """What A does next: the figures (from the dial), the next font, or (after the last) the dial again."""
+        if self.values.get("look") != "Digital":
+            return "Digital"
+        return "Analogue" if self.values.get("font") == CLOCK_FONTS[-1] else "Next font"
+
+    def a_next(self):
+        """A: {look, font} for the next face: the dial, then the figures in each font, then the dial again (Thin)."""
+        if self.values.get("look") != "Digital":
+            return {"look": "Digital"}
+        font = self.values.get("font")
+        k = CLOCK_FONTS.index(font) if font in CLOCK_FONTS else -1
+        if k + 1 >= len(CLOCK_FONTS):
+            return {"look": "Analogue", "font": CLOCK_FONTS[0]}
+        return {"font": CLOCK_FONTS[k + 1]}
+
+    def figures(self):
+        """Its figures' font: (its file, how big it's set beside Inter's)."""
+        font = self.values.get("font")
+        return typeface(font if font in CLOCK_FONTS else "Thin")
+
+    def standing(self, path):
+        """How tall its figures stand above their baseline, a share of their letter size (Inter's 0.73)."""
+        def make():
+            from .fine import ImageDraw
+            from PIL import Image
+            f = self.font(path, 100)
+            top = ImageDraw.Draw(Image.new("L", (1, 1))).textbbox((0, 0), "0123456789", font=f, anchor="ls")[1]
+            return max(0.3, min(1.2, -top / 100))
+        return self.keep(("standing", path), make)
 
     @property
     def backdrop(self):
@@ -218,7 +253,8 @@ class Clock(Sim):
                     x, y, e = c + ux * r * R, c + uy * r * R, w * R / 2
                     d.ellipse(((x - e) * k, (y - e) * k, (x + e) * k, (y + e) * k), fill=colour)
         at, size, colour = FIGURES
-        f = self.font(FONT_THIN, max(8, round(size * R * k)))
+        path, scale_k = self.figures()
+        f = self.font(path, max(8, round(size * R * k * min(scale_k, 1.0))))
         for hour, text in ((0, "12"), (3, "3"), (6, "6"), (9, "9")):
             a = math.radians(hour * 30)
             d.text(((c + math.sin(a) * at * R) * k, (c - math.cos(a) * at * R) * k), text, font=f, fill=colour,
@@ -230,10 +266,11 @@ class Clock(Sim):
         import numpy as np
         from .fine import ImageDraw
         text = self.date_short(t) if self.date_on() else ""
-        key = (R, text, self.backdrop)
+        font = self.values.get("font")
+        key = (R, text, self.backdrop, font)
         got = self.dials.get(key)
         if got is None:
-            pic = self.keep(("dial", R, self.backdrop), lambda: self.dial(R)).copy()
+            pic = self.keep(("dial", R, self.backdrop, font), lambda: self.dial(R)).copy()
             c = pic.width / 2
             if text:
                 ImageDraw.Draw(pic).text((c, c + DATE[0] * R), text,
@@ -269,9 +306,10 @@ class Clock(Sim):
     def digital_size(self):
         """The figures' letter size: the widest time (23:59, its seconds beside it) and the date under it fill this much
         of the room."""
-        f = self.font(FONT_THIN, 100)
-        wide = f.getlength("23:59") + 100 * SIDE[0] + 2 * self.font(FONT_THIN, round(100 * SIDE[1])).getlength("0")
-        tall = 100 * (0.73 + UNDER[0] + UNDER[1] * 1.2)
+        path = self.figures()[0]
+        f = self.font(path, 100)
+        wide = f.getlength("23:59") + 100 * SIDE[0] + 2 * self.font(path, round(100 * SIDE[1])).getlength("0")
+        tall = 100 * (self.standing(path) + UNDER[0] + UNDER[1] * 1.2)
         fit = min((self.w - 2 * CLOCK_MARGIN * self.fine) / wide, (self.h - 2 * CLOCK_MARGIN * self.fine) / tall)
         return max(16, int(100 * fit * DIGITAL_ROOM))
 
@@ -282,33 +320,34 @@ class Clock(Sim):
         return pic.width - 2
 
     def draw_digital(self, img, x0, y0, t):
-        """The time in big thin figures in the middle of the room (the colon in the colour picked), AM or PM and the
-        seconds beside it, the date under it (unless it's off)."""
+        """The time in big figures in the middle of the room (the colon in the colour picked), AM or PM and the
+        seconds beside it, the date under it (unless it's off). Its figures in its font (Thin: Inter's)."""
         size = self.digital_size()
+        path = self.figures()[0]
         colour, secs = self.colour(), self.seconds()
         hours = f"{t.tm_hour:02d}" if self.hours24 else str(t.tm_hour % 12 or 12)
         parts = (hours, ":", f"{t.tm_min:02d}")
-        pics = [self.words(p, FONT_THIN, size)[0] for p in parts]
+        pics = [self.words(p, path, size)[0] for p in parts]
         gap = size * 0.03                              # (each side of the colon)
         time_w = sum(p.width - 2 for p in pics) + 2 * gap
         small, label = round(size * SIDE[1]), round(size * SIDE[2])
-        sec_w = 2 * self.font(FONT_THIN, small).getlength("0") if secs else 0   # (the room two figures can need)
+        sec_w = 2 * self.font(path, small).getlength("0") if secs else 0   # (the room two figures can need)
         ampm = "" if self.hours24 else time.strftime("%p", t)
         side = max(sec_w, self.words(ampm, FONT_UI_BOLD, label)[0].width if ampm else 0)
         total = time_w + (size * SIDE[0] + side if side else 0)
-        cap = size * 0.73                              # (how tall the figures stand, above their baseline)
+        cap = size * self.standing(path)               # (how tall the figures stand, above their baseline)
         date = f"{time.strftime('%A, %B', t)} {t.tm_mday}" if self.date_on() else ""
         date_size = max(10, round(size * UNDER[1]))
         block = cap + (size * UNDER[0] + date_size if date else 0)
         x = x0 + (self.w - total) / 2
         base = y0 + (self.h - block) / 2 + cap
         for i, (p, colour_of) in enumerate(zip(parts, (TEXT, colour, TEXT))):
-            x += self.paste_words(img, p, FONT_THIN, size, colour_of, x, base) + (gap if i < 2 else 0)
+            x += self.paste_words(img, p, path, size, colour_of, x, base) + (gap if i < 2 else 0)
         x += size * SIDE[0]
         if ampm:
             self.paste_words(img, ampm, FONT_UI_BOLD, label, MUTED, x, base - cap + label * 0.73)
         if secs:
-            self.paste_words(img, f"{t.tm_sec:02d}", FONT_THIN, small, colour, x, base)
+            self.paste_words(img, f"{t.tm_sec:02d}", path, small, colour, x, base)
         if not date:
             return
         pic, down = self.words(date, FONT_UI, date_size)

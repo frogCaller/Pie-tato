@@ -147,8 +147,10 @@ check(f"Debian 12 without a desktop: set up (exit {report(out, 'SETUP EXIT')}), 
       report(out, "SETUP EXIT") == "0" and "Non-free is on now in: /etc/apt/sources.list" in lines
       and open(apt12 + "/sources.list").read().count("bookworm main non-free non-free-firmware") == 2
       and open(apt12 + "/sources.list").read().count("main non-free non-free-firmware") == 6)
-check("...the start-up target left be, rfkill and BlueALSA in, nothing for PipeWire",
-      not any("set-default" in s for s in stub) and "apt-get install -y rfkill" in stub
+HAS_RFKILL = shutil.which("rfkill") is not None    # (this machine's own: setup.sh puts it in only where it isn't)
+check("...the start-up target left be, rfkill (where it isn't) and BlueALSA in, nothing for PipeWire"
+      + (" (this machine has rfkill: left be)" if HAS_RFKILL else ""),
+      not any("set-default" in s for s in stub) and ("apt-get install -y rfkill" in stub) != HAS_RFKILL
       and "apt-get install -y bluez-alsa-utils libasound2-plugin-bluez" in stub and report(out, "WIREPLUMBER") == "[]")
 
 # ---- with su (Debian without sudo) ----

@@ -13,6 +13,9 @@ The GPi Case's own buttons, or any USB or Bluetooth game controller (Xbox, PlayS
 - If A and B are the wrong way round, use that controller to set Settings > Swap A and B to On.
 - If a button does the wrong thing, open Settings > Controller and press each button it asks for.
 - If your controller has no Home button, press Select and Start together.
+- In a GPi Case, if the case's buttons don't come on when it starts (it happens now and then),
+  Pietato plugs the case's USB in again by itself after about 10 seconds. If they still don't come
+  on, switch it off and on again.
 - A keyboard works the apps too: W A S D (or the arrow keys) is the d-pad, Enter or Space is A,
   Backspace or Esc is B, X and Y are X and Y, Q and E are L and R, P is Start and O is Select. Home
   stays on the controller. In the console, and in a box you're typing into, it types as usual.

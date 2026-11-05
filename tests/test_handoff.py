@@ -476,6 +476,18 @@ try:
             time.sleep(0.1)
         return os.path.isfile(path)
 
+    def until_kept(path, since, secs=10.0):
+        """A copy sent to keep, there on the TV, and the TV done with it: it says so last ("beach.jpg from gpi, in
+        Pictures"), a moment after the file's in place (what's checked next mustn't hear it)."""
+        name = os.path.basename(path)
+        end = time.time() + secs
+        while time.time() < end:
+            said = tv_said("toast", since, secs=0)
+            if os.path.isfile(path) and said and str(said.get("toast", "")).startswith(name + " from "):
+                return True
+            time.sleep(0.1)
+        return False
+
     heard = dict(m.pie.heard)
     m.pie.heard.clear()
     m.open_pdf(PDF)
@@ -543,31 +555,86 @@ try:
     # ---- Send to another Pietato: a copy for it to keep, in its own folders; it stays open here -------------------------
     toasts.clear()
     m.open_photo([PIC1, PIC2], 0)
+    n = tv_lines()
     home_keep()
     kept = TV + "/Pictures/beach.jpg"
-    got = until_file(kept)
+    got = until_kept(kept, n)
     check(f"Send to another Pietato, a picture: a copy kept in the TV's Pictures; here it stays open "
           f"({m.view}, {toasts[-1:]})", got and open(kept, "rb").read() == open(PIC1, "rb").read() and m.view == "photo"
           and m.v["items"][m.v["i"]] == PIC1 and toasts[-1:] == ["Sending it to tv, for its Pictures"])
     st = tv_state()
     shown = os.path.basename((st["viewer"].get("items") or [""])[0])
     check(f"...the TV's screen left as it was (still {shown})", st["view"] == "photo" and shown == "hills.jpg")
+    n = tv_lines()
     home_keep()
-    check("...sent again: kept again, beside it, a number on its name", until_file(TV + "/Pictures/beach-2.jpg")
+    check("...sent again: kept again, beside it, a number on its name", until_kept(TV + "/Pictures/beach-2.jpg", n)
           and open(TV + "/Pictures/beach-2.jpg", "rb").read() == open(PIC1, "rb").read())
     m.close_viewer()
     m.open_pdf(PDF)
+    n = tv_lines()
     home_keep()
-    check("a PDF: kept in the TV's Documents, the very file", until_file(TV + "/Documents/manual.pdf")
+    check("a PDF: kept in the TV's Documents, the very file", until_kept(TV + "/Documents/manual.pdf", n)
           and open(TV + "/Documents/manual.pdf", "rb").read() == open(PDF, "rb").read() and m.view == "pdf")
     m.close_viewer()
     DOC = HOME + "/Documents/plan.md"
     open(DOC, "w").write("# The plan\n\n- one\n- two\n")
     m.open_text(DOC)
+    n = tv_lines()
     home_keep()
-    check("some text from a file: the file itself kept, by its own name", until_file(TV + "/Documents/plan.md")
+    check("some text from a file: the file itself kept, by its own name", until_kept(TV + "/Documents/plan.md", n)
           and open(TV + "/Documents/plan.md").read() == open(DOC).read())
     m.close_viewer()
+
+    # ---- a song of yours: Send to another Pietato on Now playing too, a copy for its Music; it plays on here --------
+    SONG = HOME + "/Music/Lazy Afternoon.mp3"
+    open(SONG, "wb").write(b"ID3\x04\x00" + bytes(range(256)) * 40)
+    m.play([{"kind": "audio", "src": SONG, "title": "Lazy Afternoon", "key": SONG}], 0)
+    m.view, m.paused = "now", False
+    m.media_home()
+    check(f"HOME on Now playing, a song of yours: Send to another Pietato too ({m.media_menu_items()})",
+          m.view == "mediamenu" and m.media_menu_items() == [("back", "Back to the music"),
+                                                             ("send", "Play on another Pietato"),
+                                                             ("keep", "Send to another Pietato")])
+    m.dirty = True
+    m.flush()
+    toasts.clear()
+    n = tv_lines()
+    m.press("down")
+    m.press("down")
+    m.press("a")
+    got = until_kept(TV + "/Music/Lazy Afternoon.mp3", n)
+    check(f"...A: a copy kept in the TV's Music, by its own name; here it plays on, on Now playing ({m.view}, "
+          f"{toasts[-1:]})", got and open(TV + "/Music/Lazy Afternoon.mp3", "rb").read() == open(SONG, "rb").read()
+          and m.view == "now" and m.proc is not None and m.cur.get("src") == SONG
+          and toasts[-1:] == ["Sending it to tv, for its Music"])
+    m.play([{"kind": "radio", "src": "https://stream.example.com/jazz", "title": "Jazz FM"}], 0)
+    m.view = "now"
+    m.media_home()
+    check(f"...a station: no Send (nobody's file to keep: Play on another Pietato only) ({len(m.media_menu_items())})",
+          [j for j, _ in m.media_menu_items()] == ["back", "send"])
+    m.press("b")
+    m.stop()
+    mi = next(k for k, t in enumerate(g.LIBRARY) if t["name"] == "Music")
+    was_dirs = g.LIBRARY[mi]["dirs"]
+    g.LIBRARY[mi]["dirs"] = [HOME + "/Music"]          # (this test's home folder's, not /home/*'s)
+    open(HOME + "/Music/A Song.mp3", "wb").write(b"ID3")
+    open(HOME + "/Music/Zebra Song.mp3", "wb").write(b"ID3")
+    m.tab, m.view = mi, "list"
+    m.load_tab(mi)
+    rows = [r["src"] for r in m.items[mi]]
+    m.sels[mi] = rows.index(HOME + "/Music/Zebra Song.mp3")
+    open(HOME + "/Music/Beach Song.mp3", "wb").write(b"ID3")   # (one come from another of yours, as on the TV's)
+    m.kept_shown(HOME + "/Music/Beach Song.mp3", "Music", "tv")
+    rows = [r["src"] for r in m.items[mi]]
+    check(f"...and on the one it went to, its Music list, if it's on the screen: the song in it now, the row you were "
+          f"on still picked ({os.path.basename(rows[m.sels[mi]])}, {toasts[-1:]})",
+          HOME + "/Music/Beach Song.mp3" in rows and rows[m.sels[mi]] == HOME + "/Music/Zebra Song.mp3"
+          and toasts[-1:] == ["Beach Song.mp3 from tv, in Music"])
+    g.LIBRARY[mi]["dirs"] = was_dirs
+    check("...a song sent just to be shown: not taken (it goes only to be kept)",
+          m.handoff_take_file({"view": "music", "title": "x.mp3", "size": 3, "file": "a" * 32}, "http://10.0.0.9",
+                              "tv") == {"ok": False, "error": "What's that?"})
+    m.view = "list"
 
     SECRET = HOME + "/Documents/webui.txt"
     open(SECRET, "w").write("password = not-for-the-tv\n")
@@ -613,8 +680,46 @@ try:
                                                                   "there)"] and m.view == "filemenu")
     m.press("b")
     m.close_viewer()
+
+    def keep_song():
+        m.play([{"kind": "audio", "src": SONG, "title": "Lazy Afternoon", "key": SONG}], 0)
+        m.view = "now"
+        toasts.clear()
+        m.media_home()
+        m.press("down")
+        m.press("down")
+        m.press("a")
+
+    keep_song()
+    check(f"...nor a song to keep: said so, and it plays on here ({toasts[-1:]}, {m.view})",
+          toasts[-1:] == ["attic needs updating first (System > Update software there)"] and m.view == "now"
+          and m.proc is not None)
+    m.stop()
     del m.pie.heard[OLDER]
     older.shutdown()
+
+    class Before(Older):
+        """One from before songs went to be kept (it keeps pictures and documents): it answers, but not knowing what
+        a song to keep is."""
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            data = json.dumps({"ok": False, "error": "What's that?"}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+    before = http.server.HTTPServer(("127.0.0.1", 0), Before)
+    threading.Thread(target=before.serve_forever, daemon=True).start()
+    BEFORE = f"http://127.0.0.1:{before.server_address[1]}"
+    m.pie.heard[BEFORE] = {"host": "den", "seen": time.time() + 3600, "peer": True}
+    m.handoff_to = BEFORE
+    keep_song()
+    check(f"...one that keeps pictures but not songs yet: needs updating too ({toasts[-1:]})",
+          toasts[-1:] == ["den needs updating first (System > Update software there)"] and m.proc is not None)
+    m.stop()
+    del m.pie.heard[BEFORE]
+    before.shutdown()
     m.handoff_to = THEIRS
 
     LOCKED = S + "/locked"

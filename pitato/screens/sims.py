@@ -9,10 +9,11 @@ from ..sims import (
     SIM_FLOOR, SIM_FULL, SIM_IN, SIM_PANEL)
 from ..clock import Clock
 from ..mandelbrot import Mandelbrot
+from ..notes import Notes
 from ..snake import Snake
 
 
-SIMS = {s.key: s for s in (Clock, RockPaperScissors, Life, ForestFire, Mandelbrot, Snake)}
+SIMS = {s.key: s for s in (Clock, Notes, RockPaperScissors, Life, ForestFire, Mandelbrot, Snake)}
 CLOCK_KEYS = {"a": "look", "up": "colour", "down": "colour", "left": "background", "right": "background",
               "x": "seconds", "y": "date"}       # the Clock's buttons: the option each changes
 
@@ -118,6 +119,10 @@ class SimScreen:
         s = self.sim_game()
         if self.sim_opts is not None:
             return self.press_sim_opts(s, name, repeat)
+        if s.key == "notes":                           # (Notes: its own buttons, screens/notes.py)
+            got = self.press_notes(s, name, repeat)
+            if got is not False:
+                return got
         if name in ("b", "l", "r"):
             return "pass"
         if s.key == "mandel" and name in Mandelbrot.MOVES and self.press_mandel(s, name, repeat):
@@ -166,8 +171,18 @@ class SimScreen:
         return None
 
     def press_clock(self, s, name):
-        """The Clock: A its other look, up and down its colour, left and right its background, X its seconds on or
-        off, Y the date. Each kept, as START's card keeps it, and said (but its look: that's plain to see)."""
+        """The Clock: A its next face (the dial, then the figures in each font, then the dial again), up and down its
+        colour, left and right its background, X its seconds on or off, Y the date. Each kept, as START's card keeps
+        it, and said (but the dial and the figures: that's plain to see)."""
+        if name == "a":
+            new = s.a_next()
+            for k, v in new.items():
+                self.set_setting(f"sim_clock_{k}", v)
+            s.configure(new)
+            if "look" not in new:
+                self.toast(f"Font: {new['font']}", 2)
+            self.dirty = True
+            return
         key = CLOCK_KEYS[name]
         label, ways = next((label, list(ways)) for k, label, ways, _ in s.options if k == key)
         cur = s.values.get(key)

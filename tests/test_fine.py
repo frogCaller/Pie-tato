@@ -130,13 +130,20 @@ def tour(which):
     m = g.Media()
     m.enter()
 
-    def shot(name, fresh=True):
+    def shot(name, fresh=True, ready=None):
         got = {}
         while time.localtime().tm_sec >= 57:           # (both drawn in the same minute: the clocks on them alike)
             time.sleep(0.2)
         for s in (1, FB.s):
             FB.s = s
             m.fine_scale()
+            if ready is not None:                      # (what it works out for the screen's size, worked out first:
+                m.dirty = True                         #  the Mandelbrot's pictures, at each size anew)
+                try:
+                    m.flush()
+                    ready()
+                except Exception:
+                    pass
             m.dirty = True
             try:
                 m.flush()
@@ -265,7 +272,8 @@ def tour(which):
             for _ in range(5):
                 m.tick()
                 time.sleep(0.02)
-            shot("sim_" + name.lower().replace(" ", "_"))
+            mb = m.sims.get("mandel") if name == "Mandelbrot Set" else None
+            shot("sim_" + name.lower().replace(" ", "_"), ready=mb.finish if mb is not None else None)
             m.press("b")
         except Exception as ex:
             problems.append(f"{which} sim {name}: {ex!r}")

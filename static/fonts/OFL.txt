@@ -4,6 +4,41 @@ Copyright 2020-2024 The Atkinson Hyperlegible Next Project Authors (https://gith
 Inter 4.1 (Inter-Regular.otf, Inter-SemiBold.otf, InterDisplay-Light.otf, InterDisplay-ExtraLight.otf):
 Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter)
 
+Courier Prime (CourierPrime-Regular.ttf):
+Copyright 2015 The Courier Prime Project Authors (https://github.com/quoteunquoteapps/CourierPrime).
+
+Caveat (Caveat-Variable.ttf):
+Copyright 2014 The Caveat Project Authors (https://github.com/googlefonts/caveat)
+
+Comic Neue (ComicNeue-Regular.ttf):
+Copyright 2014 The Comic Neue Project Authors (https://github.com/crozynski/comicneue)
+
+Press Start 2P (PressStart2P-Regular.ttf):
+Copyright 2012 The Press Start 2P Project Authors (cody@zone38.net), with Reserved Font Name "Press Start 2P".
+
+VT323 (VT323-Regular.ttf):
+Copyright 2011, The VT323 Project Authors (peter.hull@oikoi.com)
+
+Pacifico (Pacifico-Regular.ttf):
+Copyright 2018 The Pacifico Project Authors (https://github.com/googlefonts/Pacifico)
+
+Orbitron (Orbitron-Variable.ttf):
+Copyright 2018 The Orbitron Project Authors (https://github.com/theleagueof/orbitron), with Reserved Font Name: "Orbitron"
+
+Righteous (Righteous-Regular.ttf):
+Copyright (c) 2011 by Brian J. Bonislawsky DBA Astigmatic (AOETI)
+(astigma@astigmatic.com), with Reserved Font Names "Righteous"
+
+Bebas Neue (BebasNeue-Regular.ttf):
+Copyright © 2010 by Dharma Type.
+
+Monoton (Monoton-Regular.ttf):
+Copyright (c) 2011 by vernon adams (vern@newtypography.co.uk),
+with Reserved Font Names "Monoton"
+
+These are from Google Fonts (https://github.com/google/fonts), unchanged (Caveat's and Orbitron's files renamed from
+Caveat[wght].ttf and Orbitron[wght].ttf).
+
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:
 http://scripts.sil.org/OFL

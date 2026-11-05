@@ -148,7 +148,8 @@ check(f"the d-pad to its icon ({apps[m.home_sel]})", apps[m.home_sel] == "Apps")
 press(e.BTN_SOUTH, 0.3)
 check("A opens it: the list of sims", m.tab_type() == "group" and g.LIBRARY[m.tab]["name"] == "Apps")
 SIMI = m.tab
-press(e.BTN_DPAD_DOWN, 0.2)                    # (past the Clock)
+press(e.BTN_DPAD_DOWN, 0.2)                    # (past the Clock and Notes)
+press(e.BTN_DPAD_DOWN, 0.2)
 press(e.BTN_SOUTH, 0.3)
 check("A again: Rock Paper Scissors", m.tab_type() == "sim" and g.LIBRARY[m.tab]["sim"] == "rps")
 G = m.sims["rps"]

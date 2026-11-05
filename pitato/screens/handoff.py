@@ -3,8 +3,9 @@ game's menu has Play on another Pietato (◀▶ picks which, A sends it: it carr
 its menu there sends it back), and so does HOME's menu on a video or Now playing, for a video, a song or a station
 (it carries on there at the same place; X twice sends it too). HOME on a picture, a PDF or a document, or some text
 has View on another Pietato (it opens there where you were in it, and HOME there sends it back) and Send to another
-Pietato (a copy kept there, in its Pictures or its Documents, a number on the name if that's taken). Settings > Share
-with other Pietatos on, on both."""
+Pietato (a copy kept there, in its Pictures or its Documents, a number on the name if that's taken); HOME on Now
+playing has Send too, for a song of yours (a copy in its Music, and it plays on here). Settings > Share with other
+Pietatos on, on both."""
 import json
 import os
 import secrets
@@ -17,9 +18,9 @@ from ..config import CACHE_DIR, web_private
 from ..fine import detail, made_fine, scale
 from ..games import find_games, games_dir, GAME_SYSTEMS, playable, save_name, SAVES_FOLDER
 from ..handoff import (clean_file, clean_ident, clean_media, copy_file, copy_game, copy_place, file_place, FILE_MOST,
-                       FILE_VIEWS, FIRST_MOST, GAME_COPY_MOST, game_ident, HANDOFF_ASK, HANDOFF_GO, local_game,
-                       MEDIA_KINDS, TOKEN, Tokens)
-from ..library import LISTEN_KINDS, SCREEN_KINDS
+                       FILE_VIEWS, FIRST_MOST, GAME_COPY_MOST, game_ident, HANDOFF_ASK, HANDOFF_GO, KEEP_ONLY,
+                       local_game, MEDIA_KINDS, TOKEN, Tokens)
+from ..library import LIBRARY, LISTEN_KINDS, SCREEN_KINDS
 from ..screen import grab_screen
 from ..theme import ACCENT, BG, BODY, LINE, MUTED, ROW, TEXT
 from ..util import clock, copy_new, home_dir, home_folder, in_home
@@ -237,7 +238,14 @@ class HandoffScreen:
         m = getattr(self, "media_menu", None) or {}
         back = ("Back to the video" if m.get("video") else "Back to the station" if self.kind == "radio"
                 else "Back to the music")
-        return [("back", back), ("send", "Play on another Pietato")]
+        keep = [("keep", "Send to another Pietato")] if self.media_keepable() else []   # (a song of yours, a copy)
+        return [("back", back), ("send", "Play on another Pietato")] + keep
+
+    def media_keepable(self):
+        """What's playing is a song of yours, a file here: a copy can go to another of yours to keep (Plex's and
+        Jellyfin's stay with their sign-in here; a station's nobody's file)."""
+        source = self.media_source() if self.kind == "audio" else None
+        return bool(source and source[1])
 
     def media_menu_open(self, video):
         """The menu, over what's playing: a video paused under it (its picture, dimmed, behind it), music playing on."""
@@ -290,10 +298,13 @@ class HandoffScreen:
             m["sel"] = (m["sel"] + (1 if name == "down" else -1)) % len(menu)
         elif repeat:
             return None
-        elif name in ("left", "right") and job == "send":
+        elif name in ("left", "right") and job in PEER_JOBS:
             self.handoff_cycle(1 if name == "right" else -1)
         elif name == "b" or (name == "a" and job == "back"):
             self.media_menu_close()
+        elif name == "a" and job == "keep":
+            self.media_menu_close()                    # (back to Now playing: it plays on here, a copy goes)
+            self.media_keep()
         elif name == "a":
             self.media_menu_close(play_on=False)       # (sent, it stops here; if it can't go, it plays on)
             self.media_send()
@@ -302,6 +313,58 @@ class HandoffScreen:
                 self.paused = False
         self.dirty = True
         return None
+
+    def media_keep_what(self):
+        """The song playing, as another of your Pietatos is told of it to keep: (its file, what it's told), or why it
+        can't go, in words."""
+        if not self.media_keepable():
+            return "It can't go to another Pietato"
+        path = self.media_source()[1]
+        title = os.path.basename(path)
+        if web_private(title):
+            return "That one stays on this Pi"
+        try:
+            if not (in_home(path) or all_can_read(path)):
+                path = self.file_out(path=path)         # (the web page, which hands it over, couldn't read it)
+            size = os.path.getsize(path)
+        except OSError:
+            return "Couldn't read it"
+        if size > FILE_MOST:
+            return "It's too big to send"
+        return path, {"view": "music", "title": title, "size": size}
+
+    def media_keep(self):
+        """The song playing, sent for the one picked to keep: a copy in its own Music, named as it is here. It plays
+        on here."""
+        target = self.handoff_target()
+        if target is None:
+            self.toast("None of your other Pietatos is on", 3)
+            return
+        url, host = target
+        got = self.media_keep_what()
+        if isinstance(got, str):
+            self.toast(got, 4)
+            return
+        path, body = got
+        self.toast(f"Asking {host}…", 4)
+        self.flush()                                   # (said before it waits for the answer)
+        said = handoff_post(url, dict(body, kind="file", keep=True, check=True), HANDOFF_ASK)
+        if said is None:
+            self.toast(f"{host} isn't answering", 4)
+            return
+        if (said.get("status") == 400 or (said.get("ok") and said.get("keep") is not True)
+                or (not said.get("ok") and said.get("error") == "What's that?")):
+            self.toast(f"{host} needs updating first (System > Update software there)", 6)
+            return                                     # (one from before this: it doesn't know songs to keep)
+        if not said.get("ok"):
+            self.toast(f"{host}: {said.get('error') or 'it can’t keep it'}", 5)
+            return
+        key = self.handoff_keys().issue(path, secs=OUT_SECS)
+        said = handoff_post(url, dict(body, kind="file", keep=True, file=key), HANDOFF_GO)
+        if said is None or not said.get("ok"):
+            self.toast(f"{host} didn't take it ({(said or {}).get('error') or 'it isn’t answering'})", 5)
+            return
+        self.toast(f"Sending it to {host}, for its {said.get('folder') or 'Music'}", 5)
 
     def media_where(self):
         """How far through what's playing it is, in words (in HOME's menu, under its name)."""
@@ -716,6 +779,8 @@ class HandoffScreen:
         view, title, size, place = got
         if cmd.get("keep") is True:
             return self.handoff_keep_file(cmd, url, host, view, title, size)
+        if view in KEEP_ONLY:                          # (a song: it goes to be kept, never just shown)
+            return {"ok": False, "error": "What's that?"}
         why = self.handoff_file_cant(view, size)
         if cmd.get("check") is True:
             return {"ok": True} if why is None else {"ok": False, "error": why}
@@ -744,9 +809,9 @@ class HandoffScreen:
 
     def handoff_keep_file(self, cmd, url, host, view, title, size):
         """A file another of yours sends to keep (Send to another Pietato): copied into your own folders, a picture
-        into Pictures, the rest into Documents, named as it was there (a number on the end, if that's taken).
-        What's on the screen here stays as it is."""
-        folder = "Pictures" if view == "photo" else "Documents"
+        into Pictures, a song into Music, the rest into Documents, named as it was there (a number on the end, if
+        that's taken). What's on the screen here stays as it is (a list of that folder's shows it)."""
+        folder = {"photo": "Pictures", "music": "Music"}.get(view, "Documents")
         try:
             room = shutil.disk_usage(home_dir()).free
         except OSError:
@@ -772,12 +837,31 @@ class HandoffScreen:
                 self.soon_jobs.append(lambda: self.toast(f"Couldn't get {title} from {host}", 5))
             else:
                 print(f"handoff: {os.path.basename(kept)} from {host}, kept in {folder}", flush=True)
-                self.soon_jobs.append(lambda: self.toast(f"{os.path.basename(kept)} from {host}, in {folder}", 5))
+                self.soon_jobs.append(lambda: self.kept_shown(kept, folder, host))
             finally:
                 shutil.rmtree(os.path.dirname(tmp), ignore_errors=True)
             self.wake()
         threading.Thread(target=copy, daemon=True, name="handoff-keep").start()
         return {"ok": True, "keep": True, "folder": folder}
+
+    def kept_shown(self, kept, folder, host):
+        """A file kept in one of your folders: said, and the list on the screen that's that folder's (Music's,
+        Photos'), if one is, with it in now, on the row you were on."""
+        self.toast(f"{os.path.basename(kept)} from {host}, in {folder}", 5)
+        i = self.tab
+        if not (self.active and self.view == "list" and isinstance(i, int) and 0 <= i < len(LIBRARY)):
+            return
+        tab = LIBRARY[i]
+        if tab.get("type") not in ("files", "photos") or not any(os.path.basename(d) == folder
+                                                                 for d in tab.get("dirs") or ()):
+            return
+        rows = self.items.get(i) or []
+        was = rows[self.sels.get(i, 0)].get("src") if 0 <= self.sels.get(i, 0) < len(rows) else None
+        self.load_tab(i)
+        srcs = [r.get("src") for r in self.items.get(i) or []]
+        if was in srcs:
+            self.sels[i] = srcs.index(was)
+        self.dirty = True
 
     def handoff_show(self, path, view, title, place, url, host):
         """What you were looking at on another of your Pietatos, opened here where you were in it there (HOME here

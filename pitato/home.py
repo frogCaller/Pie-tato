@@ -1,4 +1,5 @@
-"""The home screen's icons, and the background behind them."""
+"""The home screen's icons, and the background behind them. The Games icon can be a console's own (one you have
+games for: a picture of it from the Games list's, in its colour) instead of the controller."""
 import math
 
 from .theme import co_mix, FONT_BOLD
@@ -120,20 +121,44 @@ def fin_glyph(bars, gap, line, P, B, k, bar_fill, gap_fill, line_fill):
     line.polygon(P(*fin_arrow()), fill=line_fill)
 
 
-def tile_tint(name):
-    return HOME_ICONS.get(name, ((120, 128, 142), ""))[0]
+def tile_tint(name, face=None):
+    look = console_look(face) if name == "Games" else None
+    return look[1] if look else HOME_ICONS.get(name, ((120, 128, 142), ""))[0]
 
 
-def draw_icon(name, size=84, card=True, lit=False, fine=1):
+def console_look(face):
+    """A console the Games icon shows (gb, n64...): (its picture, as a mask, its colour), as the Games list has
+    them (consoles.py), or None: none, or it hasn't a picture."""
+    if not face:
+        return None
+    from .consoles import CONSOLE_LOOKS, console_mask
+    pic = console_mask(face)
+    return (pic, CONSOLE_LOOKS[face][0]) if pic is not None and face in CONSOLE_LOOKS else None
+
+
+def paste_console(target, pic, S, box, ink=255):
+    """A console's picture on an icon being drawn (S square): as big as fits in box (shares of it: x0, y0, x1, y1),
+    in the middle of it, in ink (a grey level on a mask, a colour on a picture)."""
+    from PIL import Image
+    x0, y0, x1, y1 = (v * S for v in box)
+    k = min((x1 - x0) / pic.width, (y1 - y0) / pic.height)
+    w, h = max(1, round(pic.width * k)), max(1, round(pic.height * k))
+    fill = Image.new(target.mode, (w, h), ink if isinstance(ink, int) else tuple(ink) + (255,))
+    target.paste(fill, (round((x0 + x1 - w) / 2), round((y0 + y1 - h) / 2)), pic.resize((w, h), Image.LANCZOS))
+
+
+def draw_icon(name, size=84, card=True, lit=False, fine=1, face=None):
     """An app's tile: dark glass tinted with its colour, a thin edge, and its glyph in light grey (a few parts in
     colour: a lit window, the sun, the bot's eyes), drawn three times bigger and scaled down so the edges come out
     smooth. lit: picked (brighter, a bright edge). (card: always, now; the web page's are the same.) fine: size is
-    that many times the tile's, for a screen drawn finely (fine.py): its edge as much thicker."""
+    that many times the tile's, for a screen drawn finely (fine.py): its edge as much thicker. face: for Games, a
+    console (its picture, in its colour)."""
     from .fine import ImageDraw
     from PIL import Image, ImageFilter, ImageFont
     import math
     S = size * 3
-    tint = tile_tint(name)
+    look = console_look(face) if name == "Games" else None
+    tint = tile_tint(name, face)
     k = S * 0.74 / 252                               # the glyphs are laid out on a 252 square, in the middle
     o = S * 0.13
 
@@ -200,6 +225,8 @@ def draw_icon(name, size=84, card=True, lit=False, fine=1):
         for x0, y0, x1, y1 in ((40, 122, 114, 196), (78, 86, 172, 180), (130, 118, 210, 198)):
             d.ellipse(B(x0, y0, x1, y1), fill=255)
         d.rounded_rectangle(B(60, 148, 194, 198), radius=R(25), fill=255)
+    elif look:                                     # Games: a console you have games for, its picture
+        paste_console(mask, look[0], S, (0.21, 0.25, 0.79, 0.75))
     elif name == "Games":                          # a game controller
         d.rounded_rectangle(B(34, 86, 218, 162), radius=R(38), fill=255)
         for x0 in (38, 144):                         # its grips
@@ -308,15 +335,20 @@ CARD = (26, 30, 37)          # the cards the glyphs sit on (and the dark parts o
 CARD_LINE = (44, 50, 61)     # ...their edge
 
 
-def draw_glyph(name, size=52):
+def draw_glyph(name, size=52, face=None):
     """Cards's icon for an app: a glyph in its own colours (its dark parts the colour of the card it sits on),
-    drawn three times bigger and scaled down so the edges come out smooth."""
+    drawn three times bigger and scaled down so the edges come out smooth. face: for Games, a console (its picture,
+    in its colour, lighter if it's a dark one: it's on a dark card)."""
     from .fine import ImageDraw
     from PIL import Image, ImageFont
     import math
     S = size * 3
     k = S / 252                                     # the glyphs are laid out on a 252 square
+    look = console_look(face) if name == "Games" else None
     colour = GLYPH_COLOURS.get(name, (200, 206, 214))
+    if look:
+        lum = 0.299 * look[1][0] + 0.587 * look[1][1] + 0.114 * look[1][2]
+        colour = mix(look[1], (255, 255, 255), 0.45) if lum < 110 else look[1]
     im = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
     dark = CARD
@@ -389,6 +421,8 @@ def draw_glyph(name, size=52):
         for x0, y0, x1, y1 in ((44, 120, 116, 192), (82, 86, 170, 174), (132, 120, 206, 192)):
             d.ellipse(B(x0, y0, x1, y1), fill=colour)
         d.rounded_rectangle(B(62, 146, 192, 194), radius=R(24), fill=colour)
+    elif look:                                     # Games: a console you have games for, its picture
+        paste_console(im, look[0], S, (0.10, 0.18, 0.90, 0.82), colour)
     elif name == "Games":                          # a game controller
         d.rounded_rectangle(B(34, 88, 218, 162), radius=R(37), fill=colour)
         for x0 in (40, 142):                         # its grips
@@ -466,15 +500,17 @@ BRIGHT_TILES = {    # an app's tile's colour
 }
 
 
-def draw_bright_icon(name, size=72):
+def draw_bright_icon(name, size=72, face=None):
     """The Bright style's icon for an app: a bright rounded tile with a simple white glyph, drawn three times
-    bigger and scaled down so the edges come out smooth."""
+    bigger and scaled down so the edges come out smooth. face: for Games, a console (its picture, on a tile in its
+    colour)."""
     from .fine import ImageDraw
     from PIL import Image, ImageFont
     import math
     S = size * 3
     k = S / 252                                     # the glyphs are laid out on a 252 square
-    colour = BRIGHT_TILES.get(name, (70, 80, 96))
+    look = console_look(face) if name == "Games" else None
+    colour = look[1] if look else BRIGHT_TILES.get(name, (70, 80, 96))
     im = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
     dark = sum(colour) < 120
@@ -589,6 +625,8 @@ def draw_bright_icon(name, size=72):
                 d.ellipse(B(x - r, y - r, x + r, y + r), fill=co_mix((30, 38, 46), body, 1 - j / 11))
             x, y = on_orbit(t0)
             d.ellipse(B(x - 13, y - 13, x + 13, y + 13), fill=body)
+    elif look:                                     # Games: a console you have games for, its picture
+        paste_console(im, look[0], S, (0.14, 0.20, 0.86, 0.80), (34, 38, 46) if sum(colour) > 520 else white)
     elif name == "Games":                          # a game controller
         d.rounded_rectangle(B(34, 88, 218, 162), radius=int(37 * k), fill=white)
         for x0 in (40, 142):                         # its grips

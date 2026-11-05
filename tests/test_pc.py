@@ -194,7 +194,9 @@ check(f"update-grub failing: GRUB's settings as they were, and it says why ({why
       why == "error: /boot is full" and open(SC.GRUB).read() == before)
 os.remove(S + "/grub.fail")
 os.rename(BIN + "/update-grub", S + "/update-grub")
+was_path, os.environ["PATH"] = os.environ["PATH"], BIN     # (this machine's own update-grub left out: GitHub's has one)
 check("no update-grub (not GRUB): no Resolution to pick", SC.resolution_choices() is None)
+os.environ["PATH"] = was_path
 os.rename(S + "/update-grub", BIN + "/update-grub")
 
 # ---- System, and media mode on a PC ----

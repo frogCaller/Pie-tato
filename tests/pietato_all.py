@@ -14,7 +14,7 @@ if _REPO not in sys.path:
 
 _ORDER = ["theme", "config", "asyou", "util", "lengths", "net", "system", "gpicase", "bluetooth", "screen", "gpu", "radio", "tv", "library", "home",
           "weather", "documents", "filters", "cameras", "nearby", "voice", "listen", "bot", "coder", "crypto", "stocks",
-          "homeassistant", "pihole", "plex", "jellyfin", "computers", "sims", "clock", "mandelbrot", "snake", "shrink", "update", "emulator", "discs", "games", "handoff",
+          "homeassistant", "pihole", "plex", "jellyfin", "computers", "sims", "clock", "notes", "mandelbrot", "snake", "shrink", "update", "emulator", "discs", "games", "handoff",
           "www", "chromium",
           "inputs", "control",
           "screens.draw",
@@ -23,7 +23,7 @@ _ORDER = ["theme", "config", "asyou", "util", "lengths", "net", "system", "gpica
           "screens.camera", "screens.bot", "screens.coder", "screens.sims", "screens.snake", "screens.games",
           "screens.settings", "screens.bluetooth", "screens.controller", "screens.weather", "screens.web", "screens.computers", "screens.progs", "screens.pihole", "screens.sysdash",
           "screens.hasettings", "screens.websettings", "screens.www", "screens.chromium", "screens.handoff",
-          "screens.attract", "screens.together", "screens.konami",
+          "screens.attract", "screens.together", "screens.konami", "screens.notes",
           "media", "app",
           "assist", "face", "screens.assist"]   # (last: their names never hide another module's, as computers' parse)
 _MAYBE = {"screens.hasettings", "screens.websettings", "www", "chromium", "screens.www", "screens.chromium",

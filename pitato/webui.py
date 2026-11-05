@@ -389,7 +389,8 @@ def no_frames(resp):
 
 # ---- the page ----------------------------------------------------------------------
 PI_MODEL = "/proc/device-tree/model"            # a Pi's model; a PC hasn't one...
-DMI = "/sys/class/dmi/id"                      # ...but its firmware's description of itself (pitato/system.py's is_pc)
+DMI = os.environ.get("PITATO_DMI") or "/sys/class/dmi/id"   # ...but its firmware's description of itself
+                                                            # (pitato/system.py's is_pc: the tests' stand-in too)
 COMPATIBLE = "/proc/device-tree/compatible"    # an RK3326 handheld's chip, in its device tree (pitato/handheld.py's)
 PC_WORDS = re.compile(r"\b([Tt]he|[Tt]his|[Yy]our|[Aa]) Pi\b(?![-\w]| \d| Zero| OS| Case)")
 

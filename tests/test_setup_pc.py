@@ -104,8 +104,10 @@ lines = out.splitlines()
 check(f"no desktop (Ubuntu Server): the start-up target left be, nothing said about a desktop (exit {report(out, 'SETUP EXIT')})",
       report(out, "SETUP EXIT") == "0" and not any("set-default" in s for s in stub)
       and "System > Desktop" not in out)
-check("...rfkill put in (Ubuntu Server's hasn't it: Pietato turns Bluetooth back on with it), and nothing said "
-      "about it", "apt-get install -y rfkill" in stub and "rfkill" not in out)
+HAS_RFKILL = shutil.which("rfkill") is not None    # (this machine's own: setup.sh puts it in only where it isn't)
+check("...rfkill put in where it isn't (Ubuntu Server's hasn't it: Pietato turns Bluetooth back on with it), and "
+      f"nothing said about it{' (this machine has it: left be)' if HAS_RFKILL else ''}",
+      ("apt-get install -y rfkill" in stub) != HAS_RFKILL and "rfkill" not in out)
 check("...BlueALSA in, as on a Pi (no PipeWire here)", "apt-get install -y bluez-alsa-utils libasound2-plugin-bluez" in stub)
 check(f"...nothing for a PipeWire that isn't here ({report(out, 'WIREPLUMBER')})", report(out, "WIREPLUMBER") == "[]")
 

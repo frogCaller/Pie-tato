@@ -144,6 +144,7 @@ def run_one(name, path, base, logs, python, extra_path):
     import paths                                 # (its own folder isn't made: PIETATO_TEST_WORK is set, below)
     work = paths.make_work(os.path.join(base, name))
     env = dict(os.environ, PIETATO_TEST_WORK=work, PITATO_ROOT=ROOT, PYTHONDONTWRITEBYTECODE="1",
+               PYTHONUNBUFFERED="1",           # (all a test prints in its log, ALL OK too, though it ends in os._exit)
                PYTHONPATH=os.pathsep.join(p for p in (extra_path, os.environ.get("PYTHONPATH", "")) if p))
     cmd = ["bash", path] if path.endswith(".sh") else [python, path]
     t0 = time.time()
@@ -163,6 +164,16 @@ def run_one(name, path, base, logs, python, extra_path):
     fails = [l for l in lines if l.startswith("FAIL")]
     ok = rc == 0 and not fails and any("ALL OK" in l for l in lines[-5:])
     return ok, rc, fails, lines, time.time() - t0
+
+
+def github_note(failed, total):
+    """On GitHub's machine: what failed and why, in a note on the run's own page (where it's seen without signing
+    in, as the logs aren't)."""
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        return
+    text = "\n".join(f"{name} ({why})" for name, why in failed)
+    text = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    print(f"::error title={len(failed)} of {total} tests failed::{text}", flush=True)
 
 
 def main():
@@ -211,21 +222,24 @@ def main():
     os.makedirs(logs, exist_ok=True)
     print(f"{len(tests)} tests, with {a.python} ({'evdev' if not extra else 'evdev stand-in'}); logs in {logs}",
           flush=True)
-    failed = []
+    failed = []                                  # (name, why)
     t_all = time.time()
     for name, path in tests:
         ok, rc, fails, lines, secs = run_one(name, path, base, logs, a.python, extra)
         if ok:
             print(f"ok   {name} ({secs:.0f}s)", flush=True)
             continue
-        failed.append(name)
         why = f"exit {rc}" if rc != 0 else (f"{len(fails)} FAIL" if fails else "no ALL OK")
+        said = fails[0][5:] if fails else next((x for x in reversed(lines)
+                                                if x.strip() and not x.startswith("(run.py")), "")
+        failed.append((name, f"{why}: {said.strip()[:160]}"))
         print(f"FAIL {name} ({why}, {secs:.0f}s)", flush=True)
         for line in lines[-25:]:
             print("     | " + line[:200], flush=True)
     mins = (time.time() - t_all) / 60
     if failed:
-        print(f"\n{len(failed)} of {len(tests)} failed ({mins:.0f} min): {' '.join(failed)}")
+        print(f"\n{len(failed)} of {len(tests)} failed ({mins:.0f} min): {' '.join(n for n, _ in failed)}")
+        github_note(failed, len(tests))
         return 1
     print(f"\nALL OK: {len(tests)} tests ({mins:.0f} min)")
     return 0

@@ -26,6 +26,7 @@ REL_MOST = 300
 POS_MOST = 7 * 24 * 3600
 FILE_VIEWS = ("photo", "pdf", "text")   # what a file you're looking at is shown in (a picture, a PDF or a document,
                                         # some text): each can go to another of your Pietatos
+KEEP_ONLY = ("music",)        # ...and a file that goes only to be kept there (a song of yours, for its Music)
 FILE_MOST = 256 << 20         # bytes: what you're looking at goes if it's no bigger
 FILE_COPY_TIME = 300.0        # seconds its copy may take
 FIRST_MOST = 80               # some text: the start of its line at the top, as much as is said of it
@@ -158,14 +159,14 @@ def clean_media(d):
 
 
 def clean_file(d):
-    """Another Pietato's word for a file you were looking at there: (view, title, size, place) or None. place: where
-    you were in it (a PDF's page, how it fits, how close, how far down and across it; some text's line at the top, how
-    far down that is, its letters' size; a picture's turn)."""
+    """Another Pietato's word for a file you were looking at there (or a song you were listening to, sent to keep):
+    (view, title, size, place) or None. place: where you were in it (a PDF's page, how it fits, how close, how far
+    down and across it; some text's line at the top, how far down that is, its letters' size; a picture's turn)."""
     if not isinstance(d, dict):
         return None
     view, title, size = d.get("view"), d.get("title"), d.get("size")
-    if (view not in FILE_VIEWS or not isinstance(title, str) or not title.strip() or "/" in title or "\0" in title
-            or type(size) is not int or not 0 <= size <= FILE_MOST):
+    if (view not in FILE_VIEWS + KEEP_ONLY or not isinstance(title, str) or not title.strip() or "/" in title
+            or "\0" in title or type(size) is not int or not 0 <= size <= FILE_MOST):
         return None
 
     def num(key, most, default=0.0):
@@ -181,9 +182,11 @@ def clean_file(d):
         first = d.get("first")
         place = {"first": first[:FIRST_MOST] if isinstance(first, str) and "\0" not in first else "",
                  "frac": num("frac", 1.0), "big": 1 if d.get("big") == 1 and type(d.get("big")) is int else 0}
-    else:
+    elif view == "photo":
         rot = d.get("rot")
         place = {"rot": rot if type(rot) is int and 0 <= rot <= 3 else 0}
+    else:
+        place = {}                    # (a song, to keep: nowhere in it to be)
     return view, title.strip()[:TITLE_MOST], size, place
 
 

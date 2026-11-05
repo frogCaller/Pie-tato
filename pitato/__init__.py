@@ -18,7 +18,7 @@
   lofi.py           Now playing's lofi art: three pixel-art scenes, drawn here
   tv.py             the TV tab's shelves: old cartoons and films, live channels' words
   library.py        what's in each tab, and what plays things
-  home.py           the home screen's icons and background
+  home.py           the home screen's icons and background (Games: a console you have games for, a new one each visit)
   weather.py        weather, and finding where you are
   documents.py      documents to text
   filters.py        photo filters
@@ -42,6 +42,7 @@
   release.py        which release is the latest: GitHub's answer, else the newest version tag
   sims.py           Apps' little worlds
   clock.py          Apps' Clock
+  notes.py          Apps' Notes: what you type on a keyboard (screens/notes.py: its files, the keyboard, its buttons)
   mandelbrot.py     the Mandelbrot set
   snake.py          Snake, and its AI's thread
   games.py          your own games: finding them and their emulators, one while it runs
@@ -54,7 +55,7 @@
   instincts.py      ...how a racer, a platformer, a fighter or a shooter plays, many times a second
   coach.py          ...and your Bot's model coaching it: the kind of game, what to aim for and how, kept
   emerald.py        ...Pokémon Emerald: from the game's memory too (emerald_maps.py: its maps' names)
-  inputs.py         controllers, keys, the power switch
+  inputs.py         controllers, keys, the power switch (a GPi Case's buttons looked for again if they don't come on)
   control.py        the web page's requests
   term.py           the Pi's terminal on the web page: its console as it is, typed into, after your Pi password
   media.py          media mode: class Media

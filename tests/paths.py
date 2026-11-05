@@ -39,3 +39,6 @@ if not SP:
 os.environ.setdefault("PITATO_ROOT", ROOT)
 os.environ.setdefault("PITATO_AS_ROOT", "1")   # (the players and games as root, as before: the tests' folders are
                                                #  root's. test_as_you has them run as you)
+os.environ["PITATO_DMI"] = os.path.join(SP, "no-dmi")   # (no firmware description of a PC's: a Pi, as the tests
+                                                        #  expect, on any machine. GitHub's is a PC, and "the PC" would
+                                                        #  be said where they look for "the Pi". test_pc gives it one)

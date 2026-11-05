@@ -203,8 +203,8 @@ def run(ui, media, control=None, stop=None):
             pad_button(pad, name, down)
 
     def typing():
-        """A text box is up, or the TV remote's number pad: a keyboard types into it (KeyReader has it)."""
-        return media.view == "keys" or getattr(media, "remote_pad", None) is not None
+        """A text box is up, or the TV remote's number pad, or Notes: a keyboard types into it (KeyReader has it)."""
+        return media.view == "keys" or getattr(media, "remote_pad", None) is not None or media.notes_typing()
 
     def keyboard_event(kb, ev):
         """A keyboard's key: in media mode, a button (W A S D the d-pad...). In the terminal, and while cmatrix or
@@ -268,6 +268,10 @@ def run(ui, media, control=None, stop=None):
 
     def found(new, quiet=False):
         media.keyreader.exclude = set(pads.by_path)
+        if pads.notice:                                # (a GPi Case's buttons looked for again: said on the screen)
+            if media.active and not media.proc_owns_screen():
+                media.toast(pads.notice, 5)
+            pads.notice = None
         if new:
             media.dirty = True
             if not quiet:

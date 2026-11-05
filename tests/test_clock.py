@@ -34,10 +34,10 @@ T = time.mktime((2026, 10, 30, 17, 40, 13, 0, 0, -1))     # Friday 5:40:13 PM, l
 
 # ---- on its own ---------------------------------------------------------------------------------------------
 c = g.Clock(640, 346)
-check("its options: Look, Seconds, Date, Colour, Background (Analogue, On, On, Blue, Dark to start with)",
-      [k for k, _, _, _ in c.options] == ["look", "seconds", "date", "colour", "background"]
-      and tuple(c.values[k] for k in ("look", "seconds", "date", "colour", "background"))
-      == ("Analogue", "On", "On", "Blue", "Dark"))
+check("its options: Look, Font, Seconds, Date, Colour, Background (Analogue, Thin, On, On, Blue, Dark to start with)",
+      [k for k, _, _, _ in c.options] == ["look", "font", "seconds", "date", "colour", "background"]
+      and tuple(c.values[k] for k in ("look", "font", "seconds", "date", "colour", "background"))
+      == ("Analogue", "Thin", "On", "On", "Blue", "Dark"))
 check("drawn on the page itself, as each second begins", c.bare and c.paced and c.backdrop == g.BG)
 check("...the next second: 0.25 s after 12:00:00.75 (just after it begins)", 0.25 < c.frame_in(1000.75) < 0.26)
 c.configure({"seconds": "Off"})
@@ -275,7 +275,28 @@ digits = np.concatenate([np.argwhere(page.min(axis=2) > 200),
 check(f"...its figures in the middle of the page ({len(digits)} px)", len(digits) > 1500
       and abs((digits[:, 1].min() + digits[:, 1].max()) / 2 - 320) < 12)
 m.press("a")
-check("A again: Analogue", s.values["look"] == "Analogue")
+check(f"A again: the figures in the next font, said and kept ({m.msg})", s.values["look"] == "Digital"
+      and s.values["font"] == "Bold" and m.msg == "Font: Bold" and m.setting("sim_clock_font") == "Bold")
+pics, off = set(), []
+for font in g.CLOCK_FONTS[1:]:                     # (each font: drawn its own way, its figures in the middle)
+    if s.values["font"] != font:
+        m.press("a")
+    m.msg = None                                   # (its name, said: not over the page for this)
+    m.dirty = True; m.flush()
+    page = np.asarray(m.fb.last)[78:424].astype(int)
+    pics.add(page.tobytes())
+    lit = np.argwhere(np.abs(page - np.array(g.BG)).sum(axis=2) > 60)   # (all of it: the figures, the date...)
+    mid_x, mid_y = (lit[:, 1].min() + lit[:, 1].max()) / 2, (lit[:, 0].min() + lit[:, 0].max()) / 2
+    if not (abs(mid_x - 320) < 24 and abs(mid_y - 173) < 40 and lit[:, 1].min() > 4 and lit[:, 1].max() < 636):
+        off.append((font, round(mid_x), round(mid_y)))
+check(f"...on through the fonts, each its own, the time in the middle of the page in every one "
+      f"({s.values['font']}, {len(pics)} pictures, {off} off)", s.values["font"] == g.CLOCK_FONTS[-1]
+      and len(pics) == len(g.CLOCK_FONTS) - 1 and not off and all(os.path.isfile(g.typeface(f)[0])
+                                                                    for f in g.CLOCK_FONTS))
+check(f"...its hint before the last: back to the dial ({s.hints()[0]})", s.hints()[0] == ("A", "Analogue"))
+m.press("a")
+check("...after the last: the dial again, its figures Thin", s.values["look"] == "Analogue"
+      and s.values["font"] == "Thin")
 m.press("down")
 check(f"down: its next colour, Teal, said and kept ({m.msg})", s.values["colour"] == "Teal" and m.msg == "Colour: Teal"
       and m.setting("sim_clock_colour") == "Teal")
@@ -313,13 +334,13 @@ m.press("y")
 check("Y again: on", s.values["date"] == "On" and not s.paused)
 m.press("start")
 rows = [k for k, _, _, _ in m.sim_rows(type(s))]
-check(f"START: its options {rows}", m.sim_opts == 0 and rows == ["look", "seconds", "date", "colour", "background",
-                                                                  "full"])
+check(f"START: its options {rows}", m.sim_opts == 0 and rows == ["look", "font", "seconds", "date", "colour",
+                                                                  "background", "full"])
 m.dirty = True; m.flush()
 m.fb.last.save(SP + "/clock_opts.png")
 card = np.asarray(m.fb.last)[78:432].astype(int)
 check("...the card fits between the bars", True)
-m.press("down"); m.press("right")
+m.press("down"); m.press("down"); m.press("right")
 check("...Seconds: Off (kept)", s.values["seconds"] == "Off" and m.setting("sim_clock_seconds") == "Off")
 m.press("down"); m.press("down"); m.press("right")
 check("...Colour: Teal (kept)", s.values["colour"] == "Teal" and m.setting("sim_clock_colour") == "Teal")
@@ -332,7 +353,7 @@ check(f"without seconds, the next frame as the next minute begins ({before:.1f} 
 m.fb.parts.clear(); m.fb.wholes = 0
 n = frames(10)
 check(f"...nothing drawn in between ({n} frames in 10 s)", n <= 1)
-m.press("start"); m.press("down"); m.press("left"); m.press("b")
+m.press("start"); m.press("down"); m.press("down"); m.press("left"); m.press("b")
 frames(0.1)
 check(f"Seconds On again: the next frame within the second ({m.sim_next - fake[0]:.2f} s), not the minute",
       s.values["seconds"] == "On" and 0 < m.sim_next - fake[0] <= 1.0)
@@ -358,14 +379,16 @@ m.set_setting("clock", "24-hour")
 m.sim_game()
 check("Settings > Clock 24-hour: the Clock's too", s.hours24)
 m.set_setting("clock", "12-hour")
-m.press("start"); m.press("down"); m.press("right"); m.press("b")
+m.press("start"); m.press("down"); m.press("down"); m.press("right"); m.press("b")
 frames(1.1)
 check(f"Seconds Off once more: its next frame a while away ({m.sim_next - fake[0]:.0f} s)", m.sim_next - fake[0] > 5)
 m.press("b")
 check("B: back to the list, the Clock picked", m.tab == SIMI and m.sels[SIMI] == 0)
 m.press("down")
+check("the next one down is Notes", m.tab_items()[m.sels[SIMI]]["title"] == "Notes")
+m.press("down")
 m.press("a")
-check("the next one down is Rock Paper Scissors, in its box as before",
+check("...and then Rock Paper Scissors, in its box as before",
       m.sim_game().key == "rps" and not m.sim_bare() and (m.sim_game().w, m.sim_game().h) == (436, 342))
 n = frames(1)
 check(f"...moving at once, not waiting for the Clock's minute ({n} frames in a second)", n >= 10)
