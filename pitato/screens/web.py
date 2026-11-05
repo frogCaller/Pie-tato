@@ -400,7 +400,8 @@ class WebScreen:
             elif isinstance(getattr(self, key, None), dict):
                 rows = {"game_menu": lambda: self.game_menu_items() if self.game is not None else GAME_MENU,
                         "chrome_menu": lambda: CHROME_MENU, "ha_menu": self.ha_rows,
-                        "cam_menu": self.cam_menu_rows, "file_menu": self.file_menu_items}[key]
+                        "cam_menu": self.cam_menu_rows, "file_menu": self.file_menu_items,
+                        "media_menu": self.media_menu_items}[key]
             else:
                 return None
             return len(rows())
@@ -706,6 +707,8 @@ class WebScreen:
             self.close_keyboard(False)
         if self.view in ("photo", "pdf", "text", "wait", "filemenu"):
             self.close_viewer()
+        if self.view == "mediamenu":                   # (HOME's menu on a video: closed, the video as it was)
+            self.media_menu_close()
         self.prog_stop()                               # (Apps' cmatrix and the rest: it stops)
         if self.proc_owns_screen() or self.game is not None:
             self.stop()                                # (a video, or a game: kept for next time)

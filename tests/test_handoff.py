@@ -353,6 +353,71 @@ try:
           f"{played and played['play']})", shown == "help" and played is not None and played["kind"] == "radio"
           and "stream.example.com/jazz" in played["play"] and m.proc is None)
 
+    # ---- HOME on a video, or on Now playing: its menu, as a picture's has (Play on another Pietato) ----------------------
+    cmds = []
+    was_cmd = m.cmd
+    m.cmd = lambda c: cmds.append(c)
+    n = tv_lines()
+    m.play([{"kind": "video", "src": VIDEO, "title": "Holiday", "key": VIDEO}], 0, start=0)
+    m.pos, m.paused, m.view = 61.0, False, "list"
+    cmds.clear()
+    took = m.media_home()
+    frames = FB.frames
+    m.dirty = True
+    m.flush()
+    check(f"HOME on a video: its menu over it, the video paused under it ({m.view}, {m.media_menu_items()}, {cmds})",
+          took and m.view == "mediamenu" and m.paused and cmds == ["pause"] and FB.frames > frames
+          and m.media_menu_items() == [("back", "Back to the video"), ("send", "Play on another Pietato")]
+          and not m.proc_owns_screen() and m.media_where() == "1:01")
+    cmds.clear()
+    m.press("b")
+    check(f"...B: back to the video, playing again ({m.view}, {cmds}, paused: {m.paused})",
+          m.view == "list" and not m.paused and cmds == ["pause"] and m.proc_owns_screen())
+    m.media_home()
+    m.press("down")
+    m.press("right")                                   # (◀▶: the one it goes to: the TV, the only other one here)
+    m.press("a")
+    played = tv_said("play", n)
+    check(f"...Play on another Pietato, A: it carries on on the TV from where it was ({played and played['args'][-2:]})",
+          played is not None and played["kind"] == "video" and played["args"][-2:] == ["-ss", "58"]
+          and m.proc is None and m.view == "list" and toasts[-1:] == ["Playing on tv now"])
+    m.play([{"kind": "video", "src": VIDEO, "title": "Holiday", "key": VIDEO}], 0, start=0)
+    m.pos, m.view = 10.0, "list"
+    m.cmd("pause")
+    m.paused = True                                    # (paused before HOME: paused after)
+    cmds.clear()
+    m.media_home()
+    m.media_home()                                     # (HOME again: back to it, as the app's HOME does)
+    check(f"...paused already: HOME and HOME again, still paused, its picture put back ({cmds}, {m.paused})",
+          m.view == "list" and m.paused and cmds == ["pausing_keep_force osd_show_progression"])
+    m.stop()
+    n = tv_lines()
+    m.play([{"kind": "radio", "src": "https://stream.example.com/jazz", "title": "Jazz FM"}], 0)
+    m.view, m.paused = "now", False
+    cmds.clear()
+    took = m.media_home()
+    m.dirty = True
+    m.flush()
+    check(f"HOME on Now playing (a station): its menu, the music playing on ({m.media_menu_items()[0]}, {cmds})",
+          took and m.view == "mediamenu" and not m.paused and cmds == [] and m.media_menu_items()[0][1]
+          == "Back to the station")
+    m.press("b")
+    check(f"...B: back to Now playing ({m.view})", m.view == "now" and m.proc is not None)
+    m.media_home()
+    m.press("down")
+    m.press("a")
+    played = tv_said("play", n)
+    check(f"...A on Play on another Pietato: it plays on the TV, and stops here ({played and played['play']})",
+          played is not None and played["kind"] == "radio" and m.proc is None and m.view == "list")
+    m.play([{"kind": "radio", "src": "https://stream.example.com/jazz", "title": "Jazz FM"}], 0)
+    m.view = "now"
+    heard = dict(m.pie.heard)
+    m.pie.heard.clear()                                # (no other Pietato on: HOME as ever)
+    check("...with no other Pietato on: HOME as ever (the terminal)", m.media_home() is False and m.view == "now")
+    m.pie.heard.update(heard)
+    m.stop()
+    m.cmd = was_cmd
+
     # ---- what you're looking at: a PDF, some text, a picture ---------------------------------------------------------
     from PIL import Image as PI, ImageDraw as PD
     stub_run = subprocess.run

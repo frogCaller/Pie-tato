@@ -1,8 +1,9 @@
 """What you're playing, sent to another of your Pietatos, and what one of them sends, taken (pitato/handoff.py): a
 game's menu has Play on another Pietato (◀▶ picks which, A sends it: it carries on there from the same moment, and
-its menu there sends it back), and X twice sends a video, a song or a station (it carries on there at the same
-place). HOME on a picture, a PDF or a document, or some text has View on another Pietato (it opens there where you
-were in it, and HOME there sends it back). Settings > Share with other Pietatos on, on both."""
+its menu there sends it back), and so does HOME's menu on a video or Now playing, for a video, a song or a station
+(it carries on there at the same place; X twice sends it too). HOME on a picture, a PDF or a document, or some text
+has View on another Pietato (it opens there where you were in it, and HOME there sends it back). Settings > Share
+with other Pietatos on, on both."""
 import json
 import os
 import secrets
@@ -17,9 +18,10 @@ from ..games import find_games, games_dir, GAME_SYSTEMS, playable, save_name, SA
 from ..handoff import (clean_file, clean_ident, clean_media, copy_file, copy_game, copy_place, file_place, FILE_MOST,
                        FILE_VIEWS, FIRST_MOST, GAME_COPY_MOST, game_ident, HANDOFF_ASK, HANDOFF_GO, local_game,
                        MEDIA_KINDS, TOKEN, Tokens)
-from ..library import LISTEN_KINDS
+from ..library import LISTEN_KINDS, SCREEN_KINDS
+from ..screen import grab_screen
 from ..theme import ACCENT, BG, BODY, LINE, MUTED, ROW, TEXT
-from ..util import in_home
+from ..util import clock, in_home
 from .. import savesync
 from .games import PEER_DOT
 
@@ -215,6 +217,96 @@ class HandoffScreen:
         target = self.handoff_target()
         return f"X again: play it on {target[1]}" if target else ""
 
+    # -- sending what's playing, from HOME's menu: a video, a song or a station -------------------------------------
+    def media_home(self):
+        """HOME on a video's picture, or on Now playing, while another of yours is on: its menu (Play on another
+        Pietato, ◀▶ for which one), as a picture's has; from the menu, back to it. False: HOME as ever."""
+        if self.view == "mediamenu":
+            self.media_menu_close()
+            return True
+        video = self.kind in SCREEN_KINDS and self.proc_owns_screen()
+        if not (video or (self.view == "now" and self.kind in LISTEN_KINDS)) or not self.media_sendable():
+            return False
+        self.media_menu_open(video)
+        return True
+
+    def media_menu_items(self):
+        m = getattr(self, "media_menu", None) or {}
+        back = ("Back to the video" if m.get("video") else "Back to the station" if self.kind == "radio"
+                else "Back to the music")
+        return [("back", back), ("send", "Play on another Pietato")]
+
+    def media_menu_open(self, video):
+        """The menu, over what's playing: a video paused under it (its picture, dimmed, behind it), music playing on."""
+        was_paused = bool(self.paused)
+        if video and not was_paused:
+            self.cmd("pause")
+            self.paused = True
+        bg = None
+        try:
+            from PIL import ImageEnhance
+            s = scale()
+            if video:                                  # (the video's picture, as it's on the screen now)
+                from PIL import Image
+                pic = grab_screen(max(640, self.fb.w * s)).convert("RGB").resize((self.fb.w * s, self.fb.h * s),
+                                                                                Image.BILINEAR)
+            else:
+                last = getattr(self.fb, "last", None)
+                ok = last is not None and detail(last) == s and last.size == (self.fb.w, self.fb.h)
+                pic = (last.pic if detail(last) > 1 else last).convert("RGB") if ok else None
+            if pic is not None:
+                bg = made_fine(ImageEnhance.Brightness(pic).enhance(0.3), s)
+        except (OSError, ValueError, AttributeError, ImportError):
+            bg = None
+        self.media_menu = {"sel": 0, "view": self.view, "bg": bg, "video": video, "was_paused": was_paused}
+        self.view = "mediamenu"
+        self.dirty = True
+
+    def media_menu_close(self, play_on=True):
+        """Back to it: the video's picture, playing again if it was (play_on), or Now playing."""
+        m = getattr(self, "media_menu", None) or {}
+        self.media_menu = None
+        if self.view == "mediamenu":
+            self.view = m.get("view") or "list"
+        if self.proc and m.get("video"):
+            if play_on and not m.get("was_paused") and self.paused:
+                self.cmd("pause")
+                self.paused = False
+            else:                                      # (still paused: its picture put back over the menu)
+                self.cmd("pausing_keep_force osd_show_progression")
+        self.dirty = True
+
+    def press_media_menu(self, name, repeat):
+        m = getattr(self, "media_menu", None)
+        if m is None or not self.proc:                 # (what was playing is over)
+            self.media_menu_close()
+            return None
+        menu = self.media_menu_items()
+        job = menu[m["sel"] % len(menu)][0]
+        if name in ("up", "down"):
+            m["sel"] = (m["sel"] + (1 if name == "down" else -1)) % len(menu)
+        elif repeat:
+            return None
+        elif name in ("left", "right") and job == "send":
+            self.handoff_cycle(1 if name == "right" else -1)
+        elif name == "b" or (name == "a" and job == "back"):
+            self.media_menu_close()
+        elif name == "a":
+            self.media_menu_close(play_on=False)       # (sent, it stops here; if it can't go, it plays on)
+            self.media_send()
+            if self.proc and m.get("video") and not m.get("was_paused") and self.paused:
+                self.cmd("pause")
+                self.paused = False
+        self.dirty = True
+        return None
+
+    def media_where(self):
+        """How far through what's playing it is, in words (in HOME's menu, under its name)."""
+        if self.kind == "radio":
+            return self.meta.get("song") or "A station"
+        length = self.meta.get("length") or self.length(self.cur or {}) or 0
+        return f"{clock(self.pos or 0)} of {clock(length)}" if length else clock(self.pos or 0)
+
     # -- sending what you're looking at: a picture, a PDF or a document, some text ----------------------------------
     def file_home(self):
         """HOME on a picture, a PDF or a document, or some text, while another of yours is on: its menu (View on
@@ -387,13 +479,28 @@ class HandoffScreen:
 
     def render_file_menu(self):
         """HOME on what you're looking at: its menu, over it (Back to it; View on another Pietato ◀ ● name ▶)."""
+        self.render_send_menu(getattr(self, "file_menu", None) or {"sel": 0, "bg": None}, self.file_menu_items(),
+                              self.file_title(), self.file_where(), "file_menu")
+
+    def render_media_menu(self):
+        """HOME on a video's picture or Now playing: its menu, over it (Back to it; Play on another Pietato ◀ ● name
+        ▶). What was playing over: back to where you were."""
+        m = getattr(self, "media_menu", None)
+        if m is None or not self.proc:
+            self.media_menu_close()
+            return
+        title = (self.cur or {}).get("title") or "" if m.get("video") else self.lofi_words()[0]
+        self.render_send_menu(m, self.media_menu_items(), title, self.media_where(), "media_menu")
+
+    def render_send_menu(self, m, menu, title, where, owner):
+        """A menu for sending what's on the screen to another of yours, over it (dimmed): its name, where you are in
+        it, then its rows (the one that sends it with the one it'd go to, ◀ ● name ▶). owner: where it's kept (a
+        tap on a row, on the web page's copy of the screen, picks it)."""
         F = self.fonts
-        m = getattr(self, "file_menu", None) or {"sel": 0, "bg": None}
         img, d = self.canvas(bg=(0, 0, 0))
         W, H = self.fb.w, self.fb.h
         if m.get("bg") is not None:
             img.paste(m["bg"])
-        menu, title = self.file_menu_items(), self.file_title()
         n, mw, rh = len(menu), self.game_menu_width(d, menu, title), 38
         mh = 64 + n * rh + 10
         mx0, my0 = (W - mw) / 2, max(12, (H - self.FOOTER - 50 - mh) / 2)   # (room below for a toast)
@@ -401,14 +508,14 @@ class HandoffScreen:
         d.rounded_rectangle((mx0, my0, mx0 + mw, my0 + mh), radius=13, fill=BG)
         d.text((mx0 + 22, my0 + 24), self.fit(d, title, F["row_b"], mw - 44), font=F["row_b"], fill=TEXT,
                anchor="lm")
-        d.text((mx0 + 22, my0 + 46), self.fit(d, self.file_where(), F["small"], mw - 44), font=F["small"],
+        d.text((mx0 + 22, my0 + 46), self.fit(d, where, F["small"], mw - 44), font=F["small"],
                fill=MUTED, anchor="lm")
         peer = self.handoff_target()
         for k, (job, label) in enumerate(menu):
             ry = my0 + 64 + k * rh
             sel = k == m["sel"] % n
             font = F["row_b"] if sel else F["row"]
-            self.tappable((mx0, ry - 2, mx0 + mw, ry + rh - 2), "sel", "dict", "file_menu", k)
+            self.tappable((mx0, ry - 2, mx0 + mw, ry + rh - 2), "sel", "dict", owner, k)
             if sel:
                 d.rounded_rectangle((mx0 + 8, ry, mx0 + mw - 8, ry + rh - 4), radius=10, fill=ROW)
                 d.rounded_rectangle((mx0 + 8, ry + 10, mx0 + 12, ry + rh - 14), radius=2, fill=ACCENT)

@@ -42,9 +42,10 @@ have the Pi start in the game you played last, right where you were, set Setting
 If you have two Pietatos, with Settings > Share with other Pietatos on, a game's menu has two more:
 
 - **Play on another Pietato** carries the game on there from the same moment (◀▶ picks which one), and
-  its menu there sends it back. X twice does the same for a video, a song or a station, and for a
-  picture, a PDF, a document or some text you're looking at, HOME has **View on another Pietato**: it
-  opens there where you were (the same page, zoom and place), and HOME there sends it back.
+  its menu there sends it back. HOME on a video or on Now playing has it too, for the video, song or
+  station (so does X twice), and for a picture, a PDF, a document or some text you're looking at, HOME
+  has **View on another Pietato**: it opens there where you were (the same page, zoom and place), and
+  HOME there sends it back.
 - **Play together** asks the other one to play too. In an NES, SNES, Genesis, Master System or Neo Geo
   game, it joins as player 2 (if it hasn't got the game, it's copied over). A Game Boy or Game Boy Color
   game has **Link cable** instead: you each play your own game, linked, to trade or battle Pokémon. It

@@ -68,7 +68,7 @@ class RestScreen:
                 self.wake()
 
     def rest_after(self):
-        return REST_READING if self.view in ("photo", "pdf", "text", "filemenu") else REST_AFTER
+        return REST_READING if self.view in ("photo", "pdf", "text", "filemenu", "mediamenu") else REST_AFTER
 
     def worth_watching(self, now):
         """Something on the screen to watch, or that's being worked: it doesn't rest (and the wait for rest starts again

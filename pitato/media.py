@@ -836,8 +836,9 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
     # -- mode ----------------------------------------------------------------
     def proc_owns_screen(self):
         """A video, a game, or Apps' cmatrix and the rest, is drawing on the screen: the menus keep off
-        it."""
-        return ((bool(self.proc) and self.kind in SCREEN_KINDS) or (self.game is not None and self.view == "game")
+        it (but for a video's HOME menu: the video's paused under it)."""
+        return ((bool(self.proc) and self.kind in SCREEN_KINDS and self.view != "mediamenu")
+                or (self.game is not None and self.view == "game")
                 or self.prog is not None or self.chromium_shown())
 
     def fine_scale(self):
@@ -922,6 +923,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.close_pad()
         if self.view == "keys":
             self.close_keyboard(False)
+        if self.view == "mediamenu":                   # (HOME's menu on Now playing: closed, the music plays on)
+            self.media_menu_close()
         if self.kind not in LISTEN_KINDS:
             self.stop()
         self.active = False
@@ -1764,6 +1767,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             return self.press_game_menu(name, repeat)
         if self.view == "sketch":                      # a drawing from the web page: B goes back
             return self.press_sketch(name, repeat)
+        if self.view == "mediamenu":                   # HOME on a video or Now playing: Play on another Pietato
+            return self.press_media_menu(name, repeat)
         if self.proc and self.kind == "plex":
             length = (self.cur or {}).get("dur") or 0
             if name == "a":
@@ -2152,7 +2157,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.update_drawn = time.monotonic()
         draw = {"home": self.render_home, "keys": self.render_keys, "help": self.render_help,
                 "learn": self.render_learn, "gamemenu": self.render_game_menu, "invite": self.render_invite,
-                "konami": self.render_konami_in, "filemenu": self.render_file_menu,
+                "konami": self.render_konami_in, "filemenu": self.render_file_menu, "mediamenu": self.render_media_menu,
                 "photo": self.render_photo, "keepres": self.render_keep_res,
                 "pdf": self.render_pdf, "update": self.render_update,
                 "text": self.render_text, "sketch": self.render_sketch, "chromenu": self.render_chrome_menu,

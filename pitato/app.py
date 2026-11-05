@@ -62,13 +62,14 @@ def run(ui, media, control=None, stop=None):
 
     def home():
         """HOME: media mode on or off; in a game, the game's menu (or back to the game); cmatrix or hollywood
-        stops; Chromium's menu (or back to Chromium); on a picture, a PDF or some text, its menu while another of
-        your Pietatos is on (or back to it). The screen resting: it wakes, and that's all."""
+        stops; Chromium's menu (or back to Chromium); on a picture, a PDF or some text, or a video or Now playing,
+        its menu while another of your Pietatos is on (or back to it). The screen resting: it wakes, and that's
+        all."""
         if media.active and media.resting:            # (TURBO tapped, or SELECT and START: as HOME)
             media.stir()
             return
         if media.active and (media.game_home() or media.prog_home() or media.chromium_home() or media.konami_home()
-                             or media.file_home()):
+                             or media.file_home() or media.media_home()):
             menu_held.clear()
             return
         toggle()
