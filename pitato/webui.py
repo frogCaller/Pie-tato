@@ -1041,7 +1041,7 @@ def saves_news():
 
 # ---- what you're playing, sent from one of your Pietatos to another (pitato/handoff.py) -----------------------------
 HANDOFF_KEYS = ("kind", "check", "file", "system", "rel", "name", "title", "size", "sum", "media", "src", "pos",
-                "view", "page", "fit", "zoom", "at", "sx", "first", "frac", "big", "rot")
+                "view", "page", "fit", "zoom", "at", "sx", "first", "frac", "big", "rot", "keep")
 
 
 @app.post("/api/handoff")

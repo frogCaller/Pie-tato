@@ -53,7 +53,8 @@ GAME_CONFIRM = ("load", "reset")    # (these lose where you are: A twice)
 GAME_MENU_W = 360                   # a game's menu: this wide at least, wider for its longest row (and the game's name)
 GAME_MENU_EDGE = 16                 # ...as far as this from the screen's sides
 GAME_MENU_TITLED = 480              # ...and for the game's name, no wider than this (a longer one's cut short)
-PEER_JOBS = ("together", "send")    # (its rows that name another of your Pietatos: a dot in its colour before it)
+PEER_JOBS = ("together", "send", "keep")   # (its rows that name another of your Pietatos: a dot in its colour
+                                           #  before it)
 PEER_DOT = 15                       # ...that dot's room, and the gap after it
 GAME_PANEL_W = 212                  # the picked game's picture, beside the list
 GAME_THUMB = 40                     # ...and each game's, on its row

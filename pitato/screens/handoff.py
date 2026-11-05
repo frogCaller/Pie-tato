@@ -2,7 +2,8 @@
 game's menu has Play on another Pietato (◀▶ picks which, A sends it: it carries on there from the same moment, and
 its menu there sends it back), and so does HOME's menu on a video or Now playing, for a video, a song or a station
 (it carries on there at the same place; X twice sends it too). HOME on a picture, a PDF or a document, or some text
-has View on another Pietato (it opens there where you were in it, and HOME there sends it back). Settings > Share
+has View on another Pietato (it opens there where you were in it, and HOME there sends it back) and Send to another
+Pietato (a copy kept there, in its Pictures or its Documents, a number on the name if that's taken). Settings > Share
 with other Pietatos on, on both."""
 import json
 import os
@@ -21,9 +22,9 @@ from ..handoff import (clean_file, clean_ident, clean_media, copy_file, copy_gam
 from ..library import LISTEN_KINDS, SCREEN_KINDS
 from ..screen import grab_screen
 from ..theme import ACCENT, BG, BODY, LINE, MUTED, ROW, TEXT
-from ..util import clock, in_home
+from ..util import clock, copy_new, home_dir, home_folder, in_home
 from .. import savesync
-from .games import PEER_DOT
+from .games import PEER_DOT, PEER_JOBS
 
 SEND_AGAIN = 4.0              # seconds X has to be pressed again in, to send what's playing
 ONE_FILE = (".cue", ".gdi", ".m3u")   # a game in more than one file (its tracks, its discs): not copied over
@@ -31,6 +32,7 @@ FILE_BACK = {"photo": "Back to the picture", "pdf": "Back to the page", "text": 
 FILES_IN = "handoff-files"    # (in the cache folder) what you were looking at on another of yours, come here
 FILES_OUT = "handoff-out"     # ...and a copy of what you're looking at here, for another to take (some text, say)
 FILES_KEPT = 6                # files come from another Pietato kept (the newest): the rest go
+KEEP_SPARE = 64 << 20         # room left on the card after a file another one sends to keep is saved
 OUT_SECS = 3600.0             # a file sent from here: its key good, and a copy of it kept, this long
 
 
@@ -207,6 +209,7 @@ class HandoffScreen:
                 self.toast(f"{host} didn't take it ({why})", 4)
             return
         self.stop()
+        self.resume_later = None                       # (it plays on there now: it doesn't come back here)
         if self.view in ("now", "help"):
             self.view = "list"
         self.toast(f"Playing on {host} now", 4)
@@ -322,7 +325,7 @@ class HandoffScreen:
     def file_menu_items(self):
         m = getattr(self, "file_menu", None) or {}
         return [("back", FILE_BACK.get(m.get("view") or self.v.get("type"), "Back to it")),
-                ("send", "View on another Pietato")]
+                ("send", "View on another Pietato"), ("keep", "Send to another Pietato")]
 
     def file_menu_open(self):
         bg, last = None, getattr(self.fb, "last", None)
@@ -355,10 +358,12 @@ class HandoffScreen:
             m["sel"] = (m["sel"] + (1 if name == "down" else -1)) % len(menu)
         elif repeat:
             return None
-        elif name in ("left", "right") and job == "send":
+        elif name in ("left", "right") and job in PEER_JOBS:
             self.handoff_cycle(1 if name == "right" else -1)
         elif name == "b" or (name == "a" and job == "back"):
             self.file_menu_close()
+        elif name == "a" and job == "keep":
+            self.file_keep()
         elif name == "a":
             self.file_send()
         self.dirty = True
@@ -381,9 +386,10 @@ class HandoffScreen:
             return f"Picture {v['i'] + 1} of {len(v['items'])}"
         return "A picture" if v.get("type") == "photo" else ""
 
-    def file_what(self):
+    def file_what(self, keep=False):
         """What you're looking at, as another of your Pietatos is told of it: (the file it takes, what it's told),
-        or why it can't go, in words."""
+        or why it can't go, in words. keep: for it to keep (Send to another Pietato): a document as it is, not just
+        its words, and some text with no file of its own as a .txt."""
         v = self.v
         kind = v.get("type")
         try:
@@ -405,9 +411,13 @@ class HandoffScreen:
                 return "It can't go to another Pietato"
             if web_private(os.path.basename(path)) or web_private(title):
                 return "That one stays on this Pi"      # (a password's or a token's file)
-            if kind == "text":
+            if kind == "text" and keep and os.path.isfile(path):
+                title = os.path.basename(path)          # (the document itself, to keep)
+            elif kind == "text":
                 path = self.file_out(text=v["text"])    # (as it's shown: a document's words, say)
-            elif not (in_home(path) or all_can_read(path)):
+                if keep and not os.path.splitext(title)[1]:
+                    title += ".txt"
+            if not (in_home(path) or all_can_read(path)):
                 path = self.file_out(path=path)         # (the web page, which hands it over, couldn't read it)
             size = os.path.getsize(path)
         except (OSError, KeyError, IndexError, TypeError, ValueError):
@@ -477,6 +487,39 @@ class HandoffScreen:
             self.close_viewer()
         self.toast(f"Showing on {host} now. HOME there sends it back", 5)
 
+    def file_keep(self):
+        """What you're looking at, sent for the one picked to keep: a copy in its own Pictures (a picture) or
+        Documents (a PDF, a document, some text), named as it is here. It stays open here."""
+        target = self.handoff_target()
+        if target is None:
+            self.toast("None of your other Pietatos is on", 3)
+            return
+        url, host = target
+        got = self.file_what(keep=True)
+        if isinstance(got, str):
+            self.toast(got, 4)
+            return
+        path, body = got
+        self.toast(f"Asking {host}…", 4)
+        self.flush()                                   # (said before it waits for the answer)
+        said = handoff_post(url, dict(body, kind="file", keep=True, check=True), HANDOFF_ASK)
+        if said is None:
+            self.toast(f"{host} isn't answering", 4)
+            return
+        if said.get("status") == 400 or (said.get("ok") and said.get("keep") is not True):
+            self.toast(f"{host} needs updating first (System > Update software there)", 6)
+            return                                     # (one from before this: it'd open it, not keep it)
+        if not said.get("ok"):
+            self.toast(f"{host}: {said.get('error') or 'it can’t keep it'}", 5)
+            return
+        key = self.handoff_keys().issue(path, secs=OUT_SECS)
+        said = handoff_post(url, dict(body, kind="file", keep=True, file=key), HANDOFF_GO)
+        if said is None or not said.get("ok"):
+            self.toast(f"{host} didn't take it ({(said or {}).get('error') or 'it isn’t answering'})", 5)
+            return
+        self.file_menu_close()
+        self.toast(f"Sending it to {host}, for its {said.get('folder') or 'folders'}", 5)
+
     def render_file_menu(self):
         """HOME on what you're looking at: its menu, over it (Back to it; View on another Pietato ◀ ● name ▶)."""
         self.render_send_menu(getattr(self, "file_menu", None) or {"sel": 0, "bg": None}, self.file_menu_items(),
@@ -521,7 +564,7 @@ class HandoffScreen:
                 d.rounded_rectangle((mx0 + 8, ry + 10, mx0 + 12, ry + rh - 14), radius=2, fill=ACCENT)
             mid = ry + (rh - 4) / 2
             d.text((mx0 + 24, mid), label, font=font, fill=TEXT if sel else BODY, anchor="lm")
-            if job != "send" or peer is None:
+            if job not in PEER_JOBS or peer is None:
                 continue
             gap = PEER_DOT if self.peer_colour(peer[0]) is not None else 0
             room = mw - 24 - d.textlength(label, font=font) - 28 - 22
@@ -539,7 +582,7 @@ class HandoffScreen:
                 half = (vx + rx) / 2                   # ◀ name ▶: each end, a way to change it
                 self.tappable((vx - 22, ry - 2, half, ry + rh - 2), "keys", "left")
                 self.tappable((half, ry - 2, mx0 + mw, ry + rh - 2), "keys", "right")
-        hints = [("A", "Choose")] + ([("◀▶", "Change")] if menu[m["sel"] % n][0] == "send" else []) \
+        hints = [("A", "Choose")] + ([("◀▶", "Change")] if menu[m["sel"] % n][0] in PEER_JOBS else []) \
             + [("B", menu[0][1])]
         self.footer(d, hints)
         self.fb.show(img)
@@ -671,6 +714,8 @@ class HandoffScreen:
         if got is None:
             return {"ok": False, "error": "What's that?"}
         view, title, size, place = got
+        if cmd.get("keep") is True:
+            return self.handoff_keep_file(cmd, url, host, view, title, size)
         why = self.handoff_file_cant(view, size)
         if cmd.get("check") is True:
             return {"ok": True} if why is None else {"ok": False, "error": why}
@@ -696,6 +741,43 @@ class HandoffScreen:
             self.wake()
         threading.Thread(target=copy, daemon=True, name="handoff-file").start()
         return {"ok": True}
+
+    def handoff_keep_file(self, cmd, url, host, view, title, size):
+        """A file another of yours sends to keep (Send to another Pietato): copied into your own folders, a picture
+        into Pictures, the rest into Documents, named as it was there (a number on the end, if that's taken).
+        What's on the screen here stays as it is."""
+        folder = "Pictures" if view == "photo" else "Documents"
+        try:
+            room = shutil.disk_usage(home_dir()).free
+        except OSError:
+            room = 0
+        why = "It hasn't the room for it" if room < size + KEEP_SPARE else None
+        if cmd.get("check") is True:
+            return {"ok": True, "keep": True, "folder": folder} if why is None else {"ok": False, "error": why}
+        if why:
+            return {"ok": False, "error": why}
+        key = cmd.get("file")
+        if not isinstance(key, str) or not TOKEN.fullmatch(key):
+            return {"ok": False, "error": "What's that?"}
+        name = file_place(title)
+        tmp = os.path.join(CACHE_DIR, FILES_IN, secrets.token_hex(6), name)
+        self.toast(f"Getting {title} from {host}…", 4)
+
+        def copy():
+            try:
+                copy_file(f"{url}/api/handoff/file?token={key}", tmp, size)
+                kept = copy_new(tmp, home_folder(folder), name)
+            except Exception as ex:                    # (a lost connection, too: said, not left unsaid)
+                print(f"handoff: {title} from {host}, to keep: {ex!r}", flush=True)
+                self.soon_jobs.append(lambda: self.toast(f"Couldn't get {title} from {host}", 5))
+            else:
+                print(f"handoff: {os.path.basename(kept)} from {host}, kept in {folder}", flush=True)
+                self.soon_jobs.append(lambda: self.toast(f"{os.path.basename(kept)} from {host}, in {folder}", 5))
+            finally:
+                shutil.rmtree(os.path.dirname(tmp), ignore_errors=True)
+            self.wake()
+        threading.Thread(target=copy, daemon=True, name="handoff-keep").start()
+        return {"ok": True, "keep": True, "folder": folder}
 
     def handoff_show(self, path, view, title, place, url, host):
         """What you were looking at on another of your Pietatos, opened here where you were in it there (HOME here

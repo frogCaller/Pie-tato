@@ -45,7 +45,8 @@ If you have two Pietatos, with Settings > Share with other Pietatos on, a game's
   its menu there sends it back. HOME on a video or on Now playing has it too, for the video, song or
   station (so does X twice), and for a picture, a PDF, a document or some text you're looking at, HOME
   has **View on another Pietato**: it opens there where you were (the same page, zoom and place), and
-  HOME there sends it back.
+  HOME there sends it back. **Send to another Pietato** gives it a copy to keep instead, in its Pictures
+  (for a picture) or Documents (the rest), with a number added to the name if it already has one.
 - **Play together** asks the other one to play too. In an NES, SNES, Genesis, Master System or Neo Geo
   game, it joins as player 2 (if it hasn't got the game, it's copied over). A Game Boy or Game Boy Color
   game has **Link cable** instead: you each play your own game, linked, to trade or battle Pokémon. It

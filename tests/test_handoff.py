@@ -405,10 +405,17 @@ try:
     check(f"...B: back to Now playing ({m.view})", m.view == "now" and m.proc is not None)
     m.media_home()
     m.press("down")
+    loops = m.music_loops
+    m.music_loops = lambda: True                       # (Random song at start-up on: stopped music comes back...)
     m.press("a")
     played = tv_said("play", n)
-    check(f"...A on Play on another Pietato: it plays on the TV, and stops here ({played and played['play']})",
-          played is not None and played["kind"] == "radio" and m.proc is None and m.view == "list")
+    m.music_back(time.monotonic())
+    m.music_back(time.monotonic() + 3600)
+    check(f"...A on Play on another Pietato: it plays on the TV, and stops here, for good, even with music that "
+          f"comes back on ({played and played['play']}, {m.resume_later}, {m.proc})",
+          played is not None and played["kind"] == "radio" and m.proc is None and m.view == "list"
+          and m.resume_later is None)
+    m.music_loops = loops
     m.play([{"kind": "radio", "src": "https://stream.example.com/jazz", "title": "Jazz FM"}], 0)
     m.view = "now"
     heard = dict(m.pie.heard)
@@ -454,6 +461,21 @@ try:
         m.press("down")
         m.press("a")
 
+    def home_keep():
+        """HOME, then Send to another Pietato, A."""
+        m.file_home()
+        m.dirty = True; m.flush()
+        m.press("down")
+        m.press("down")
+        m.dirty = True; m.flush()
+        m.press("a")
+
+    def until_file(path, secs=10.0):
+        end = time.time() + secs
+        while not os.path.isfile(path) and time.time() < end:
+            time.sleep(0.1)
+        return os.path.isfile(path)
+
     heard = dict(m.pie.heard)
     m.pie.heard.clear()
     m.open_pdf(PDF)
@@ -465,8 +487,9 @@ try:
     m.v["scroll"] = 300
     m.dirty = True; m.flush()
     sx = m.v["sx"]
-    check(f"...one on: HOME is its menu ({m.view}, {m.file_menu_items()})", m.file_home() and m.view == "filemenu"
-          and m.file_menu_items() == [("back", "Back to the page"), ("send", "View on another Pietato")])
+    check(f"...one on: HOME is its menu, to view it there or send it there to keep ({m.view}, {m.file_menu_items()})",
+          m.file_home() and m.view == "filemenu" and m.file_menu_items() == [
+              ("back", "Back to the page"), ("send", "View on another Pietato"), ("keep", "Send to another Pietato")])
     frames = FB.frames
     m.dirty = True; m.flush()
     check(f"...drawn, saying where you are in it ({FB.frames - frames}, {m.file_where()!r}, {m.where_text()!r})",
@@ -492,7 +515,7 @@ try:
     tv_do("home")
     st = tv_state()
     check(f"...HOME on the TV: its menu, this one picked to send it back ({st['view']}, {st['file_menu']}, {st['to']})",
-          st["view"] == "filemenu" and st["file_menu"] == ["back", "send"] and st["to"] == MINE)
+          st["view"] == "filemenu" and st["file_menu"] == ["back", "send", "keep"] and st["to"] == MINE)
     tv_do("press b")
 
     m.open_text(TXT)
@@ -516,6 +539,35 @@ try:
           and sh.get("rot") == 1 and os.path.basename(got) == "hills.jpg" and open(got, "rb").read()
           == open(PIC2, "rb").read())
     check(f"...and here, back to the list ({m.view})", m.view == "list" and not m.v)
+
+    # ---- Send to another Pietato: a copy for it to keep, in its own folders; it stays open here -------------------------
+    toasts.clear()
+    m.open_photo([PIC1, PIC2], 0)
+    home_keep()
+    kept = TV + "/Pictures/beach.jpg"
+    got = until_file(kept)
+    check(f"Send to another Pietato, a picture: a copy kept in the TV's Pictures; here it stays open "
+          f"({m.view}, {toasts[-1:]})", got and open(kept, "rb").read() == open(PIC1, "rb").read() and m.view == "photo"
+          and m.v["items"][m.v["i"]] == PIC1 and toasts[-1:] == ["Sending it to tv, for its Pictures"])
+    st = tv_state()
+    shown = os.path.basename((st["viewer"].get("items") or [""])[0])
+    check(f"...the TV's screen left as it was (still {shown})", st["view"] == "photo" and shown == "hills.jpg")
+    home_keep()
+    check("...sent again: kept again, beside it, a number on its name", until_file(TV + "/Pictures/beach-2.jpg")
+          and open(TV + "/Pictures/beach-2.jpg", "rb").read() == open(PIC1, "rb").read())
+    m.close_viewer()
+    m.open_pdf(PDF)
+    home_keep()
+    check("a PDF: kept in the TV's Documents, the very file", until_file(TV + "/Documents/manual.pdf")
+          and open(TV + "/Documents/manual.pdf", "rb").read() == open(PDF, "rb").read() and m.view == "pdf")
+    m.close_viewer()
+    DOC = HOME + "/Documents/plan.md"
+    open(DOC, "w").write("# The plan\n\n- one\n- two\n")
+    m.open_text(DOC)
+    home_keep()
+    check("some text from a file: the file itself kept, by its own name", until_file(TV + "/Documents/plan.md")
+          and open(TV + "/Documents/plan.md").read() == open(DOC).read())
+    m.close_viewer()
 
     SECRET = HOME + "/Documents/webui.txt"
     open(SECRET, "w").write("password = not-for-the-tv\n")
@@ -554,6 +606,11 @@ try:
     home_send()
     check(f"one not updated yet: said so, and it stays here ({toasts[-1:]}, {m.view})",
           toasts[-1:] == ["attic needs updating first (System > Update software there)"] and m.view == "filemenu")
+    m.press("b")
+    toasts.clear()
+    home_keep()
+    check(f"...nor sent to keep ({toasts[-1:]})", toasts[-1:] == ["attic needs updating first (System > Update software "
+                                                                  "there)"] and m.view == "filemenu")
     m.press("b")
     m.close_viewer()
     del m.pie.heard[OLDER]
