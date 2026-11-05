@@ -96,6 +96,7 @@ def run(args, model=CM4, config=BOOKWORM, answers=None, git=False, timeout=900):
     with open(T + "/config.txt", "w") as f:
         f.write(config)
     env = dict(os.environ, HOLD_LOG=F + "/hold.log", STUB_LOG=F + "/stub.log", SETUP_ARGS=args or " ",
+               PIETATO_SETUP_UI="plain",
                CONFIG_INIT=T + "/config.txt", PITATO_MODEL_FILE=T + "/model")
     if git:
         env["SETUP_GIT"] = "1"

@@ -1,5 +1,5 @@
-"""The Simulator's hollywood: Linux's own (byobu, tmux and its panes' programs), run on a pretend console (a pty),
-started from the Simulator's list; the menus keep off the screen while it's on; the buttons don't go into it (no
+"""Apps' hollywood: Linux's own (byobu, tmux and its panes' programs), run on a pretend console (a pty),
+started from Apps' list; the menus keep off the screen while it's on; the buttons don't go into it (no
 keys of its own), but B, HOME, leaving media mode or shutting down close it all, and the menus come back; the web
 page starts and stops it too; not installed: it says so."""
 import os, sys, time, shutil, select, struct, fcntl, termios, threading
@@ -115,7 +115,7 @@ g.ProgScreen.prog_key = spy_key
 
 
 def to_hollywood(m):
-    si = next(i for i, t in enumerate(g.LIBRARY) if t["name"] == "Simulator")
+    si = next(i for i, t in enumerate(g.LIBRARY) if t["name"] == "Apps")
     m.tab, m.view = si, "list"
     m.load_tab(si)
     rows = m.tab_items()
@@ -127,7 +127,7 @@ m = g.Media()
 m.enter()
 si, rows = to_hollywood(m)
 row = m.sels[si]
-check(f"the Simulator lists hollywood, then nyancat, cacafire and htop, last ({[it['title'] for it in rows]})",
+check(f"Apps lists hollywood, then nyancat, cacafire and htop, last ({[it['title'] for it in rows]})",
       row == len(rows) - 4 and rows[row]["icon"] == "HACK" and rows[row]["sub"] == "Movie hacker screens")
 
 # A: the real one, on the console
@@ -160,14 +160,14 @@ took = time.monotonic() - t0
 time.sleep(0.5)
 left = hw_procs()
 m.flush()
-check(f"B: it all closes ({p.returncode}, {took:.2f} s, left: {left}), the menus back, the Simulator's list",
+check(f"B: it all closes ({p.returncode}, {took:.2f} s, left: {left}), the menus back, Apps' list",
       p.poll() is not None and m.prog is None and not left and not g.hw_up() and took < 2
       and FB.frames and m.tab == si and not m.proc_owns_screen())
 
 # HOME, leaving media mode, shutting down
 m.press("a"); time.sleep(3)
 p = m.prog
-check("HOME: it all closes (back to the Simulator, still in media mode)",
+check("HOME: it all closes (back to Apps, still in media mode)",
       m.prog_home() and p.poll() is not None and not hw_procs() and m.active and not m.prog_home())
 m.press("a"); time.sleep(3)
 p = m.prog
@@ -188,8 +188,8 @@ m2.enter()
 r = m2.web_command({"cmd": "open", "app": "hollywood"})
 time.sleep(3)
 p = m2.prog
-check(f"the web page opens it: the Simulator, and hollywood on ({r}, {m2.where_text()!r})",
-      r.get("ok") and p is not None and p.poll() is None and g.LIBRARY[m2.tab]["name"] == "Simulator"
+check(f"the web page opens it: Apps, and hollywood on ({r}, {m2.where_text()!r})",
+      r.get("ok") and p is not None and p.poll() is None and g.LIBRARY[m2.tab]["name"] == "Apps"
       and m2.prog_name == "hollywood")
 r = m2.web_command({"cmd": "open", "app": "cmatrix"})
 time.sleep(0.8)
@@ -209,11 +209,11 @@ check(f"hollywood not installed: it says how to put it in ({m.msg!r})", m.prog i
       and m.msg == "hollywood isn't installed: sudo apt install hollywood")
 g.shutil.which = real_which
 
-# the controls, on the Simulator's help page
+# the controls, on Apps' help page
 FB.frames.clear()
 m.press("x")
 m.flush()
-check(f"X on the Simulator's list: its controls, hollywood's among them ({m.view})", m.view == "help" and FB.frames)
+check(f"X on Apps' list: its controls, hollywood's among them ({m.view})", m.view == "help" and FB.frames)
 FB.frames[-1].save(SP + "/progs_help.png")
 m.leave()
 src = open(ROOT + "/setup.sh").read()

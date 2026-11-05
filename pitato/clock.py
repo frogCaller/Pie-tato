@@ -1,4 +1,4 @@
-"""The Simulator's Clock: the time and the date in the middle of the screen, on a dial (Analogue) or in big figures
+"""Apps' Clock: the time and the date in the middle of the screen, on a dial (Analogue) or in big figures
 (Digital), in the colour and on the background you pick (up and down, left and right), with or without its seconds (X)
 and the date (Y)."""
 import math

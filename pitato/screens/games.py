@@ -53,6 +53,8 @@ GAME_CONFIRM = ("load", "reset")    # (these lose where you are: A twice)
 GAME_MENU_W = 360                   # a game's menu: this wide at least, wider for its longest row (and the game's name)
 GAME_MENU_EDGE = 16                 # ...as far as this from the screen's sides
 GAME_MENU_TITLED = 480              # ...and for the game's name, no wider than this (a longer one's cut short)
+PEER_JOBS = ("together", "send")    # (its rows that name another of your Pietatos: a dot in its colour before it)
+PEER_DOT = 15                       # ...that dot's room, and the gap after it
 GAME_PANEL_W = 212                  # the picked game's picture, beside the list
 GAME_THUMB = 40                     # ...and each game's, on its row
 GAME_PICS_KEPT = 80                 # pictures kept ready to draw
@@ -100,6 +102,22 @@ def game_matches(row, words):
         return (any(w in n or w in n.replace(" ", "") for n in names)
                 or any(c.replace(" ", "").startswith(w) or any(x.startswith(w) for x in c.split()) for c in consoles))
     return all(found(w) for w in words)
+
+
+def peer_labels(peers):
+    """[(address, name)] of your other Pietatos, as their names are shown: one that has another's name, with the end of
+    its address after it (raspberrypi (.54), raspberrypi (.62)), or the whole address when that's the same too."""
+    names = [h for _, h in peers]
+    ips = {u: urllib.parse.urlsplit(u).hostname or u for u, _ in peers}
+    ends = {u: "." + ip.rsplit(".", 1)[-1] if ip.count(".") == 3 else ip for u, ip in ips.items()}
+    out = []
+    for u, h in peers:
+        if names.count(h) > 1:
+            same = [v for v, k in peers if k == h]
+            end = ends[u] if [ends[v] for v in same].count(ends[u]) == 1 else ips[u]
+            h = f"{h} ({end})"
+        out.append((u, h))
+    return out
 
 
 class GameScreen:
@@ -863,12 +881,13 @@ class GameScreen:
 
     # -- saves that follow you: your other Pietatos' (savesync.py) ------------------------------------------
     def saves_peers(self, addr=None):
-        """Your other Pietatos heard lately ([(address, name)]), with Settings > Share with other Pietatos on: the one
-        at addr alone, if that's given."""
+        """Your other Pietatos heard lately ([(address, name)]), with Settings > Share with other Pietatos on, by name
+        (a steady order, not who said they're there last): two of the same name with the end of their addresses
+        after it, so they can be told apart ("raspberrypi (.54)"). The one at addr alone, if that's given."""
         pie = getattr(self, "pie", None)
         if pie is None or self.setting("share") == "Off":
             return []
-        peers = pie.peer_list()
+        peers = sorted(peer_labels(pie.peer_list()), key=lambda p: (p[1].lower(), p[0]))
         if addr is not None:
             peers = [(u, h) for u, h in peers if urllib.parse.urlsplit(u).hostname == addr]
         return peers
@@ -1252,17 +1271,21 @@ class GameScreen:
             sel = k == m["sel"]
             font = F["row_b"] if sel else F["row"]
             room = mw - 24 - d.textlength(label, font=font) - 28 - 22   # (what's left of the row for its value)
+            asking = waiting == job and time.monotonic() <= until
+            peer = self.handoff_target() if job in PEER_JOBS and not asking else None
+            gap = PEER_DOT if peer is not None and self.peer_colour(peer[0]) is not None else 0
             right, colour = self.game_value(job), MUTED
-            if waiting == job and time.monotonic() <= until:
+            if asking:
                 right, colour = "press A again", ACCENT
             elif job in GAME_CHANGE and sel:
                 arrows = d.textlength("◀    ▶", font=F["small"])
-                right, colour = f"◀  {self.fit(d, right, F['small'], max(20, room - arrows))}  ▶", TEXT
+                right, colour = f"◀  {self.fit(d, right, F['small'], max(20, room - arrows - gap))}  ▶", TEXT
             elif right:
-                right = self.fit(d, right, F["small"], max(20, room))
+                right = self.fit(d, right, F["small"], max(20, room - gap))
+            rw = (d.textlength(right, font=F["small"]) + gap) if right else 0
             self.tappable((mx0, ry - 2, mx0 + mw, ry + rh - 2), "sel", "dict", "game_menu", k)
             if sel and job in GAME_CHANGE:             # ◀ value ▶: each end, a way to change it
-                vx = mx0 + mw - 22 - max(128, d.textlength(right, font=F["small"]) if right else 0)
+                vx = mx0 + mw - 22 - max(128, rw)
                 half = (vx + mx0 + mw - 22) / 2
                 self.tappable((vx - 22, ry - 2, half, ry + rh - 2), "keys", "left")
                 self.tappable((half, ry - 2, mx0 + mw, ry + rh - 2), "keys", "right")
@@ -1271,8 +1294,17 @@ class GameScreen:
                 d.rounded_rectangle((mx0 + 8, ry + 10, mx0 + 12, ry + rh - 14), radius=2, fill=ACCENT)
             mid = ry + (rh - 4) / 2
             d.text((mx0 + 24, mid), label, font=font, fill=TEXT if sel else BODY, anchor="lm")
-            if right:
-                d.text((mx0 + mw - 22, mid), right, font=F["small"], fill=colour, anchor="rm")
+            rx = mx0 + mw - 22
+            if right and gap:                          # (another Pietato: its colour's dot before its name)
+                head = "◀  " if right.startswith("◀  ") else ""
+                tail = right[len(head):]
+                tw = d.textlength(tail, font=F["small"])
+                d.text((rx, mid), tail, font=F["small"], fill=colour, anchor="rm")
+                self.peer_dot(d, rx - tw - 6 - 4.5, mid, peer[0])
+                if head:
+                    d.text((rx - tw - gap, mid), head, font=F["small"], fill=colour, anchor="rm")
+            elif right:
+                d.text((rx, mid), right, font=F["small"], fill=colour, anchor="rm")
         job = menu[min(m["sel"], n - 1)][0]
         hints = [("A", "Pick again" if job == "players" else "Choose")]
         if job in GAME_CHANGE:
@@ -1287,11 +1319,16 @@ class GameScreen:
         screen leaves room for."""
         F = self.fonts
         need = min(d.textlength(title or "", font=F["row_b"]) + 44, GAME_MENU_TITLED)
+        peers = [(name, PEER_DOT if self.peer_colour(url) is not None else 0) for url, name in self.saves_peers()]
         for job, label in menu:
-            value = self.game_value(job)
-            shown = [value] + ([f"◀  {value}  ▶"] if job in GAME_CHANGE else []) \
-                + (["press A again"] if job in GAME_CONFIRM or job == "together" else [])
-            vw = max((d.textlength(v, font=F["small"]) for v in shown if v), default=0)
+            if job in PEER_JOBS:                       # (any of your other Pietatos: ◀▶ doesn't change its width)
+                vw = max([d.textlength(f"◀  {name}  ▶", font=F["small"]) + dot for name, dot in peers]
+                         + [d.textlength("press A again", font=F["small"])])
+            else:
+                value = self.game_value(job)
+                shown = [value] + ([f"◀  {value}  ▶"] if job in GAME_CHANGE else []) \
+                    + (["press A again"] if job in GAME_CONFIRM else [])
+                vw = max((d.textlength(v, font=F["small"]) for v in shown if v), default=0)
             need = max(need, 24 + d.textlength(label, font=F["row_b"]) + (28 + vw if vw else 0) + 22)
         return int(max(GAME_MENU_W, min(need + 2, self.fb.w - 2 * GAME_MENU_EDGE)))   # (+2: never a pixel short)
 

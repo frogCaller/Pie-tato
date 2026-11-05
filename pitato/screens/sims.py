@@ -1,4 +1,4 @@
-"""The Simulator (and Games) tab: a world in a box, its numbers beside it, and START's options."""
+"""Apps (and Games): a world in a box, its numbers beside it, and START's options."""
 import math
 import time
 
@@ -18,9 +18,9 @@ CLOCK_KEYS = {"a": "look", "up": "colour", "down": "colour", "left": "background
 
 
 class SimScreen:
-    """The Simulator (and Games) tab: a world in a box, its numbers beside it, and START's options."""
+    """Apps (and Games): a world in a box, its numbers beside it, and START's options."""
 
-    # -- the Simulator tab: little worlds to watch ------------------------------------------------------
+    # -- Apps' little worlds to watch -------------------------------------------------------------------
     def on_sim_page(self):
         return self.active and self.view == "list" and self.tab_type() == "sim"
 

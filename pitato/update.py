@@ -6,7 +6,8 @@ couldn't change), whether there's anything newer, and the row says so. Pressed, 
 newer version, setup.sh --update (no questions: it keeps how it was set up), then a restart of the Pi, as a job of its
 own (systemd-run), so setup.sh putting in a new media mode can't stop it partway. Nothing newer: it says it's up to
 date, and nothing's restarted. setup.sh notes what it put in: an update that got no further than git pull is put in
-the next time."""
+the next time. A folder cloned from one of Pietato's names on GitHub before (pie-tato) gets it from its name now, once
+GitHub answers there (GitHub sends the old name on meanwhile)."""
 import os
 import pwd
 import re
@@ -30,6 +31,9 @@ UPDATE_UNIT = "pitato-update"
 INSTALLED = os.path.join(os.path.dirname(STATE_FILE), "installed-commit")   # what setup.sh last put in (git's id)
 GIT_QUIET = {"GIT_TERMINAL_PROMPT": "0", "GIT_SSH_COMMAND": "ssh -o BatchMode=yes -o ConnectTimeout=20",
              "LC_ALL": "C"}    # (a question from git or ssh would wait for ever, unseen: an error instead)
+REPO_MOVED = {"frogcaller/pie-tato": "frogCaller/Pietato"}   # Pietato's names on GitHub before (in lower case): now
+GITHUB_REMOTE = re.compile(r"(https?://(?:[^@/\s]+@)?github\.com/|git@github\.com:|ssh://git@github\.com(?::22)?/)"
+                           r"([^/\s]+/[^/\s]+?)(\.git)?/?", re.I)
 UPDATE_SH = """#!/bin/bash
 # Pietato's update, from System > Update software (pitato/update.py wrote this): the Pietato folder brought up to date
 # by git pull, as its owner; then, if that brought a newer version (or the last one wasn't put in), setup.sh --update
@@ -100,6 +104,14 @@ def update_folder():
     if os.path.isdir(os.path.join(folder, ".git")) and os.path.isfile(os.path.join(folder, "setup.sh")):
         return folder
     return None
+
+
+def moved_remote(url):
+    """Where a Pietato folder cloned from GitHub before Pietato was renamed there gets it from now: the same address,
+    with its new name (https or ssh, as it was); None for any other (a fork of it, say)."""
+    m = GITHUB_REMOTE.fullmatch((url or "").strip())
+    new = REPO_MOVED.get(m.group(2).lower()) if m else None
+    return f"{m.group(1)}{new}{m.group(3) or ''}" if new else None
 
 
 def read_text(path):
@@ -176,12 +188,26 @@ class Updater:
             return False, "", str(ex)
         return r.returncode == 0, r.stdout.strip(), (r.stderr or "").strip()
 
+    def follow_rename(self):
+        """A folder cloned from Pietato's name on GitHub before: it gets it from its new name from now on, once GitHub
+        answers there (until then, and if it doesn't, it's as it was: GitHub sends the old name on). True if it does."""
+        ok, url, _ = self.git("remote", "get-url", "origin", timeout=30)
+        new = moved_remote(url) if ok else None
+        if not new or not self.git("ls-remote", "--exit-code", new, "HEAD", timeout=60)[0]:
+            return False
+        if not self.git("remote", "set-url", "origin", new, timeout=30)[0]:
+            return False
+        shown = re.sub(r"//[^@/]+@", "//", new)        # (a token in it, if there's one, not written down)
+        print(f"update: Pietato is {shown} on GitHub now: it updates from there", flush=True)
+        return True
+
     def check(self):
         """Looks: git fetch, then how many newer versions there are, and whether the one here is put in."""
         if not self.folder or self.started:
             return
         self.looking = True
         try:
+            self.follow_rename()
             fetched, _, err = self.git("fetch", "--quiet", timeout=120)
             if not fetched:
                 print(f"update: couldn't look for a newer version ({err.splitlines()[-1][:120] if err else 'git'})",

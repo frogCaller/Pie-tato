@@ -62,7 +62,7 @@ LOCAL = {
 }
 TIMEOUT = 900
 TIMEOUTS = {"test_setup_pc": 2400, "test_setup_full": 2400, "test_setup_gpi2": 2400, "test_stop_uninstall": 2400,
-            "test_setup_debian": 2400, "test_setup_working": 1200, "test_setup_image": 1200}
+            "test_setup_debian": 2400, "test_setup_working": 1200, "test_setup_image": 1200, "test_setup_wizard": 2400}
 HELPERS = ("_child",)                     # (run by other tests, not on their own)
 
 

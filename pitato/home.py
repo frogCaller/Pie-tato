@@ -79,7 +79,7 @@ HOME_ICONS = {    # tab name -> (its colour: its tile's tint, a line about it)
     "Files": ((102, 128, 174), "Your files, and your other computers'"),
     "Camera": ((128, 135, 148), "Your cameras: watch, steer, take pictures"),
     "Bot": ((210, 138, 76), "Does what you ask, and chats with you"),
-    "Simulator": ((118, 125, 140), "Rock paper scissors, fractals and more"),
+    "Apps": ((118, 125, 140), "Rock paper scissors, fractals and more"),
     "Finance": ((184, 142, 66), "Stocks and coins: prices and charts"),
     "System": ((128, 135, 148), "Temperature, WiFi, storage"),
     "Settings": ((134, 140, 152), "WiFi, Bluetooth, background, sound, controllers"),
@@ -228,7 +228,7 @@ def draw_icon(name, size=84, card=True, lit=False, fine=1):
         d.rounded_rectangle(B(56, 88, 196, 180), radius=R(28), fill=0)
         for x in (98, 154):
             do.rounded_rectangle(B(x - 14, 112, x + 14, 156), radius=R(12), fill=AMBER)
-    elif name == "Simulator":                      # three orbits round a sun, a body on each
+    elif name == "Apps":                           # three orbits round a sun, a body on each
         def on(t, tilt, rx=100, ry=36):
             x, y = math.cos(t) * rx, math.sin(t) * ry
             return (126 + x * math.cos(tilt) - y * math.sin(tilt), 126 + x * math.sin(tilt) + y * math.cos(tilt))
@@ -301,7 +301,7 @@ def draw_icon(name, size=84, card=True, lit=False, fine=1):
 GLYPH_COLOURS = {    # an app's glyph's own colour
     "Home": (63, 116, 222), "TV": (58, 128, 234), "Music": (238, 72, 138), "Radio": (132, 88, 230),
     "Photos": (52, 196, 170), "Videos": (222, 52, 52), "Weather": (250, 204, 40), "Games": (74, 196, 90),
-    "Files": (64, 140, 236), "Camera": (104, 112, 126), "Bot": (59, 130, 246), "Simulator": (64, 190, 100),
+    "Files": (64, 140, 236), "Camera": (104, 112, 126), "Bot": (59, 130, 246), "Apps": (64, 190, 100),
     "Finance": (247, 147, 26), "System": (148, 156, 170), "Settings": (34, 168, 226),
 }
 CARD = (26, 30, 37)          # the cards the glyphs sit on (and the dark parts of the glyphs themselves)
@@ -418,7 +418,7 @@ def draw_glyph(name, size=52):
         d.rounded_rectangle(B(58, 90, 194, 178), radius=R(26), fill=dark)
         for x in (98, 154):
             d.rounded_rectangle(B(x - 14, 112, x + 14, 156), radius=R(12), fill=(147, 197, 253))
-    elif name == "Simulator":                      # three orbits round a sun, a body on each
+    elif name == "Apps":                           # three orbits round a sun, a body on each
         def on(t, tilt, rx=98, ry=36):
             x, y = math.cos(t) * rx, math.sin(t) * ry
             return (126 + x * math.cos(tilt) - y * math.sin(tilt), 126 + x * math.sin(tilt) + y * math.cos(tilt))
@@ -461,7 +461,7 @@ def draw_glyph(name, size=52):
 BRIGHT_TILES = {    # an app's tile's colour
     "Home": (36, 54, 96), "TV": (62, 112, 204), "Music": (200, 82, 118), "Radio": (126, 96, 200),
     "Photos": (38, 146, 136), "Videos": (196, 84, 72), "Weather": (60, 150, 212), "Games": (58, 152, 96),
-    "Files": (76, 114, 154), "Camera": (64, 72, 86), "Bot": (214, 132, 56), "Simulator": (30, 38, 46),
+    "Files": (76, 114, 154), "Camera": (64, 72, 86), "Bot": (214, 132, 56), "Apps": (30, 38, 46),
     "Finance": (8, 10, 10), "System": (88, 96, 110), "Settings": (112, 120, 134),
 }
 
@@ -567,7 +567,7 @@ def draw_bright_icon(name, size=72):
         d.rounded_rectangle(B(60, 88, 192, 178), radius=int(26 * k), fill=(30, 34, 42))
         for x in (98, 154):
             d.rounded_rectangle(B(x - 14, 112, x + 14, 154), radius=int(12 * k), fill=colour)
-    elif name == "Simulator":                      # a sun, an orbit and three bodies going round it
+    elif name == "Apps":                           # a sun, an orbit and three bodies going round it
         tilt = math.radians(-24)
 
         def on_orbit(t, rx=88, ry=46):

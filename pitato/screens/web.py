@@ -15,7 +15,7 @@ from ..screen import fine_scale, grab_screen, screen_size, slow_pi, web_sound, W
 from ..term import console_vt
 from ..radio import RADIO_GENRES, RADIO_STATIONS, RADIO_TTL, rb_stations
 from ..tv import CLASSIC, FILM_BADGES, FILMS, live_pick, TOON_BADGES
-from ..library import LIBRARY, LISTEN_KINDS, read_streams, SCREEN_KINDS, VOLUME_STEP
+from ..library import LIBRARY, LISTEN_KINDS, read_streams, RENAMED, SCREEN_KINDS, VOLUME_STEP
 from ..home import draw_icon, HOME_ICONS
 from ..cameras import CAM_FOUND_FOR, edit_cameras, read_cameras
 from ..voice import BOT_VOICES, VOICE_MB, voices_here
@@ -87,7 +87,7 @@ class WebScreen:
             names.append("Chromium")
         elif self.tab_type() == "www" and self.www_on_page():
             names.append(clean_title(self.www["page"]))
-        if self.view in ("photo", "pdf", "text") and self.v.get("title"):
+        if self.view in ("photo", "pdf", "text", "filemenu") and self.v.get("title"):
             names.append(self.v["title"])
         elif self.view in ("game", "gamemenu") and self.game is not None:
             names.append(self.game.game["title"])
@@ -400,7 +400,7 @@ class WebScreen:
             elif isinstance(getattr(self, key, None), dict):
                 rows = {"game_menu": lambda: self.game_menu_items() if self.game is not None else GAME_MENU,
                         "chrome_menu": lambda: CHROME_MENU, "ha_menu": self.ha_rows,
-                        "cam_menu": self.cam_menu_rows}[key]
+                        "cam_menu": self.cam_menu_rows, "file_menu": self.file_menu_items}[key]
             else:
                 return None
             return len(rows())
@@ -704,16 +704,16 @@ class WebScreen:
             self.cancel_learn("")
         if self.view == "keys":
             self.close_keyboard(False)
-        if self.view in ("photo", "pdf", "text", "wait"):
+        if self.view in ("photo", "pdf", "text", "wait", "filemenu"):
             self.close_viewer()
-        self.prog_stop()                               # (the Simulator's cmatrix and the rest: it stops)
+        self.prog_stop()                               # (Apps' cmatrix and the rest: it stops)
         if self.proc_owns_screen() or self.game is not None:
             self.stop()                                # (a video, or a game: kept for next time)
         return True
 
     def web_tab(self, name):
         i = next((k for k, t in enumerate(LIBRARY) if t["name"] == name), None)
-        if i is not None and LIBRARY[i]["type"] == "prog":        # (no page of its own: the Simulator, and it)
+        if i is not None and LIBRARY[i]["type"] == "prog":        # (no page of its own: Apps, and it)
             self.web_tab(LIBRARY[i]["parent"])
             self.prog_start(LIBRARY[i]["prog"])
             return i
@@ -735,6 +735,7 @@ class WebScreen:
             return self.web_together(cmd)
         if c == "open":
             app = str(cmd.get("app") or "")
+            app = RENAMED.get(app, app)                # (by what it was called before)
             if app == "Terminal":
                 self.leave()
                 return {"ok": True}

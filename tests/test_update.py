@@ -7,8 +7,9 @@ screen saying how it's getting on, nothing else let on the screen meanwhile. Not
 up to date, back on System, no restart; a newer version it hadn't looked for yet: put in all the same. When it doesn't
 work (changes here in the way, setup.sh failing, the job gone), System says why, and offers it again. GitHub's
 history written afresh (every id new, the same versions: git filter-repo): taken as it is, up to date if it's the same
-version, put in if there's a newer one, but not over a version of its own here. In a mount namespace of its own:
-everything it makes is on a tmpfs at /srv there."""
+version, put in if there's a newer one, but not over a version of its own here. Pietato renamed on GitHub: a folder
+cloned from its old name gets it from the new one once that answers (as the folder's owner). In a mount namespace of
+its own: everything it makes is on a tmpfs at /srv there."""
 import json, os, shutil, subprocess, sys, time
 
 from paths import SP, ROOT, TESTS  # noqa: E402  (this test's folder of work; the Pietato folder; tests)
@@ -122,6 +123,30 @@ check(f"a newer version on GitHub: Update software, New version ({u.new})", u.ne
 check(f"...looked at as the folder's owner: nothing of root's left in it ({not_theirs()[:3]})", not not_theirs())
 check("...and the folder itself not changed by looking", read(CLONE + "/README.md") == "# Pitato\n")
 
+# ---- Pietato renamed on GitHub: a folder cloned from its old name gets it from the new one (once that answers) --------
+M = g.moved_remote
+check("its old name on GitHub, in any form: the new one, in the same form",
+      M("https://github.com/frogCaller/pie-tato.git") == "https://github.com/frogCaller/Pietato.git"
+      and M("https://github.com/FrogCaller/Pie-Tato/") == "https://github.com/frogCaller/Pietato"
+      and M("git@github.com:frogCaller/pie-tato.git") == "git@github.com:frogCaller/Pietato.git"
+      and M("ssh://git@github.com/frogCaller/pie-tato") == "ssh://git@github.com/frogCaller/Pietato")
+check("...and nothing else: its new name, a fork, somewhere else, a folder",
+      not any(M(u) for u in ("https://github.com/frogCaller/Pietato.git", "https://github.com/someone/pie-tato.git",
+                             "https://gitlab.com/frogCaller/pie-tato.git", T + "/origin.git", "", None)))
+sh(["ln", "-s", T + "/origin.git", T + "/old.git"])                # (GitHub sends the old name on, as it does)
+sh(["git", "-C", CLONE, "remote", "set-url", "origin", T + "/old.git"])
+origin = lambda: sh(["git", "-C", CLONE, "remote", "get-url", "origin"]).stdout.strip()   # noqa: E731
+g.moved_remote = lambda url: T + "/not-yet.git" if url == T + "/old.git" else None
+u.check()
+check(f"the new name not answering yet: it's left as it was, and it looks all the same ({origin()}, {u.new})",
+      origin() == T + "/old.git" and u.new == 1 and u.fetched)
+g.moved_remote = lambda url: T + "/origin.git" if url == T + "/old.git" else None
+u.check()
+check(f"...answering: it gets it from there from now on, looking as before ({origin()}, {u.new}, {u.words()!r})",
+      origin() == T + "/origin.git" and u.new == 1 and u.words() == "New version")
+check(f"...changed as the folder's owner ({not_theirs()[:3]}), and only once", not not_theirs() and not u.follow_rename())
+g.moved_remote = M
+
 saved_static = g.STATIC
 g.STATIC = T + "/nowhere/static"
 check("a pitato folder that isn't a git clone (a zip, say): it doesn't look, and can't update",
@@ -197,7 +222,7 @@ for f in ("setup.called", "reboot.log", "calls.log"):
     if os.path.exists(f"{T}/{f}"):
         os.remove(f"{T}/{f}")
 m.press("a")
-check("A again: updating, its screen up", m.view == "update" and "Updating Pie-tato" in drawn())
+check("A again: updating, its screen up", m.view == "update" and "Updating Pietato" in drawn())
 check(f"...as a job of its own ({[l for l in read(T + '/calls.log').splitlines() if 'systemd-run' in l][:1]})",
       "systemd-run --quiet --collect --unit=pitato-update" in read(T + "/calls.log"))
 seen, lit, looks = set(), set(), set()
@@ -229,7 +254,7 @@ while time.monotonic() < end:
     watching()
     time.sleep(0.05)
 check(f"...its screen just says it's updating, and none of what it's doing ({sorted(seen)})",
-      "Updating Pie-tato" in seen and not [x for x in seen if any(w in x for w in ("nstall", "Getting", "Leave"))])
+      "Updating Pietato" in seen and not [x for x in seen if any(w in x for w in ("nstall", "Getting", "Leave"))])
 check(f"...dots under it, lit one after another, just they drawn again on each step ({sorted(lit)}, {len(looks)} "
       f"looks, {FB.parts[:1]})", lit == {0, 1, 2} and len(looks) >= 3 and FB.parts
       and all((b[2] - b[0]) * (b[3] - b[1]) < 100 * 40 for b in FB.parts))
@@ -269,8 +294,8 @@ check(f"A once: what it does ({m.msg!r})", m.confirm[0] == "update"
 m.press("a")
 check("A again: updating", m.view == "update")
 look = drawn()
-check(f"...its screen: just Updating Pie-tato, whether or not there's anything newer ({look})",
-      "Updating Pie-tato" in look and not [t for t in look if "Getting" in t or "newer" in t])
+check(f"...its screen: just Updating Pietato, whether or not there's anything newer ({look})",
+      "Updating Pietato" in look and not [t for t in look if "Getting" in t or "newer" in t])
 ok = until(lambda: m.view == "list" and m.msg == "Pietato is up to date", 20)
 check(f"...nothing newer: back to System, up to date ({m.msg!r})", ok and m.tab == si)
 time.sleep(0.5)

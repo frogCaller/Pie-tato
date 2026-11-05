@@ -90,7 +90,7 @@ def set_terminal_turn(degrees, path=None):
     """The terminal (the kernel's text on the screen) turned too: True if it could be. Only a console in text mode
     takes it: the kernel passes over one in graphics mode, as media mode's is while the menus are up. So it's done as
     Pietato starts and when the setting changes (for the consoles in text mode then), and again whenever media
-    mode's own console goes to text mode (terminal_turn_now: a Simulator program on it, or back to the terminal).
+    mode's own console goes to text mode (terminal_turn_now: one of Apps' programs on it, or back to the terminal).
     The Pi's own messages as it starts up stay as they are."""
     global TERMINAL_TURNED
     try:

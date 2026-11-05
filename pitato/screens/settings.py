@@ -180,7 +180,7 @@ class SettingsScreen:
         self.dirty = True
 
     def forget_drawn(self):
-        """Pictures kept to draw quicker (the Simulator's and the Coder's backgrounds, buttons and last frames),
+        """Pictures kept to draw quicker (Apps' and the Coder's backgrounds, buttons and last frames),
         forgotten: they were for the menus' size before."""
         self.sim_base, self.sim_panel, self.sim_card = (None, None, None), (None, None, 0.0), (None, None)
         self.sim_shown, self.sim_head, self.sim_feet = (None, None, 0.0, 0.0), (None, None), {}

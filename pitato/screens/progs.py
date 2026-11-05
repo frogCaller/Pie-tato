@@ -1,4 +1,4 @@
-"""The Simulator's cmatrix, hollywood, nyancat, cacafire and htop: Linux's own, on the whole screen, with the
+"""Apps' cmatrix, hollywood, nyancat, cacafire and htop: Linux's own, on the whole screen, with the
 controller's buttons as keys."""
 import fcntl
 import os
@@ -33,7 +33,7 @@ CURSOR_SHOW, CURSOR_HIDE = b"\x1b[?25h", b"\x1b[?25l"   # the console's text cur
 
 
 def prog_path(name):
-    """Where one of the Simulator's programs is: setup.sh's own build of it, or the system's. None: not installed."""
+    """Where one of Apps' programs is: setup.sh's own build of it, or the system's. None: not installed."""
     own = PROG_OWN.get(name)
     return own if own and os.access(own, os.X_OK) else shutil.which(name)
 
@@ -87,11 +87,11 @@ def hw_kill():
 
 
 class ProgScreen:
-    """The Simulator's cmatrix, hollywood, nyancat, cacafire and htop: Linux's own, run on media mode's console (in
+    """Apps' cmatrix, hollywood, nyancat, cacafire and htop: Linux's own, run on media mode's console (in
     text mode while one's on, so the console draws it, just as in the terminal). cmatrix takes the controller's buttons
     as its keys: ◀▶ its colour, ▲▼ its speed, A pauses, X bold, Y mixed speeds, SELECT rainbow; cacafire A, to pause;
     htop ▲▼ through what's running (held: on and on), ◀▶ along it, A pauses it, X sorts by CPU, Y by memory, SELECT a
-    tree (never a key that ends a process). B (or HOME) stops any of them, back to the Simulator. A keyboard works
+    tree (never a key that ends a process). B (or HOME) stops any of them, back to Apps. A keyboard works
     too, as in the terminal. Media mode keeps the screen while one's on: a keyboard's switch to another console
     (Alt+F1...) is switched straight back."""
 
@@ -203,7 +203,7 @@ class ProgScreen:
             self.dirty = True
 
     def prog_home(self):
-        """HOME while one's on: it stops, back to the Simulator (True). False: none is on."""
+        """HOME while one's on: it stops, back to Apps (True). False: none is on."""
         if self.prog is None:
             return False
         self.prog_stop()

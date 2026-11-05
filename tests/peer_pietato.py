@@ -7,8 +7,9 @@ together has its own).
     python3 peer_pietato.py HOME LOG NAME PEER_URL PEER_NAME [slow]
 
 It prints READY <its web page's address> once it's answering; then takes a line at a time: state (what's on its
-screen, as JSON), press BUTTON (pressed, on its main loop), news WHAT WHY (its emulator says WHAT, then ends: netgone,
-say), expire (another's asking to play together, not answered in time), peer URL NAME, quit."""
+screen, as JSON), press BUTTON (pressed, on its main loop), home (HOME on a picture, a PDF or some text: its menu),
+news WHAT WHY (its emulator says WHAT, then ends: netgone, say), expire (another's asking to play together, not answered
+in time), peer URL NAME, quit."""
 import json
 import os
 import sys
@@ -170,7 +171,16 @@ try:
         elif words[0] == "state":
             run = m.game
             inv = m.invite or {}
+            v = dict(m.v)
+            shown = {k: v[k] for k in ("type", "title", "path", "page", "pages", "fit", "zoom", "scroll", "sx", "top",
+                                       "size", "rot", "items") if k in v}
+            if v.get("type") == "text":
+                lines = v.get("lines") or []
+                shown["first"] = lines[v["top"]] if v.get("top", 0) < len(lines) else ""
+            target = m.handoff_target()
             print(json.dumps({"game": run.game["path"] if run else None, "kind": m.kind, "view": m.view,
+                              "viewer": shown, "to": target[0] if target else None,
+                              "file_menu": [k for k, _ in m.file_menu_items()] if m.view == "filemenu" else [],
                               "menu": [k for k, _ in m.game_menu_items()] if run else [],
                               "send": m.game_value("send") if run else "",
                               "note": m.together_note() if run else "",
@@ -178,7 +188,7 @@ try:
                                          "link": inv.get("link"), "pick": inv.get("pick"),
                                          "games": [x["title"] for x in inv.get("games") or []]} if inv else None}),
                   file=SAY, flush=True)
-        elif words[0] in ("press", "news", "expire"):   # (done on its main loop, as a button would be)
+        elif words[0] in ("press", "news", "expire", "home"):   # (done on its main loop, as a button would be)
             done_it = threading.Event()
             rest = words[1].split() if len(words) > 1 else []
 
@@ -186,6 +196,8 @@ try:
                 try:
                     if what == "press":
                         m.press(rest[0])
+                    elif what == "home":
+                        m.file_home()
                     elif what == "news" and m.game is not None:
                         m.game.net_news.append((rest[0], " ".join(rest[1:])))
                         m.game.ended = True

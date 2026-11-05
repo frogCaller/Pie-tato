@@ -1,8 +1,9 @@
 """What you're playing, sent to another of your Pietatos (Settings > Share with other Pietatos): a game carries on
-there from the same moment (its saves go with it, savesync.py), and a video, a song or a station carries on at the
-same place. This one asks the other whether it can, then sends it; the other picks it up. A file of yours it hasn't
-got (a game, or the video or song itself) it takes from this one's web page, with a key that opens just that file,
-for a while. (Media mode's part: pitato/screens/handoff.py; the web page's: /api/handoff and /api/handoff/file.)"""
+there from the same moment (its saves go with it, savesync.py), a video, a song or a station carries on at the same
+place, and a picture, a PDF, a document or some text you're looking at opens there where you were in it. This one asks
+the other whether it can, then sends it; the other picks it up. A file of yours it hasn't got (a game, the video or
+song itself, what you're looking at) it takes from this one's web page, with a key that opens just that file, for a
+while. (Media mode's part: pitato/screens/handoff.py; the web page's: /api/handoff and /api/handoff/file.)"""
 import os
 import re
 import secrets
@@ -23,6 +24,11 @@ MEDIA_KINDS = ("video", "audio", "radio", "live")
 TITLE_MOST = 200
 REL_MOST = 300
 POS_MOST = 7 * 24 * 3600
+FILE_VIEWS = ("photo", "pdf", "text")   # what a file you're looking at is shown in (a picture, a PDF or a document,
+                                        # some text): each can go to another of your Pietatos
+FILE_MOST = 256 << 20         # bytes: what you're looking at goes if it's no bigger
+FILE_COPY_TIME = 300.0        # seconds its copy may take
+FIRST_MOST = 80               # some text: the start of its line at the top, as much as is said of it
 
 
 class Tokens:
@@ -149,3 +155,54 @@ def clean_media(d):
             or isinstance(pos, bool) or not isinstance(pos, (int, float)) or not 0 <= pos <= POS_MOST):
         return None
     return kind, title.strip()[:TITLE_MOST], src, float(pos)
+
+
+def clean_file(d):
+    """Another Pietato's word for a file you were looking at there: (view, title, size, place) or None. place: where
+    you were in it (a PDF's page, how it fits, how close, how far down and across it; some text's line at the top, how
+    far down that is, its letters' size; a picture's turn)."""
+    if not isinstance(d, dict):
+        return None
+    view, title, size = d.get("view"), d.get("title"), d.get("size")
+    if (view not in FILE_VIEWS or not isinstance(title, str) or not title.strip() or "/" in title or "\0" in title
+            or type(size) is not int or not 0 <= size <= FILE_MOST):
+        return None
+
+    def num(key, most, default=0.0):
+        x = d.get(key, default)
+        return float(x) if type(x) in (int, float) and 0 <= x <= most else default
+
+    if view == "pdf":
+        page = d.get("page")
+        place = {"page": page if type(page) is int and 0 < page < 1 << 20 else 1,
+                 "fit": d.get("fit") if d.get("fit") in ("width", "page") else "width",
+                 "zoom": num("zoom", 8.0, 1.0) or 1.0, "at": num("at", 1.0), "sx": num("sx", 1.0)}
+    elif view == "text":
+        first = d.get("first")
+        place = {"first": first[:FIRST_MOST] if isinstance(first, str) and "\0" not in first else "",
+                 "frac": num("frac", 1.0), "big": 1 if d.get("big") == 1 and type(d.get("big")) is int else 0}
+    else:
+        rot = d.get("rot")
+        place = {"rot": rot if type(rot) is int and 0 <= rot <= 3 else 0}
+    return view, title.strip()[:TITLE_MOST], size, place
+
+
+def file_place(title):
+    """A name to keep a file sent from another Pietato by, from what it's called there: just the plain part of it."""
+    name = re.sub(r"[^\w.()+ -]+", "_", title).strip(" ._")[:120]
+    return name or "file"
+
+
+def copy_file(url, dest, size):
+    """What you're looking at on another of your Pietatos, from its web page into dest (whole, or not at all)."""
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    part = dest + ".part"
+    try:
+        if not fetch_file(url, part, size, timeout=FILE_COPY_TIME):
+            raise OSError("it didn't come whole")
+        os.replace(part, dest)
+    finally:
+        try:
+            os.remove(part)
+        except OSError:
+            pass

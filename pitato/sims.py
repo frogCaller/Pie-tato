@@ -1,4 +1,4 @@
-"""The Simulator's little worlds: Rock Paper Scissors, Game of Life and Forest Fire, and what they share."""
+"""Apps' little worlds: Rock Paper Scissors, Game of Life and Forest Fire, and what they share."""
 import math
 import random
 from collections import deque
@@ -7,7 +7,7 @@ from .theme import co_mix
 from .fine import detail, made_fine
 
 
-# ---- the Simulator tab: little worlds to watch ---------------------------------------------------------
+# ---- Apps' little worlds to watch ---------------------------------------------------------------------
 # Each sim runs in a box beside its numbers, or on the whole screen (SELECT, or START's Full screen). A
 # pauses, X gives it a poke, Y starts it again, START has its options, B goes back to the list.
 # Rock Paper Scissors: pieces bounce around, and one hit by its counter switches sides until one team is

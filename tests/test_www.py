@@ -221,14 +221,14 @@ def focused():
     return t["kind"] + ":" + (t["b"].get("label") or "")
 
 
-# ---- the Home tab: Web, after the rest ----------------------------------------------------------------------------
+# ---- the Home tab: Web, after the rest (Home Assistant's settings: in Settings > Home) ------------------------------
 
 home = next(i for i, t in enumerate(g.LIBRARY) if t["name"] == "Home")
 m.tab, m.view = home, "list"
 m.load_tab(home)
 rows = [r["title"] for r in m.tab_items()]
-check(rows == ["TV Remote", "Lights", "Pi-hole", "Web", "Settings"],
-      f"the Home tab: Web after the TV Remote, Lights and Pi-hole, before its Settings ({rows})")
+check(rows == ["TV Remote", "Lights", "Pi-hole", "Web"],
+      f"the Home tab: Web after the TV Remote, Lights and Pi-hole ({rows})")
 m.sels[home] = 3
 draw("home_tab")
 m.press("a")

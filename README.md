@@ -15,7 +15,7 @@ works on any Raspberry Pi with a TV or monitor on HDMI too, and on a regular PC 
 ## Install
 
 The easy way is an SD card image, for any 64-bit Pi (Zero 2 W, 3, 4, 5 or a Compute Module 4): from the
-[latest release](https://github.com/frogCaller/Pie-tato/releases/latest), the one ending in
+[latest release](https://github.com/frogCaller/Pietato/releases/latest), the one ending in
 `gpi-case-2w.img.xz` for the GPi Case 2W, `gpi-case-2.img.xz` for the GPi Case 2 (a Compute Module 4 without
 eMMC starts from the card), or `hdmi.img.xz` for a TV or monitor. Write it to a microSD
 card (8 GB or more) with [Raspberry Pi Imager](https://www.raspberrypi.com/software/), under Use custom,
@@ -26,24 +26,34 @@ Pietato's Settings too). Without them, the user is `pi`, with no password until 
 Or set it up yourself, on Raspberry Pi OS Lite:
 
 ```
-git clone https://github.com/frogCaller/Pie-tato.git
-cd Pie-tato
+git clone https://github.com/frogCaller/Pietato.git
+cd Pietato
 sudo bash setup.sh
 ```
 
-It asks if the Pi is in a GPi Case 2W (or, on a Compute Module 4, a GPi Case 2). If it is, it sets up the
-case's screen, sound and power switch: turn the SAFE SHUTDOWN switch behind the cartridge to ON, and
-switching the case off shuts the Pi down safely. If not, it leaves HDMI as it is.
+It starts with a few questions (the arrows, Space and Enter; Esc goes back). It asks if the Pi is in a GPi
+Case 2W (or, on a Compute Module 4, a GPi Case 2). If it is, it sets up the case's screen, sound and power
+switch: turn the SAFE SHUTDOWN switch behind the cartridge to ON, and switching the case off shuts the Pi down
+safely. If not, it leaves HDMI as it is. Then Default puts in everything your Pi can run, and Custom lets you
+pick, each part with how long it takes, so you can leave the big emulator builds out (the PSP's takes about an
+hour on a Pi 4) and put them in another time. You can connect your Home Assistant, Pi-hole, Ollama, Plex,
+Jellyfin and RetroAchievements there too, and give the web page a password, or do all that later in Settings.
 A small square screen (like Waveshare's 4-inch 720x720) may tell the Pi it's a TV, which squeezes the picture:
 pick 720x720 (square) in Settings > Resolution. On a touch screen, tap what you want and swipe to move along
 a list.
 In the GPi Case 2's dock, with the TV on, the picture is on the TV: put the case in the dock or take it out
 and the Pi restarts with the picture where it should be. The case's buttons don't work in the dock, so use a
 USB or Bluetooth controller there.
-Then it installs `pitato.py` and the web page as services, sets the Pi to sign you in by
-itself at start-up (`sudo bash setup.sh --login` keeps the password prompt), asks about the
-optional parts, and reboots. The first time takes a while (an hour or more on a Pi 4, as it builds
-the game emulators), so leave the Pi on until it says All set.
+Then it works by itself, a line for each step (all it does is in `/var/log/pietato-setup.log`): it installs
+`pitato.py` and the web page as services, sets the Pi to sign you in by itself at start-up (untick that in
+Custom, or run `sudo bash setup.sh --login`, to keep the password prompt), and restarts, unless you said not to.
+The first time takes a while (an hour or more on a Pi 4 with everything in), so leave the Pi on until it says
+All set.
+
+Run it again whenever you like. What you left out stays out (with Update software too) until you put it back
+in, and `sudo bash setup.sh --default` puts everything in. `--without ps1,psp` leaves parts out without asking
+(the parts: `classic`, `ps1`, `n64`, `psp`, `nds`, `dc`, `ps2`, `gc`, `neogeo`, `ngp`, `link`, `cheevos`,
+`chromium`, `office`, `toys`, `computers`), and `--plain` asks the old way, a question at a time.
 
 ### On a PC
 
@@ -54,7 +64,7 @@ On Debian, setup.sh also turns on Debian's non-free packages, where the SNES and
 sudo isn't there (you gave root a password when you installed Debian), use `su -c` instead:
 `su -c "apt install git"`, then `su -c "bash setup.sh"` in the Pietato folder, and the same for the other
 scripts below.
-It builds every game emulator (under an hour), so leave the computer on until it says All set.
+It builds every game emulator (about an hour, or fewer in Custom), so leave the computer on until it says All set.
 After that, the computer starts in Pietato, like a console. If you have a desktop, open System,
 press SELECT for its list and pick Desktop to use it, then restart the computer to come back to Pietato.
 Settings > Resolution sets the screen's size at start-up. With a desktop installed, Bluetooth
@@ -94,7 +104,7 @@ It starts on a home screen of apps:
   through Ollama on another computer. It sees through your camera and takes pictures, and talks out loud if
   you give it a voice. At work, it acts out what your coding agent is doing, rings a bell when it's done,
   and sends it prompts you type
-- **Simulator**: a Clock with the time and the date (A switches between a dial and big figures, ▲▼ change
+- **Apps**: a Clock with the time and the date (A switches between a dial and big figures, ▲▼ change
   its colour, ◀▶ its background, X turns its seconds on or off and Y the date), Rock Paper Scissors (pick a winner before the first capture), Game of Life, Forest Fire
   and the Mandelbrot set, which takes you on dives (or press the d-pad to explore it, A to zoom in and
   Y to zoom out). Press SELECT to watch one full screen. It can also start cmatrix, hollywood, nyancat,
@@ -253,11 +263,17 @@ next one to press a button is player 2 (an N64, Dreamcast, GameCube or Wii game 
 If you have two Pietatos, with Settings > Share with other Pietatos on, a game's menu has two more:
 
 - **Play on another Pietato** carries the game on there from the same moment (◀▶ picks which one), and
-  its menu there sends it back. X twice does the same for a video, a song or a station.
+  its menu there sends it back. X twice does the same for a video, a song or a station, and for a
+  picture, a PDF, a document or some text you're looking at, HOME has **View on another Pietato**: it
+  opens there where you were (the same page, zoom and place), and HOME there sends it back.
 - **Play together** asks the other one to play too. In an NES, SNES, Genesis, Master System or Neo Geo
   game, it joins as player 2 (if it hasn't got the game, it's copied over). A Game Boy or Game Boy Color
   game has **Link cable** instead: you each play your own game, linked, to trade or battle Pokémon. It
   starts from the game's own save, so save in the game first, and what you traded is in your save after.
+
+Each Pietato's name has a dot beside it in its accent colour, so if you give each one its own colour in
+Settings > Accent colour, you can tell them apart at a glance. Two with the same name also show the end of
+their address after it, like `raspberrypi (.62)`.
 
 Left on the home screen for five minutes while it's plugged in, a game plays by itself (Settings >
 Attract mode). With the AI player set up, it plays from where you were, on a copy of your saves;
@@ -313,7 +329,7 @@ channel" or "watch the news" puts something on (a channel comes from your stream
 signed in), and "next channel" changes it. "Show my camera roll", "show my newest picture" and "start a
 slideshow" bring up your photos. "Rotate the camera" turns a camera's picture, and "turn the camera left"
 turns a camera that can move. Tell it you're bored and it suggests a game or some cartoons, and "show me
-something cool" puts on something from the Simulator, picked at random. "Check for updates", "restart" and
+something cool" puts on something from Apps, picked at random. "Check for updates", "restart" and
 "shut down" ask first, and say yes to go ahead. With Ollama set up, ask any way you like: the bot knows
 your games, music and streams by name, and starts what you asked for.
 

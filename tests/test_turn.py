@@ -419,7 +419,7 @@ g.Media()
 check(f"...set Off: the terminal left as it is (a turn of your own: {open(ROT).read()!r})", open(ROT).read() == "3"
       and SC.TURN == 0)
 
-# ---- the Simulator's programs (cmatrix and the rest), on media mode's console: turned too --------------------------
+# ---- Apps' programs (cmatrix and the rest), on media mode's console: turned too --------------------------
 import fcntl, struct, termios
 master, slave = os.openpty()
 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 80, 0, 0))

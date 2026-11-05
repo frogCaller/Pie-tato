@@ -10,6 +10,7 @@ import time
 import urllib.parse
 
 from .config import CACHE_DIR, clean_name, read_config, settings_glob, WEB_PORT
+from .theme import ACCENTS
 from .util import UA
 from .net import cam_address, cam_host, cam_key, CamHTTP, CamHTTPS, read_capped
 
@@ -224,7 +225,8 @@ class PieInk:
         self.cameras = cameras        # () -> (cameras that answered as PiE-ink, camera.txt's addresses)
         self.own = ""                 # this Pietato's own name for itself (its own beacon isn't another's)
         self.peers_on = lambda: True  # Settings > Share with other Pietatos: On
-        self.heard = {}               # its address -> {"host", "seen", "peer"}: its beacon (peer: another Pietato's)
+        self.heard = {}               # its address -> {"host", "seen", "peer", "accent"}: its beacon (peer: another
+                                      # Pietato's; accent: its colour, Settings > Accent colour there)
         self.bad = {}                 # an address -> when it may be asked again
         self.answer = (0.0, None)     # (when, what it had): see fetch()
         self.remembered = None        # {"url", "host"}: the one that answered last (kept on disk)
@@ -282,7 +284,9 @@ class PieInk:
         url, now = f"http://{ip}:{port}", time.time()
         with self.lock:
             back = now - (self.heard.get(url) or {}).get("seen", 0) > 60     # new, or back after a while
-            self.heard[url] = {"host": clean_name(msg.get("host"), 40) or ip, "seen": now, "peer": peer}
+            accent = msg.get("accent")
+            self.heard[url] = {"host": clean_name(msg.get("host"), 40) or ip, "seen": now, "peer": peer,
+                               "accent": accent if isinstance(accent, str) and accent in dict(ACCENTS) else ""}
             if len(self.heard) > 16:
                 for old in sorted(self.heard, key=lambda u: self.heard[u]["seen"])[:len(self.heard) - 16]:
                     del self.heard[old]
@@ -333,6 +337,13 @@ class PieInk:
         with self.lock:
             return [(u, h["host"]) for u, h in sorted(self.heard.items(), key=lambda kv: -kv[1]["seen"])
                     if h.get("peer") and now - h["seen"] <= within]
+
+    def peer_accent(self, url):
+        """Another Pietato's colour (its Settings > Accent colour, as its beacon says): (r, g, b), or None (one that
+        doesn't say)."""
+        with self.lock:
+            name = (self.heard.get(url) or {}).get("accent")
+        return dict(ACCENTS).get(name) if name else None
 
     def peers(self):
         """Another Pietato has said it's there lately (and sharing's on)."""

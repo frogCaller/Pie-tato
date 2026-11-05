@@ -156,7 +156,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.web_mic_until, self.web_mic_was = 0.0, False   # Mic here: a web page's microphone, the bot's till then
         self.ttyfd = None
         self.prev_vt = "1"
-        self.prog = self.prog_name = None   # the Simulator's cmatrix, hollywood, nyancat, cacafire or htop, while on
+        self.prog = self.prog_name = None   # Apps' cmatrix, hollywood, nyancat, cacafire or htop, while on
         self.cm_colour, self.cm_bold, self.cm_speed = 0, 0, 4
         self.prober = self.thumber = self.sysloop = None
         self.probe_left = self.thumbs_left = 0   # songs and videos whose lengths are being found; photos' thumbnails
@@ -230,7 +230,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.prompts.on_taken = self.prompt_taken
         self.prompts.on_ask = self.prompt_asked     # ...and its requests to use a tool, for you to answer here
         self.prompt_draft = ""       # ...one you haven't sent yet
-        self.sims = {}               # the Simulator tab's sims, by key (each made the first time it's opened)
+        self.sims = {}               # Apps' sims, by key (each made the first time it's opened)
         self.brain = SnakeBrain()     # Snake's AI: a decision model on your bot's computer
         self.brain_asked = None       # (game, step, round) it was last asked about
         self.brain_round = 0          # (one more each time it wakes up: an answer from before isn't used)
@@ -321,7 +321,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.dock_since = 0.0        # ...watched since then (monotonic)
         self.dock_off = False        # ...not followed any more (it kept changing), till media mode starts again
         self.dock_busy = (0.0, None)  # ...(when, what) the Pi was last found busy, not to be restarted
-        self.pi_slow = slow_pi()     # a Pi Zero, 1, 2 or 3: on a TV, the Simulator and the Bot at work go slower
+        self.pi_slow = slow_pi()     # a Pi Zero, 1, 2 or 3: on a TV, Apps' worlds and the Bot at work go slower
         self.hush_proc = None        # ...aplay, playing it
         self.hush_wait = 0.0         # ...not tried again before then, if it wouldn't play
         self.queue_random = False    # the queue playing is the start-up's random songs (shuffled again each round)
@@ -350,6 +350,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.ha_menu = None          # Home Assistant's settings, over the page they were opened on: {"sel"}
         self.soon_jobs = collections.deque()   # what another thread wants done on this one (soon: the next tick)
         self.handoff_to = None                 # the other Pietato a game, a video or a song goes to (screens/handoff.py)
+        self.file_menu = None                  # HOME on what you're looking at: its menu (View on another Pietato)
         self.send_due = 0.0                    # ...X pressed once: X again before this sends what's playing
         self.attract = None                    # a game playing by itself (Settings > Attract mode: screens/attract.py)
         self.attract_wait = 0.0                # ...no games to play: not looked for again till then
@@ -831,7 +832,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
 
     # -- mode ----------------------------------------------------------------
     def proc_owns_screen(self):
-        """A video, a game, or the Simulator's cmatrix and the rest, is drawing on the screen: the menus keep off
+        """A video, a game, or Apps' cmatrix and the rest, is drawing on the screen: the menus keep off
         it."""
         return ((bool(self.proc) and self.kind in SCREEN_KINDS) or (self.game is not None and self.view == "game")
                 or self.prog is not None or self.chromium_shown())
@@ -865,7 +866,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.stirred = time.monotonic()                # (just come: a while before the screen may rest)
         self.hush_stop()                               # (media mode needs no silence to keep its speaker quiet)
         self.camera.listen()                           # PiE-inks say they're there: asked first for what they have
-        if self.view not in ("photo", "pdf", "text", "update"):
+        if self.view not in ("photo", "pdf", "text", "filemenu", "update"):
             self.view = "home"
             apps = self.home_apps()
             self.home_sel = next((k for k, a in enumerate(apps) if a[1] == self.strip_tab()), 0)
@@ -1323,6 +1324,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         if tmp:
             shutil.rmtree(tmp, ignore_errors=True)
         self.v = {}
+        self.file_menu = None
         self.view = "list"
         self.dirty = True
 
@@ -1345,12 +1347,18 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         while self.sharing:
             if self.setting("share") != "Off":
-                msg = json.dumps({"pietato": 1, "id": self.share_id, "port": WEB_PORT, "host": host}).encode()
+                msg = json.dumps(self.share_beacon(host)).encode()
                 try:
                     s.sendto(msg, ("255.255.255.255", CAM_BEACON))
                 except OSError:
                     pass                               # (no network yet: next time)
             time.sleep(PEER_SAYS)
+
+    def share_beacon(self, host):
+        """What this Pietato's beacon says: that it's one, which (this run of it), where its web page is, its name and its
+        colour (Settings > Accent colour: a dot in it beside its name on your other Pietatos, to tell apart two of
+        the same name)."""
+        return {"pietato": 1, "id": self.share_id, "port": WEB_PORT, "host": host, "accent": self.setting("accent")}
 
     def web_shared(self):
         """GET /api/shared (from your network only: webui.py): what this Pietato has fetched, for your other
@@ -1803,6 +1811,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             return self.press_pdf(name, repeat)
         if self.view == "text":
             return self.press_text(name, repeat)
+        if self.view == "filemenu":                    # HOME on what you're looking at: View on another Pietato
+            return self.press_file_menu(name, repeat)
 
         if self.view == "now" and self.kind in LISTEN_KINDS:
             if repeat:
@@ -2115,7 +2125,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.update_drawn = time.monotonic()
         draw = {"home": self.render_home, "keys": self.render_keys, "help": self.render_help,
                 "learn": self.render_learn, "gamemenu": self.render_game_menu, "invite": self.render_invite,
-                "konami": self.render_konami_in,
+                "konami": self.render_konami_in, "filemenu": self.render_file_menu,
                 "photo": self.render_photo, "keepres": self.render_keep_res,
                 "pdf": self.render_pdf, "update": self.render_update,
                 "text": self.render_text, "sketch": self.render_sketch, "chromenu": self.render_chrome_menu,

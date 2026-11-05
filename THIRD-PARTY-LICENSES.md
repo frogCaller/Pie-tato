@@ -21,13 +21,13 @@ is built, including the changes it makes (the files in `patches`, and FinalBurn 
 | [Gambatte](https://github.com/libretro/gambatte-libretro/tree/77f2567d718b8973d02caa2daa8dce4953faf811) | The Game Boy's link cable | 77f2567d718b8973d02caa2daa8dce4953faf811, with `patches/gambatte-link.patch` | GPL 2 | [gambatte.txt](licenses/gambatte.txt) |
 | [FinalBurn Neo](https://github.com/libretro/FBNeo/tree/16e0f2339591bc023d4560255c000e508417f562) | Neo Geo | 16e0f2339591bc023d4560255c000e508417f562 | FB Neo licence (not for sale), and the MAME licence | [fbneo.txt](licenses/fbneo.txt), [mame.txt](licenses/mame.txt) |
 | [rcheevos](https://github.com/RetroAchievements/rcheevos/tree/1433173220a7eaede6a9ed7a18e94117be1821e0) | Achievements | 12.5.0, 1433173220a7eaede6a9ed7a18e94117be1821e0 | MIT | [rcheevos.txt](licenses/rcheevos.txt) |
-| [cacafire, from libcaca](https://github.com/cacalabs/libcaca/blob/373c88b9890e67bde91e6acb8f1c442e847d1203/src/aafire.c) | The Simulator's cacafire | 373c88b9890e67bde91e6acb8f1c442e847d1203, without its "Powered by libcaca" line | LGPL 2 | [cacafire.txt](licenses/cacafire.txt) |
+| [cacafire, from libcaca](https://github.com/cacalabs/libcaca/blob/373c88b9890e67bde91e6acb8f1c442e847d1203/src/aafire.c) | Apps' cacafire | 373c88b9890e67bde91e6acb8f1c442e847d1203, without its "Powered by libcaca" line | LGPL 2 | [cacafire.txt](licenses/cacafire.txt) |
 
 ## From Raspberry Pi OS
 
 The rest of what's on a card comes from Raspberry Pi OS, including the emulators setup.sh installs as packages:
 mGBA (MPL 2.0), Nestopia UE (GPL 2), Snes9x (its own licence, not for commercial use) and Genesis Plus GX (its
-own licence, not for commercial use). FFmpeg, MPlayer, Chromium, LibreOffice and the Simulator's programs come the
+own licence, not for commercial use). FFmpeg, MPlayer, Chromium, LibreOffice and Apps' programs come the
 same way. Each package's licence is on the card in `/usr/share/doc/<package>/copyright`, and its source is
 available from Raspberry Pi OS and Debian (`apt-get source <package>`).
 

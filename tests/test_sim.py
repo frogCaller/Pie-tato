@@ -1,5 +1,5 @@
-"""Rock Paper Scissors in the Simulator: the game on its own (bumps, captures, walls, picks, calls,
-rounds), then in media mode: the Simulator's icon and list, the buttons, START's options (kept), the scores,
+"""Rock Paper Scissors in Apps: the game on its own (bumps, captures, walls, picks, calls,
+rounds), then in media mode: Apps' icon and list, the buttons, START's options (kept), the scores,
 the cards, how it's sent to the screen (just the box, most frames), full screen, and that it waits while
 you're away."""
 import math, os, random, shutil, sys, time
@@ -172,17 +172,17 @@ g.time.monotonic = lambda: fake[0]
 m = g.Media(); m.load_fonts(); m.fb = FB(); m.active = True
 m.status_sig = m.status_signature()
 apps = [a for a, _ in m.home_apps()]
-check(f"the Simulator's icon on the home screen, by the Bot ({len(apps)} icons, {g.home_cols(len(apps))} across)",
-      apps[apps.index("Bot") + 1] == "Simulator" and len(apps) == 15 and g.home_cols(15) == 5
+check(f"Apps' icon on the home screen, by the Bot ({len(apps)} icons, {g.home_cols(len(apps))} across)",
+      apps[apps.index("Bot") + 1] == "Apps" and len(apps) == 15 and g.home_cols(15) == 5
       and not any("hamber" in a for a in apps))
-m.view = "home"; m.home_sel = apps.index("Simulator")
+m.view = "home"; m.home_sel = apps.index("Apps")
 m.dirty = True; m.flush()
-icon = g.draw_icon("Simulator")
+icon = g.draw_icon("Apps")
 check("...a sun, an orbit and three bodies on it", icon.size == (84, 84) and len(set(icon.tobytes()[i:i + 4] for i in range(0, 84 * 84 * 4, 4))) > 200)
 m.press("a")
 SIMI = m.tab
 rows = [(it["title"], it.get("icon")) for it in m.tab_items()]
-check(f"A opens the Simulator: a list of sims {rows}", m.tab_type() == "group" and g.LIBRARY[m.tab]["name"] == "Simulator"
+check(f"A opens Apps: a list of sims {rows}", m.tab_type() == "group" and g.LIBRARY[m.tab]["name"] == "Apps"
       and rows == [("Clock", "TIME"), ("Rock Paper Scissors", "RPS"), ("Game of Life", "LIFE"), ("Forest Fire", "FIRE"),
                    ("Mandelbrot Set", "ZOOM"), ("Konami code", "CHEAT"), ("cmatrix", "CODE"), ("hollywood", "HACK"),
                    ("nyancat", "NYAN"), ("cacafire", "HEAT"), ("htop", "PROC")])
@@ -272,7 +272,7 @@ m.press("start"); m.press("left"); m.press("r")
 check("R from the options: next app (Files), options closed, new round of 20 waiting",
       g.LIBRARY[m.tab]["name"] == "Files" and m.sim_opts is None and G.counts() == [20, 20, 20])
 m.press("l")
-check("L back: the Simulator's list, Rock Paper Scissors picked", m.tab == SIMI and m.sels.get(SIMI, 0) == 1)
+check("L back: Apps' list, Rock Paper Scissors picked", m.tab == SIMI and m.sels.get(SIMI, 0) == 1)
 m.press("a")
 check("...A: back in it", m.tab_type() == "sim" and m.sims["rps"] is G)
 m2 = g.Media()
@@ -289,7 +289,7 @@ G.start()
 frames(0.5)
 clock = G.clock
 m.press("b")
-check("B: back to the Simulator's list", m.tab == SIMI and m.view == "list")
+check("B: back to Apps' list", m.tab == SIMI and m.view == "list")
 m.press("b")
 check("...B again: home", m.view == "home")
 fake[0] += 30
@@ -386,7 +386,7 @@ check("SELECT again: full screen", m.sim_full())
 m4 = g.Media()
 check("...kept for next time", m4.sim_full())
 m.press("b")
-check("B from full screen: the Simulator's list, still kept", m.tab == SIMI and m.sim_full())
+check("B from full screen: Apps' list, still kept", m.tab == SIMI and m.sim_full())
 m.press("b")
 check("...B again: home", m.view == "home" and m.sim_full())
 m.press("a"); m.press("a")

@@ -91,6 +91,7 @@ CASES = [
     ("mute", "mute", {}), ("what's playing", "playing", {}),
     ("open the weather", "open", {"app": "Weather"}), ("show me my photos", "open", {"app": "Photos"}),
     ("open the clock", "open", {"app": "Clock"}), ("start snake", "open", {"app": "Snake"}),
+    ("open apps", "open", {"app": "Apps"}), ("open the simulator", "open", {"app": "Apps"}),
     ("show my list", "tasks", {}), ("go home", "home", {}),
     ("turn off the lights", "lights", {"on": False, "which": ""}),
     ("turn on the kitchen light", "lights", {"on": True, "which": "kitchen"}),

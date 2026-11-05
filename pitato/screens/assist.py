@@ -22,7 +22,7 @@ from ..tv import channel_row, ia_row, live_pick, SHELVES
 from .games import fold, game_matches
 from .progs import prog_path
 
-COOL_SKIP = ("Clock", "htop", "Konami code")   # the Simulator's that aren't for "show me something cool"
+COOL_SKIP = ("Clock", "htop", "Konami code")   # Apps' that aren't for "show me something cool"
 COOL_THE = ("Game of Life", "Mandelbrot Set")   # ("Here's the Game of Life")
 MUSIC_WORDS = ("music", "song", "songs", "album", "albums", "playlist", "tunes", "track", "tracks", "artist", "band",
                "radio", "station", "stations", "fm")
@@ -434,10 +434,10 @@ class AssistScreen:
                            "Want to watch some cartoons? Say yes, or say \"play a game\" for Snake."])
         return self.assist_ask(q, lambda: self.watch_shelf("toons"), "cartoons", quiet=True)
 
-    # -- something cool: one of the Simulator's ------------------------------------------------------------------
+    # -- something cool: one of Apps' -----------------------------------------------------------------------------
     def cool_choices(self):
-        """What "show me something cool" picks from: the Simulator's list (but its Clock and htop), the ones here."""
-        group = next((t for t in LIBRARY if t["name"] == "Simulator"), {})
+        """What "show me something cool" picks from: Apps' list (but its Clock, htop and Konami code), the ones here."""
+        group = next((t for t in LIBRARY if t["name"] == "Apps"), {})
         out = []
         for name in group.get("children", []):
             t = next((t for t in LIBRARY if t["name"] == name), None)
@@ -447,7 +447,7 @@ class AssistScreen:
         return out
 
     def assist_cool(self):
-        """One of the Simulator's, at random (not the one on now, nor the one shown last time), put on: what it is."""
+        """One of Apps', at random (not the one on now, nor the one shown last time), put on: what it is."""
         picks = self.cool_choices()
         on = (self.prog_name if self.prog is not None else LIBRARY[self.tab]["name"]
               if self.view == "list" and isinstance(self.tab, int) and 0 <= self.tab < len(LIBRARY) else None)

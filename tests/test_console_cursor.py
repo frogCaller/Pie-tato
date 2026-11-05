@@ -1,4 +1,4 @@
-"""Media mode's console cursor: off for the menus, on for a Simulator program and the terminal; never waits on a
+"""Media mode's console cursor: off for the menus, on for a program in Apps and the terminal; never waits on a
 console a Ctrl+S has held, nor on one too full to take it (a pretend console: a pty)."""
 import os, pty, select, sys, termios, threading, time
 from paths import SP, ROOT, TESTS  # noqa: E402  (this test's folder of work; the Pietato folder; tests)

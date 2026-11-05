@@ -376,7 +376,7 @@ check(f"a link tapped: opened ({names}, {want})", names == ["a"]
       and settle(lambda: m.www_on_page() and m.www_wait is None and m.www["page"].url == want))
 srv.shutdown()
 
-# ---- the Simulator: its buttons along the bottom, though they're drawn once and kept ------------------------------
+# ---- Apps: its buttons along the bottom, though they're drawn once and kept ------------------------------
 sim = next((i for i, t in enumerate(g.LIBRARY) if t.get("sim") == "life"), None)
 if sim is not None:
     m.tab, m.view = sim, "list"; m.load_tab(sim)

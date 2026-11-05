@@ -219,7 +219,7 @@ def frames(secs, step=0.05):
 apps = [a for a, _ in m.home_apps()]
 check(f"Games in the middle of the home screen: {len(apps)} icons, three rows of five ({apps[5:10]})", len(apps) == 15
       and g.home_cols(15) == 5 and apps[5:10] == ["Photos", "Videos", "Games", "Weather", "Finance"]
-      and apps[10:] == ["Bot", "Simulator", "Files", "System", "Settings"])
+      and apps[10:] == ["Bot", "Apps", "Files", "System", "Settings"])
 icon = g.draw_icon("Games")
 check("...its icon: a game controller", icon.size == (84, 84) and len(icon.getcolors(1 << 16) or []) > 40)
 m.view = "home"
@@ -235,9 +235,9 @@ check("A: Snake, ready", g.LIBRARY[m.tab]["name"] == "Snake" and g.LIBRARY[m.tab
 frames(0.3)
 hints = [label for _, label, *_ in m.sim_hints(s)]
 check(f"...its buttons: {hints}", hints == ["Steer", "Start", "AI plays", "Options"])
-sim_tab = next(t for t in g.LIBRARY if t["name"] == "Simulator")
-check("...an app of its own, not one of the Simulator's", "Games" not in sim_tab["children"]
-      and "snake" not in [t.get("sim") for t in g.LIBRARY if t.get("parent") == "Simulator"])
+sim_tab = next(t for t in g.LIBRARY if t["name"] == "Apps")
+check("...an app of its own, not one of Apps'", "Games" not in sim_tab["children"]
+      and "snake" not in [t.get("sim") for t in g.LIBRARY if t.get("parent") == "Apps"])
 m.press("a")
 s.apple = (0, 0)
 frames(1.0)

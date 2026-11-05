@@ -1,7 +1,7 @@
-"""htop in the Simulator (pitato/screens/progs.py), the real one on a real console (a spare one here, standing in for
+"""htop in Apps (pitato/screens/progs.py), the real one on a real console (a spare one here, standing in for
 media mode's): A starts it in text mode, drawing what's running; the controller's buttons are its keys (▲▼ through
 the list, held: on and on; A pauses it, SELECT a tree, X and Y sort it); a key that would end a process is never
-typed; B stops it (its own q), and the console's back in the menus' graphics mode, in front. Then the Simulator's
+typed; B stops it (its own q), and the console's back in the menus' graphics mode, in front. Then Apps'
 list has it, and its help page says htop's buttons when it's picked."""
 import json, os, shutil, struct, subprocess, sys, time, fcntl
 from paths import SP, ROOT, TESTS  # noqa: E402  (this test's folder of work; the Pietato folder; tests)
@@ -22,7 +22,7 @@ def check(what, cond):
 
 
 class Fake(g.ProgScreen):
-    """Just what the Simulator's programs use of media mode."""
+    """Just what Apps' programs use of media mode."""
     def __init__(self):
         self.prog = self.prog_name = None
         self.fb = None
@@ -131,7 +131,7 @@ finally:
     if len(was_size) == 2:
         subprocess.run(["stty", "-F", f"/dev/tty{N}", "rows", was_size[0], "cols", was_size[1]])
 
-# ---- the Simulator's list has it; its help says htop's buttons when it's picked ------------------------------------
+# ---- Apps' list has it; its help says htop's buttons when it's picked ------------------------------------
 S = SP + "/t_htop"
 shutil.rmtree(S, ignore_errors=True)
 HOME = S + "/home/u"
@@ -159,13 +159,13 @@ texts = []
 real_text = ImageDraw.ImageDraw.text
 ImageDraw.ImageDraw.text = lambda self, xy, text, *a, **k: (texts.append(str(text)), real_text(self, xy, text, *a, **k))[1]
 m = g.Media(); m.enter()
-si = next(k for k, t in enumerate(g.LIBRARY) if t["name"] == "Simulator")
+si = next(k for k, t in enumerate(g.LIBRARY) if t["name"] == "Apps")
 m.tab, m.view = si, "list"
 m.load_tab(si)
 rows = m.tab_items(si)
 names = [r["title"] for r in rows]
 hi = names.index("htop") if "htop" in names else -1
-check(f"the Simulator's list: htop last, with what it is ({rows[hi]['sub'] if hi >= 0 else '-'})",
+check(f"Apps' list: htop last, with what it is ({rows[hi]['sub'] if hi >= 0 else '-'})",
       names[-1] == "htop" and rows[hi]["sub"] == "What's running on the Pi")
 m.sels[si] = hi
 m.help_from, m.view = "list", "help"

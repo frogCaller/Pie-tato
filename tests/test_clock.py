@@ -1,5 +1,5 @@
-"""The Simulator's Clock: on its own (when its picture changes, the dial's hands where the time says, the digital
-look's figures, 12 or 24 hours), then in media mode: first in the Simulator's list, in the middle of the page with no
+"""Apps' Clock: on its own (when its picture changes, the dial's hands where the time says, the digital
+look's figures, 12 or 24 hours), then in media mode: first in Apps' list, in the middle of the page with no
 box, a frame a second (not twenty), A switching the look (kept), START's options, full screen, the battery saver
 leaving it on, B back."""
 import math, os, shutil, sys, time
@@ -232,11 +232,11 @@ def frames(secs, step=0.05):
 
 
 m.view = "home"
-m.home_sel = [a for a, _ in m.home_apps()].index("Simulator")
+m.home_sel = [a for a, _ in m.home_apps()].index("Apps")
 m.press("a")
 SIMI = m.tab
 rows = [it["title"] for it in m.tab_items()]
-check(f"the Clock first in the Simulator's list: {rows[:3]}", rows[0] == "Clock" and m.sels.get(SIMI, 0) == 0
+check(f"the Clock first in Apps' list: {rows[:3]}", rows[0] == "Clock" and m.sels.get(SIMI, 0) == 0
       and m.tab_items()[0].get("sub") == "The time and the date")
 m.dirty = True
 m.flush()

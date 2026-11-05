@@ -174,7 +174,7 @@ def tour(which):
         return i
 
     for name in ("Home", "TV", "Music", "Radio", "Photos", "Videos", "Games", "Files", "Camera",
-                 "Simulator", "System", "Plex", "Jellyfin", "Cartoons", "Free Movies", "News", "Streams",
+                 "Apps", "System", "Plex", "Jellyfin", "Cartoons", "Free Movies", "News", "Streams",
                  "TV Remote", "Lights"):
         try:
             tab(name)
@@ -258,7 +258,7 @@ def tour(which):
         m.press("left")
     except Exception as ex:
         problems.append(f"{which} bot work: {ex!r}")
-    # simulator worlds
+    # Apps' worlds
     for name in ("Rock Paper Scissors", "Game of Life", "Forest Fire", "Mandelbrot Set", "Snake"):
         try:
             tab(name)

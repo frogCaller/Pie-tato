@@ -31,7 +31,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
-      - name: What Pietato runs (the Simulator's programs, the player, the sound tools...)
+      - name: What Pietato runs (Apps' programs, the player, the sound tools...)
         run: |
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ffmpeg mplayer alsa-utils poppler-utils v4l-utils iw rfkill \

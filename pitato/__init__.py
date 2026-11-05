@@ -36,8 +36,8 @@
   computers.py      your other computers' files (shared folders, SSH), opened read-only
   shrink.py         big videos made smaller for this Pi, in the background
   update.py         System > Update software: a newer version (git), put in by setup.sh --update
-  sims.py           the Simulator's worlds
-  clock.py          the Simulator's Clock
+  sims.py           Apps' little worlds
+  clock.py          Apps' Clock
   mandelbrot.py     the Mandelbrot set
   snake.py          Snake, and its AI's thread
   games.py          your own games: finding them and their emulators, one while it runs

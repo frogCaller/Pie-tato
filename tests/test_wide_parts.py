@@ -1,4 +1,4 @@
-"""Through the real Framebuffer on a 1080p screen (a file): the Bot at work and a Simulator world send only
+"""Through the real Framebuffer on a 1080p screen (a file): the Bot at work and a world in Apps send only
 the part that moves; afterwards, what's on the screen is just what a whole picture of the last frame gives."""
 import os, shutil, sys, time
 from paths import SP, ROOT, TESTS  # noqa: E402  (this test's folder of work; the Pietato folder; tests)

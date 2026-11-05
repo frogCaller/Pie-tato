@@ -207,7 +207,7 @@ key(pad, e.BTN_MODE, False)
 check("...HOME let go: nothing else (still the menus, the box up)", m.active and m.view == "konami" and switches == [])
 buttons(pad, "up", "up", "down", "down", "left", "right", "left", "right", "b", "a")
 check(f"...the classic code: cmatrix ({progs}, {toasts[-1:]})", progs == ["cmatrix"] and m.konami_in is None
-      and g.LIBRARY[m.tab]["name"] == "Simulator" and m.view == "list")
+      and g.LIBRARY[m.tab]["name"] == "Apps" and m.view == "list")
 at_home()
 key(pad, e.BTN_MODE, True)
 tap(pad, e.BTN_SOUTH)

@@ -1,4 +1,4 @@
-"""Konami code (in the Simulator): button codes of your own that do things. Hold HOME and press another button, and a
+"""Konami code (in Apps): button codes of your own that do things. Hold HOME and press another button, and a
 box asks for a code: put one of yours in (▲▲▼◀▼▶A, say) and it turns the TV on, the lights off, opens an app, plays a
 song or your last game, or turns the screen off. The classic one's there to start with (▲▲▼▼◀▶◀▶BA: cmatrix). On its
 page: A tries a code, X changes what it does, Y twice forgets it, and New code takes a new one (press it, then stop a
@@ -10,7 +10,7 @@ import time
 
 from ..games import find_games
 from ..homeassistant import HA_WATCH
-from ..library import LIBRARY
+from ..library import LIBRARY, RENAMED
 from ..theme import BODY, LINE, MUTED, ROW, TEXT, WARN
 from ..util import item
 
@@ -44,12 +44,12 @@ def code_trouble(keys):
 
 
 def open_names():
-    """The apps a code can open: each of them, the Simulator's too (not this page)."""
+    """The apps a code can open: each of them, Apps' too (not this page)."""
     return [t["name"] for t in LIBRARY if t["type"] != "konami"]
 
 
 class KonamiScreen:
-    """Your button codes: the box they're put in (HOME and another button), and their page in the Simulator."""
+    """Your button codes: the box they're put in (HOME and another button), and their page in Apps."""
 
     # -- your codes -----------------------------------------------------------------------------------------------
     def konami_codes(self):
@@ -61,6 +61,8 @@ class KonamiScreen:
         out = []
         for c in v:
             keys, do = (c.get("keys"), c.get("do")) if isinstance(c, dict) else (None, None)
+            if isinstance(do, str) and do.startswith("open:") and do[5:] in RENAMED:
+                do = "open:" + RENAMED[do[5:]]
             if (isinstance(keys, list) and all(k in CODE_KEYS for k in keys) and len(keys) <= CODE_MOST
                     and code_trouble(keys) is None and isinstance(do, str)
                     and (do in dict(DOES) and do != "open" or (do.startswith("open:") and do[5:] in names))):
@@ -106,7 +108,7 @@ class KonamiScreen:
         if not (self.active and self.view in HOTKEY_VIEWS and self.konami_in is None and not self.proc_owns_screen()):
             return False
         if not self.konami_codes():
-            self.toast("No codes yet: make one in Simulator > Konami code", 4)
+            self.toast("No codes yet: make one in Apps > Konami code", 4)
             return True
         self.konami_in = {"keys": [], "at": time.monotonic(), "from": self.view}
         self.view = "konami"
@@ -473,7 +475,7 @@ class KonamiScreen:
         img, d = self.canvas()
         W, H = self.fb.w, self.fb.h
         self.header(img, d)
-        d.text((20, self.LIST_TOP + 10), "Simulator  ›  Konami code  ›  New code", font=F["small"], fill=MUTED,
+        d.text((20, self.LIST_TOP + 10), "Apps  ›  Konami code  ›  New code", font=F["small"], fill=MUTED,
                anchor="lm")
         rec = self.konami_rec
         mid = (self.LIST_TOP + 26 + H - self.FOOTER) / 2

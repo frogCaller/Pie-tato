@@ -18,7 +18,7 @@ KEY_FILL = (62, 68, 79)      # a button, in the hints along the bottom
 FOOT_NOTE = (206, 211, 218)  # the home screen's line about the app picked
 BASE_ROOM = 480 - 48 - 76    # the GPi Case's screen between its bars: what a page with a set layout is drawn for
 FULL_VIEWS = ("list", "now", "photo", "pdf", "text")   # what Full screen apps puts on the whole screen
-UPDATE_DOTS = 3              # the dots under Updating Pie-tato, lit one after another
+UPDATE_DOTS = 3              # the dots under Updating Pietato, lit one after another
 TAP_KEYS = {"A": "a", "B": "b", "X": "x", "Y": "y", "L": "l", "R": "r", "L2": "l2", "R2": "r2", "START": "start",
             "ST": "start", "SELECT": "select", "SEL": "select", "HOME": "home", "ANY": "a",
             "▲": "up", "▼": "down", "◀": "left", "▶": "right"}   # a hint's button, as a tap on the web page presses it
@@ -887,7 +887,7 @@ class DrawScreen:
                                    ("", "Below it, ◀▶: the network,"), ("", "temperature, this Pi, and"),
                                    ("", "what's in the background")]),
             ]
-        elif self.help_from == "list" and LIBRARY[self.tab]["name"] == "Simulator":
+        elif self.help_from == "list" and LIBRARY[self.tab]["name"] == "Apps":
             rows, sel = self.tab_items(), self.sels.get(self.tab, 0)
             on = rows[sel]["title"] if rows and 0 <= sel < len(rows) else ""
             cols = [
@@ -961,13 +961,13 @@ class DrawScreen:
 
 
     def render_update(self, dots_only=False):
-        """While it updates (System > Update software), till the Pi restarts by itself: Updating Pie-tato, and dots
+        """While it updates (System > Update software), till the Pi restarts by itself: Updating Pietato, and dots
         under it, lit one after another (update_tick moves them on). dots_only: they're all that's changed."""
         F = self.fonts
         img, d = self.canvas()
         W, H = self.fb.w, self.fb.h
         self.status_bar(d)                             # (the time and WiFi: no tabs, there's nowhere to go)
-        d.text((W / 2, H / 2 - 22), self.fit(d, "Updating Pie-tato", F["big"], W - 60), font=F["big"], fill=TEXT,
+        d.text((W / 2, H / 2 - 22), self.fit(d, "Updating Pietato", F["big"], W - 60), font=F["big"], fill=TEXT,
                anchor="mm")
         box = self.update_dots(d, W / 2, H / 2 + 28)
         if dots_only and hasattr(self.fb, "show_part"):

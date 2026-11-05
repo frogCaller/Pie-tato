@@ -26,7 +26,7 @@ def run(mode, timeout=1800, prompts=PROMPTS):
     for f in ("hold.log", "stub.log"):
         if os.path.exists(f"{F}/{f}"):
             os.remove(f"{F}/{f}")
-    env = dict(os.environ, HOLD_LOG=F + "/hold.log", STUB_LOG=F + "/stub.log")
+    env = dict(os.environ, HOLD_LOG=F + "/hold.log", STUB_LOG=F + "/stub.log", PIETATO_SETUP_UI="plain")
     env.pop("GIT_TERMINAL_PROMPT", None)
     if mode == "aptfail":
         env["APT_FAIL"] = "1"

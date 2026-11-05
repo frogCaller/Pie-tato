@@ -19,7 +19,7 @@
 #     a file browser for PDFs/documents/text, cameras on your other Pis (see
 #     --camera below) with OBSBOT steering and pictures, a bot (Ollama on another
 #     computer, a Piper voice on the Pi; at work it acts out your coding agent and sends
-#     it your prompts), a Simulator (rock paper scissors, the game of life, forest fire, the
+#     it your prompts), Apps (rock paper scissors, the game of life, forest fire, the
 #     Mandelbrot set to tour or explore, cmatrix, hollywood, nyancat, cacafire, htop), Snake
 #     and your own Game Boy, Game Boy Advance, NES, SNES, Genesis, Master System, Game Gear,
 #     PlayStation and (on a Pi 4 or
@@ -39,6 +39,17 @@
 #
 # Usage (from the repo folder):  sudo bash setup.sh
 #   (on Debian without sudo, where root has a password of its own:  su -c "bash setup.sh")
+# On a terminal of its own it starts with a few questions (pitato/wizard.py: arrows, Space and Enter): Default or
+# Custom (what goes in: the big emulator builds can wait), your services to connect now (Home Assistant, Pi-hole,
+# Ollama, Plex, Jellyfin, RetroAchievements, the web page's password), and whether to restart after. Then it works
+# by itself, a line for each step, with all it does in /var/log/pietato-setup.log. Without one (Update software, an
+# SD card image, answers piped in), or with --plain, it asks the old way. What's left out is kept for next time.
+#   --default   everything this Pi can run, without asking what goes in (what was left out before goes in too)
+#   --custom    straight to what goes in
+#   --without PARTS   these left out, without asking: --without ps1,neogeo. The parts: classic (Game Boy, NES, SNES,
+#               Genesis...), ps1, n64, psp, nds, dc, ps2, gc, neogeo, ngp, link, cheevos, chromium, office, toys,
+#               computers
+#   --plain     the old way, on a terminal too: a question at a time, and everything it does on the screen
 #   --gpi       it's in a GPi Case (don't ask): the 2W on a Pi Zero, the GPi Case 2 on a CM4
 #   --gpi2      it's in a GPi Case 2 (don't ask)
 #   --no-gpi    it isn't (don't ask)
@@ -73,7 +84,12 @@ CAMERA=no
 LOGIN=no
 UPDATE=no
 IMAGE=no
+PLAIN=no        # yes: asked the old way, even on a terminal
+MODE=""         # default or custom: what the questions start with (--default, --custom)
+WITHOUT=""      # --without's parts
+next_is=""
 for arg in "$@"; do
+  if [ "$next_is" = without ]; then WITHOUT="$WITHOUT ${arg//,/ }"; next_is=""; continue; fi
   case "$arg" in
     --gpi) GPI=yes ;;
     --gpi2) GPI=yes CASE=2 ;;
@@ -82,7 +98,22 @@ for arg in "$@"; do
     --camera) CAMERA=yes ;;
     --update) UPDATE=yes ;;
     --image) IMAGE=yes ;;
-    *) echo "Unknown option: $arg (use --gpi, --gpi2, --no-gpi, --login, --camera, --update or --image)"; exit 1 ;;
+    --plain) PLAIN=yes ;;
+    --default) MODE=default ;;
+    --custom) MODE=custom ;;
+    --without) next_is=without ;;
+    --without=*) WITHOUT="$WITHOUT ${arg#--without=}"; WITHOUT="${WITHOUT//,/ }" ;;
+    *) echo "Unknown option: $arg (use --gpi, --gpi2, --no-gpi, --login, --camera, --update, --image, --plain," \
+         "--default, --custom or --without)"; exit 1 ;;
+  esac
+done
+if [ "$next_is" = without ]; then echo "--without needs the parts after it: --without ps1,neogeo"; exit 1; fi
+# the parts that can be left out (Custom, or --without), by setup.sh's names for them
+PARTS="classic ps1 n64 psp nds dc ps2 gc neogeo ngp link cheevos chromium office toys computers"
+for p in $WITHOUT; do
+  case " $PARTS " in
+    *" $p "*) ;;
+    *) echo "There's no part called $p. The parts: ${PARTS// /, }"; exit 1 ;;
   esac
 done
 
@@ -141,6 +172,9 @@ spin() {           # (working's moving line, while its file is there)
       [ "${cols:-0}" -gt 20 ] 2> /dev/null || cols=80
       line="  ${marks:i++%4:1} $what$pct  $(elapsed "$t")  Still working: leave the $MACHINE on"
       printf '\r%s\033[K' "${line:0:cols-1}"                # (one line, however narrow the screen)
+    elif [ -n "${PIETATO_PROGRESS:-}" ]; then               # (setup's own screen: it shows how far it's got)
+      p=$(tail -c 3000 "$log" 2> /dev/null | grep -o '^\[ *[0-9]*%\]' | tail -n 1 | tr -dc 0-9)
+      echo "@@working $what|$p"
     elif [ "$t" -ge "$next" ]; then
       echo "  $what: still working ($((t / 60)) min so far)"
       next=$((next + 60))
@@ -261,6 +295,30 @@ os_field() {       # os_field NAME: os-release's (ID: ubuntu, or debian, as Rasp
 }
 OS_ID="$(os_field ID)"
 
+# What was left out (Custom, or --without), kept for the next time it's run (Update software too): --default puts it
+# all back. An SD card image has everything
+SETUP_CONF=/var/lib/pitato/setup.conf
+KEEP_LOGIN=/var/lib/pitato/keep-login     # (--login is remembered for the next time it's run)
+clean_parts() {    # clean_parts WORDS: the parts' names among them, once each
+  local p out=""
+  for p in $PARTS; do
+    case " ${1//,/ } " in *" $p "*) out="$out $p" ;; esac
+  done
+  echo "${out# }"
+}
+SAVED=no
+if [ -f "$SETUP_CONF" ]; then SAVED=yes; fi
+LEAVE_OUT="$(clean_parts "$(sed -n 's/^leave_out *= *//p' "$SETUP_CONF" 2> /dev/null | head -n 1)")"
+if [ "$IMAGE" = yes ] || [ "$MODE" = default ]; then LEAVE_OUT=""; fi
+if [ -n "$WITHOUT" ]; then LEAVE_OUT="$(clean_parts "$WITHOUT")"; fi
+wanted() {         # wanted PART: it goes in (it wasn't left out)
+  case " $LEAVE_OUT " in *" $1 "*) return 1 ;; esac
+  return 0
+}
+left_out() {       # left_out PART WHAT: said, when it's left out
+  echo "(Left out: $2. sudo bash setup.sh --default puts everything in.)"
+}
+
 # Until it's done, a shutdown asked for gently (a Pi 5's power button, the GPi Case's switch, poweroff without
 # sudo) waits. Nothing can stop a pulled plug, so it says to leave the Pi on. If it stops early (an error, Ctrl+C),
 # it says so, and clears away the emulator it was partway through building
@@ -273,6 +331,18 @@ if command -v systemd-inhibit > /dev/null 2>&1; then
     bash -c 'while kill -0 "$1" 2> /dev/null; do sleep 2; done' _ "$$" > /dev/null 2>&1 &   # (ends with setup.sh)
   HOLD=$!
 fi
+SHOW=""            # (setup's own screen, drawing what it does: pitato/wizard.py's, on a terminal)
+ANSWERS=""
+show_end() {       # its last words drawn, before anything else is
+  if [ -n "$SHOW" ]; then
+    echo "@@end"
+    exec 1>&3 2>&4
+    local i=0
+    while kill -0 "$SHOW" 2> /dev/null && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+    SHOW=""
+  fi
+  if [ -n "$ANSWERS" ]; then rm -f "$ANSWERS"; ANSWERS=""; fi
+}
 let_go() {
   if [ -n "$HOLD" ]; then
     kill "$HOLD" 2> /dev/null || true
@@ -291,6 +361,7 @@ on_exit() {
     echo
     echo "setup.sh stopped before it was done. Run  sudo bash setup.sh  again to finish."
   fi
+  show_end
 }
 trap on_exit EXIT
 trap 'exit 130' INT      # (Ctrl+C stops it, even when what was running when you pressed it took it in its stride)
@@ -328,22 +399,100 @@ fi
 if [ -z "$GPI" ] && [ "$UPDATE" = yes ]; then       # (as it was set up: the case's settings there, or not)
   if [ -n "$WAS" ]; then GPI=yes CASE="${CASE:-$WAS}"; else GPI=no; fi
 fi
+ASK_CASE=""     # the case it asks about (2w, or 2), and the answer Enter takes (ASK_YES)
+ASK_YES=yes
 if [ -z "$GPI" ]; then
   if [ "$WAS" = 2 ]; then                          # (set up for it before: yes, unless you say otherwise)
-    read -r -p "Is this Pi in a RetroFlag GPi Case 2? [Y/n] " ans
-    if [[ "$ans" =~ ^[Nn] ]]; then GPI=no; else GPI=yes CASE=2; fi
+    ASK_CASE=2
   elif [ "$CM4" = yes ] && [ "$CASE2_HAND" = yes ]; then   # (its screen set up by hand: yes, unless you say)
-    read -r -p "Is this Pi in a RetroFlag GPi Case 2? [Y/n] " ans
-    if [[ "$ans" =~ ^[Nn] ]]; then GPI=no; else GPI=yes CASE=2; fi
+    ASK_CASE=2
   elif [ "$CM4" = yes ]; then                      # (a CM4 is often on a board of its own, on HDMI: no, unless you say)
-    read -r -p "Is this Pi in a RetroFlag GPi Case 2? [y/N] " ans
-    if [[ "$ans" =~ ^[Yy] ]]; then GPI=yes CASE=2; else GPI=no; fi
+    ASK_CASE=2 ASK_YES=no
   elif [[ "$MODEL" == *Zero* ]] || [ "$WAS" = 2w ]; then
-    read -r -p "Is this Pi in a RetroFlag GPi Case 2W? [Y/n] " ans
-    if [[ "$ans" =~ ^[Nn] ]]; then GPI=no; else GPI=yes CASE=2w; fi
+    ASK_CASE=2w
   else
     GPI=no      # the cases take a Pi Zero (the 2W) or a Compute Module 4 (the GPi Case 2)
   fi
+fi
+case "$MODEL" in                                   # (Neo Geo games: a Pi 2 or newer)
+  *"Zero 2"*) ;;
+  *Zero*|"Raspberry Pi Model"*|*"Compute Module Rev"*) NEO_OLD=yes ;;   # (the first Pis, and the Zero W: too slow)
+esac
+case "$(dpkg --print-architecture 2>/dev/null || uname -m)" in armel|armv6l) NEO_OLD=yes ;; esac
+if [ "$IMAGE" = yes ]; then NEO_OLD=no; fi
+
+# Setup's own screen (pitato/wizard.py), on a terminal: the questions first, then a line for each step (all it does
+# in its log). Without a terminal (Update software, an SD card image, answers piped in), or with --plain: the old way
+UI=plain
+if [ "$UPDATE" != yes ] && [ "$IMAGE" != yes ] && [ "$PLAIN" != yes ] && [ "${PIETATO_SETUP_UI:-}" != plain ] \
+   && [ -t 0 ] && [ -t 1 ] && [ "${TERM:-dumb}" != dumb ] && [ -f "$HERE/pitato/wizard.py" ] \
+   && command -v python3 > /dev/null 2>&1; then
+  UI=rich
+fi
+AUTO_AGAIN=no      # (signing in by itself picked again, after a --login)
+KEEP_DESKTOP=no    # (a PC that starts in its desktop: left so)
+REBOOT_ANS=""
+if [ "$UI" = rich ]; then
+  ANSWERS="$(mktemp /var/tmp/pietato-answers-XXXXXX)"
+  DESK=no
+  if [ "$PC" = yes ] && [ "$(systemctl get-default 2>/dev/null)" = graphical.target ]; then DESK=yes; fi
+  KEPT=no
+  if [ -f "$KEEP_LOGIN" ] || [ -f /var/lib/gpi-keys/keep-login ] || [ "$LOGIN" = yes ]; then KEPT=yes; fi
+  rc=0
+  PIETATO_W_MODEL="$MODEL" PIETATO_W_PC="$PC" PIETATO_W_BIG="$BIG" PIETATO_W_NEO_OLD="${NEO_OLD:-no}" \
+    PIETATO_W_ARCH="$(dpkg --print-architecture 2>/dev/null || uname -m)" PIETATO_W_ASK_CASE="$ASK_CASE" \
+    PIETATO_W_ASK_YES="$ASK_YES" PIETATO_W_GPI="$GPI" PIETATO_W_CASE="$CASE" PIETATO_W_MACHINE="$MACHINE" \
+    PIETATO_W_STATIC="$STATIC" PIETATO_W_USER="$USER_NAME" PIETATO_W_HOME="$USER_HOME" \
+    PIETATO_W_OS="$(os_field PRETTY_NAME)" PIETATO_W_MEM="$(awk '/MemTotal/ {print int($2 / 1024)}' /proc/meminfo)" \
+    PIETATO_W_FREE="$(df -Pm "$HERE" 2> /dev/null | awk 'NR == 2 {print $4}')" PIETATO_W_SAVED="$SAVED" \
+    PIETATO_W_LEAVE_OUT="$LEAVE_OUT" PIETATO_W_KEEP_LOGIN="$KEPT" PIETATO_W_DESKTOP="$DESK" \
+    PIETATO_W_MODE="$MODE" PIETATO_W_WITHOUT="$WITHOUT" \
+    python3 "$HERE/pitato/wizard.py" ask "$ANSWERS" || rc=$?
+  answer() {       # answer KEY: the wizard's (letters, numbers and a few marks only)
+    sed -n "s/^$1=//p" "$ANSWERS" 2> /dev/null | head -n 1 | tr -cd 'A-Za-z0-9 ,._:/()-'
+  }
+  if [ "$rc" -eq 0 ] && [ "$(answer GO)" = yes ]; then
+    case "$(answer GPI)" in yes) GPI=yes ;; no) GPI=no ;; esac
+    case "$(answer CASE)" in 2w) CASE=2w ;; 2) CASE=2 ;; esac
+    if [ "$GPI" != yes ]; then CASE=""; fi
+    LEAVE_OUT="$(clean_parts "$(answer LEAVE_OUT)")"
+    case "$(answer AUTOLOGIN)" in no) LOGIN=yes ;; yes) if [ "$LOGIN" != yes ]; then AUTO_AGAIN=yes; fi ;; esac
+    if [ "$(answer DESKTOP)" = keep ]; then KEEP_DESKTOP=yes; fi
+    if [ "$(answer REBOOT)" = no ]; then REBOOT_ANS=n; else REBOOT_ANS=y; fi
+  elif [ "$rc" -eq 0 ] || [ "$rc" -eq 3 ] || [ "$rc" -eq 130 ]; then   # (Not now, or Ctrl+C: nothing's changed)
+    rm -f "$ANSWERS"
+    FINISHED=yes
+    exit 0
+  else
+    echo "(Setup's own screen didn't start, so it asks here instead.)"
+    rm -f "$ANSWERS"
+    ANSWERS="" UI=plain
+  fi
+fi
+if [ -n "$ASK_CASE" ] && [ -z "$GPI" ]; then       # (the old way)
+  if [ "$ASK_CASE" = 2w ]; then name="GPi Case 2W"; else name="GPi Case 2"; fi
+  if [ "$ASK_YES" = yes ]; then
+    read -r -p "Is this Pi in a RetroFlag $name? [Y/n] " ans
+    if [[ "$ans" =~ ^[Nn] ]]; then GPI=no; else GPI=yes CASE=$ASK_CASE; fi
+  else
+    read -r -p "Is this Pi in a RetroFlag $name? [y/N] " ans
+    if [[ "$ans" =~ ^[Yy] ]]; then GPI=yes CASE=$ASK_CASE; else GPI=no; fi
+  fi
+fi
+if [ -z "$GPI" ]; then GPI=no; fi
+if [ "$IMAGE" != yes ]; then                       # (what's left out, for next time: Update software too)
+  install -d /var/lib/pitato
+  printf '# setup.sh: what was left out (Custom, or --without), for the next time it runs (Update software too).\n# sudo bash setup.sh --default puts it all in.\nleave_out = %s\n' "$LEAVE_OUT" > "$SETUP_CONF"
+fi
+if [ "$UI" = rich ]; then                          # from here, its own screen draws what it does
+  SETUP_LOG="${PIETATO_SETUP_LOG:-/var/log/pietato-setup.log}"     # (the tests': a log of their own)
+  if [ -f "$SETUP_LOG" ]; then mv -f "$SETUP_LOG" "$SETUP_LOG.1" 2> /dev/null || true; fi
+  if ! : > "$SETUP_LOG" 2> /dev/null; then SETUP_LOG=/var/tmp/pietato-setup.log; : > "$SETUP_LOG"; fi
+  exec 3>&1 4>&2
+  exec > >(python3 "$HERE/pitato/wizard.py" show "$SETUP_LOG" "$ANSWERS" >&3 2>&4) 2>&1
+  SHOW=$!
+  exec 0< /dev/null                                # (no more questions: what it runs can't wait for an answer)
+  export PIETATO_PROGRESS=1 DEBIAN_FRONTEND=noninteractive
 fi
 if [ "$GPI" = yes ] && [ -z "$CASE" ]; then         # (--gpi: the case this Pi goes in; an image's, the 2W)
   if [ "$CM4" = yes ] && [ "$IMAGE" != yes ]; then CASE=2; else CASE=2w; fi
@@ -357,8 +506,10 @@ elif [ "$PC" = yes ]; then
 else
   echo "Setting up for a screen on HDMI${MODEL:+ ($MODEL)}. Plug in any USB or Bluetooth game controller."
 fi
-if [ "$PC" = yes ]; then
-  echo "The first time takes a while (about half an hour) as it builds the game emulators."
+if [ "$UI" = rich ]; then
+  :                                                # (the questions said how long it takes)
+elif [ "$PC" = yes ]; then
+  echo "The first time takes a while (about an hour) as it builds the game emulators."
 else
   echo "The first time takes a while: an hour or more on a Pi 4, as it builds the game emulators."
 fi
@@ -478,15 +629,19 @@ if [ "$PC" = yes ]; then   # (NAME.local, for the web page, as on a Pi: Ubuntu's
 fi
 # a USB camera (v4l2-ctl: its sizes, and turning one that turns) and a USB microphone (Vosk needs libatomic)
 apt-get install -y v4l-utils libatomic1 || echo "(Couldn't install v4l-utils or libatomic1: a USB camera or microphone may not work.)"
-# the Simulator's cmatrix, nyancat, htop and hollywood: Linux's own. hollywood with what its panes show, but not
+# Apps' cmatrix, nyancat, htop and hollywood: Linux's own. hollywood with what its panes show, but not
 # atop or plocate, which would keep running in the background
-apt-get install -y cmatrix || echo "(Couldn't install cmatrix: the Simulator's cmatrix won't start.)"
-apt-get install -y nyancat || echo "(Couldn't install nyancat: the Simulator's nyancat won't start.)"
-apt-get install -y htop || echo "(Couldn't install htop: the Simulator's htop won't start.)"
+if wanted toys; then
+apt-get install -y cmatrix || echo "(Couldn't install cmatrix: Apps' cmatrix won't start.)"
+apt-get install -y nyancat || echo "(Couldn't install nyancat: Apps' nyancat won't start.)"
+apt-get install -y htop || echo "(Couldn't install htop: Apps' htop won't start.)"
 apt-get install -y --no-install-recommends hollywood \
-  || echo "(Couldn't install hollywood: the Simulator's hollywood won't start.)"
+  || echo "(Couldn't install hollywood: Apps' hollywood won't start.)"
 apt-get install -y --no-install-recommends apg bmon bsdextrautils ccze htop jp2a moreutils speedometer tree \
   || echo "(Couldn't install some of what hollywood's panes show: it shows the rest.)"
+else
+  left_out toys "Apps' terminal toys (cmatrix, hollywood, nyancat, cacafire, htop)"
+fi
 # and cacafire: libcaca's own, built here from its one source file, without its "Powered by libcaca"
 CACAFIRE=373c88b9890e67bde91e6acb8f1c442e847d1203        # (libcaca 0.99.beta20: Raspberry Pi OS's own libcaca)
 PROGS=/usr/local/lib/pitato
@@ -505,20 +660,28 @@ build_cacafire() {
   rm -rf "$tmp"
 }
 if [ "$(cat "$PROGS/cacafire.version" 2>/dev/null)" = "$CACAFIRE" ] && [ -x "$PROGS/cacafire" ]; then
-  echo "The Simulator's cacafire is built already."
-else
-  build_cacafire || echo "(Couldn't build cacafire: the Simulator's cacafire won't start.)"
+  echo "Apps' cacafire is built already."
+elif wanted toys; then
+  build_cacafire || echo "(Couldn't build cacafire: Apps' cacafire won't start.)"
 fi
 # Files > Other computers: Windows and Mac shared folders (cifs-utils, smbclient, and nmblookup in samba-common-bin
 # for a PC's own name), Linux computers over SSH (sshfs). (Without questions: samba-common asks one about WINS, and
 # the answer it'd take is No.)
-DEBIAN_FRONTEND=noninteractive apt-get install -y cifs-utils smbclient samba-common-bin sshfs \
-  || echo "(Couldn't install what opens other computers' files: Files > Other computers won't open them.)"
+if wanted computers; then
+  DEBIAN_FRONTEND=noninteractive apt-get install -y cifs-utils smbclient samba-common-bin sshfs \
+    || echo "(Couldn't install what opens other computers' files: Files > Other computers won't open them.)"
+else
+  left_out computers "what opens your other computers' files (Files > Other computers)"
+fi
 # the Games tab's emulators: Game Boy, Color and Advance (mGBA), NES (Nestopia), SNES (Snes9x), and Genesis (Mega
 # Drive), Master System and Game Gear (Genesis Plus GX)
-for pkg in libretro-mgba libretro-nestopia libretro-snes9x libretro-genesisplusgx; do
-  apt-get install -y "$pkg" || echo "(Couldn't install $pkg: the games it plays won't start without it.)"
-done
+if wanted classic; then
+  for pkg in libretro-mgba libretro-nestopia libretro-snes9x libretro-genesisplusgx; do
+    apt-get install -y "$pkg" || echo "(Couldn't install $pkg: the games it plays won't start without it.)"
+  done
+else
+  left_out classic "the Game Boy, NES, SNES and Genesis emulators"
+fi
 
 # PlayStation: PCSX ReARMed, built here from its source (Debian doesn't have it), tuned for this Pi
 PCSX_REARMED=c8816799b50388e61cfe237fe2cdbb7d8175f20a
@@ -557,7 +720,9 @@ build_pcsx_rearmed() {
   echo "$PCSX_REARMED" > "$CORES/pcsx_rearmed.version"
   rm -rf "$tmp"
 }
-if [ "$(cat "$CORES/pcsx_rearmed.version" 2>/dev/null)" = "$PCSX_REARMED" ] && [ -f "$CORES/pcsx_rearmed_libretro.so" ]; then
+if ! wanted ps1; then
+  left_out ps1 "the PlayStation emulator (PCSX ReARMed)"
+elif [ "$(cat "$CORES/pcsx_rearmed.version" 2>/dev/null)" = "$PCSX_REARMED" ] && [ -f "$CORES/pcsx_rearmed_libretro.so" ]; then
   echo "The PlayStation emulator (PCSX ReARMed) is built already."
 else
   step "Building the PlayStation emulator (PCSX ReARMed): $(how_long "a few minutes, longer on a Pi Zero" "a few minutes")"
@@ -597,7 +762,9 @@ build_mupen64plus() {
   echo "$MUPEN64PLUS" > "$CORES/mupen64plus_next.version"
   rm -rf "$tmp"
 }
-if [ "$BIG" = yes ]; then
+if [ "$BIG" = yes ] && ! wanted n64; then
+  left_out n64 "the N64 emulator (Mupen64Plus-Next)"
+elif [ "$BIG" = yes ]; then
   if [ "$(cat "$CORES/mupen64plus_next.version" 2>/dev/null)" = "$MUPEN64PLUS" ] \
       && [ -f "$CORES/mupen64plus_next_libretro.so" ]; then
     echo "The N64 emulator (Mupen64Plus-Next) is built already."
@@ -661,7 +828,9 @@ build_ppsspp() {
   echo "$PPSSPP_BUILT" > "$CORES/ppsspp.version"
   rm -rf "$tmp"
 }
-if [ "$BIG" = yes ]; then
+if [ "$BIG" = yes ] && ! wanted psp; then
+  left_out psp "the PSP emulator (PPSSPP)"
+elif [ "$BIG" = yes ]; then
   if [ "$(cat "$CORES/ppsspp.version" 2>/dev/null)" = "$PPSSPP_BUILT" ] && [ -f "$CORES/ppsspp_libretro.so" ] \
       && [ -f "$CORES/PPSSPP/compat.ini" ]; then
     echo "The PSP emulator (PPSSPP) is built already."
@@ -702,7 +871,9 @@ build_melonds() {
 if [ "$BIG" = yes ]; then
   case "$(dpkg --print-architecture 2>/dev/null || uname -m)" in
     arm64|aarch64|amd64|x86_64)
-      if [ "$(cat "$CORES/melonds.version" 2>/dev/null)" = "$MELONDS" ] && [ -f "$CORES/melonds_libretro.so" ]; then
+      if ! wanted nds; then
+        left_out nds "the DS emulator (melonDS)"
+      elif [ "$(cat "$CORES/melonds.version" 2>/dev/null)" = "$MELONDS" ] && [ -f "$CORES/melonds_libretro.so" ]; then
         echo "The DS emulator (melonDS) is built already."
       else
         step "Building the DS emulator (melonDS): $(how_long "about 10 minutes on a Pi 4, less on a Pi 5" "a few minutes")"
@@ -755,7 +926,9 @@ build_flycast() {
   flycast_built > "$CORES/flycast.version"
   rm -rf "$tmp"
 }
-if [ "$BIG" = yes ]; then
+if [ "$BIG" = yes ] && ! wanted dc; then
+  left_out dc "the Dreamcast emulator (Flycast)"
+elif [ "$BIG" = yes ]; then
   if [ "$(cat "$CORES/flycast.version" 2>/dev/null)" = "$(flycast_built)" ] && [ -f "$CORES/flycast_libretro.so" ]; then
     echo "The Dreamcast emulator (Flycast) is built already."
   else
@@ -788,7 +961,9 @@ build_neopop() {
   echo "$NEOPOP" > "$CORES/mednafen_ngp.version"
   rm -rf "$tmp"
 }
-if [ "$(cat "$CORES/mednafen_ngp.version" 2>/dev/null)" = "$NEOPOP" ] && [ -f "$CORES/mednafen_ngp_libretro.so" ]; then
+if ! wanted ngp; then
+  left_out ngp "the Neo Geo Pocket emulator (Beetle NeoPop)"
+elif [ "$(cat "$CORES/mednafen_ngp.version" 2>/dev/null)" = "$NEOPOP" ] && [ -f "$CORES/mednafen_ngp_libretro.so" ]; then
   echo "The Neo Geo Pocket emulator (Beetle NeoPop) is built already."
 else
   step "Building the Neo Geo Pocket emulator (Beetle NeoPop): $(how_long "a few minutes" "a minute or so")"
@@ -823,7 +998,9 @@ build_gambatte() {
   echo "$GAMBATTE_BUILT" > "$CORES/gambatte.version"
   rm -rf "$tmp"
 }
-if [ "$(cat "$CORES/gambatte.version" 2>/dev/null)" = "$GAMBATTE_BUILT" ] && [ -f "$CORES/gambatte_libretro.so" ]; then
+if ! wanted link; then
+  left_out link "the Game Boy's link cable (gambatte)"
+elif [ "$(cat "$CORES/gambatte.version" 2>/dev/null)" = "$GAMBATTE_BUILT" ] && [ -f "$CORES/gambatte_libretro.so" ]; then
   echo "The Game Boy's link cable (gambatte) is built already."
 else
   step "Building the Game Boy's link cable (gambatte): $(how_long "a few minutes" "a minute or so")"
@@ -899,13 +1076,10 @@ build_fbneo() {
   echo "$FBNEO" > "$CORES/fbneo_neogeo.version"
   rm -rf "$tmp"
 }
-case "$MODEL" in
-  *"Zero 2"*) ;;
-  *Zero*|"Raspberry Pi Model"*|*"Compute Module Rev"*) NEO_OLD=yes ;;   # (the first Pis, and the Zero W: too slow)
-esac
-case "$(dpkg --print-architecture 2>/dev/null || uname -m)" in armel|armv6l) NEO_OLD=yes ;; esac
-if [ "${NEO_OLD:-no}" = yes ] && [ "$IMAGE" != yes ]; then
+if [ "${NEO_OLD:-no}" = yes ] && [ "$IMAGE" != yes ]; then      # (NEO_OLD: worked out before the questions)
   echo "(Neo Geo games need a Pi 2 or newer: no Neo Geo emulator on this one.)"
+elif ! wanted neogeo; then
+  left_out neogeo "the Neo Geo emulator (FinalBurn Neo)"
 elif [ "$(cat "$CORES/fbneo_neogeo.version" 2>/dev/null)" = "$FBNEO" ] && [ -f "$CORES/fbneo_neogeo_libretro.so" ] \
     && [ -f "$CORES/fbneo_neogeo.gamelist.txt" ]; then
   echo "The Neo Geo emulator (FinalBurn Neo) is built already."
@@ -985,14 +1159,18 @@ build_lrps2() {
   rm -rf "$tmp"
 }
 if [ "$PC" = yes ]; then
-  if [ "$(cat "$CORES/dolphin.version" 2>/dev/null)" = "$DOLPHIN" ] && [ -f "$CORES/dolphin_libretro.so" ] \
+  if ! wanted gc; then
+    left_out gc "the GameCube and Wii emulator (Dolphin)"
+  elif [ "$(cat "$CORES/dolphin.version" 2>/dev/null)" = "$DOLPHIN" ] && [ -f "$CORES/dolphin_libretro.so" ] \
       && [ -d "$CORES/dolphin-emu/Sys" ]; then
     echo "The GameCube and Wii emulator (Dolphin) is built already."
   else
     step "Building the GameCube and Wii emulator (Dolphin): about 15 minutes"
     build_dolphin || echo "(Couldn't build Dolphin: GameCube and Wii games won't start.)"
   fi
-  if [ "$(cat "$CORES/pcsx2.version" 2>/dev/null)" = "$LRPS2" ] && [ -f "$CORES/pcsx2_libretro.so" ]; then
+  if ! wanted ps2; then
+    left_out ps2 "the PlayStation 2 emulator (LRPS2)"
+  elif [ "$(cat "$CORES/pcsx2.version" 2>/dev/null)" = "$LRPS2" ] && [ -f "$CORES/pcsx2_libretro.so" ]; then
     echo "The PlayStation 2 emulator (LRPS2) is built already."
   else
     step "Building the PlayStation 2 emulator (LRPS2): about 15 minutes"
@@ -1039,7 +1217,9 @@ build_rcheevos() {
   rm -rf "$tmp"
 }
 GLUE="$(cksum < "$HERE/native/rcheevos_glue.c" | cut -d' ' -f1)"   # (Pietato's own C: built again when it changes)
-if [ "$(cat "$PROGS/rcheevos.version" 2>/dev/null)" = "$RCHEEVOS $GLUE" ] && [ -f "$PROGS/librcheevos.so" ]; then
+if ! wanted cheevos; then
+  left_out cheevos "achievements (rcheevos)"
+elif [ "$(cat "$PROGS/rcheevos.version" 2>/dev/null)" = "$RCHEEVOS $GLUE" ] && [ -f "$PROGS/librcheevos.so" ]; then
   echo "Achievements (rcheevos) are built already."
 else
   step "Building achievements (rcheevos): $(how_long "a few minutes" "a minute or so")"
@@ -1050,7 +1230,9 @@ fi
 # desktop round it (through Xwayland, so it can be a TV's size), and wlr-randr gives it the size and turn media mode
 # has. It runs as you, in a session of your own on a console of its own, and this is that session's PAM service:
 # Pietato starts it (as root), so no password is asked.
-if [ "$BIG" = yes ] && [ "$CASE" != 2w ]; then
+if [ "$BIG" = yes ] && [ "$CASE" != 2w ] && ! wanted chromium; then
+  left_out chromium "Chromium, for the whole web from Web's first page"
+elif [ "$BIG" = yes ] && [ "$CASE" != 2w ]; then
   step "Installing Chromium, for the whole web from Web's first page (about 300 MB)"
   CHROMIUM_PKGS="chromium chromium-browser"     # (Debian's, or its older name)
   if grep -qx 'ID=ubuntu' "${PITATO_OS_RELEASE:-/etc/os-release}" 2>/dev/null; then   # (Ubuntu's: it puts in the
@@ -1076,9 +1258,13 @@ EOF
   fi
 fi
 
-step "Installing LibreOffice (Word, Excel and PowerPoint files with their real layout; about 400 MB)"
-apt-get install -y --no-install-recommends libreoffice-core libreoffice-writer \
-  libreoffice-calc libreoffice-impress || echo "(Couldn't install LibreOffice: documents open as plain text.)"
+if wanted office; then
+  step "Installing LibreOffice (Word, Excel and PowerPoint files with their real layout; about 400 MB)"
+  apt-get install -y --no-install-recommends libreoffice-core libreoffice-writer \
+    libreoffice-calc libreoffice-impress || echo "(Couldn't install LibreOffice: documents open as plain text.)"
+else
+  left_out office "LibreOffice (documents open as plain text)"
+fi
 
 # --------------------------------------------------------------------------
 if [ "$GPI" = yes ] && [ "$CASE" = 2 ]; then
@@ -1352,7 +1538,9 @@ fi
 # the console signs you in by itself at start-up (what raspi-config calls Console Autologin), so
 # after a reboot it's ready to use; --login puts the password prompt back
 AUTOLOGIN=/etc/systemd/system/getty@tty1.service.d/autologin.conf
-KEEP_LOGIN=/var/lib/pitato/keep-login     # (--login is remembered for the next time it's run)
+if [ "$AUTO_AGAIN" = yes ]; then           # (picked in setup's questions: the password prompt from before, gone)
+  rm -f "$KEEP_LOGIN" /var/lib/gpi-keys/keep-login
+fi
 if [ "$LOGIN" = yes ]; then
   install -d /var/lib/pitato
   touch "$KEEP_LOGIN"
@@ -1378,7 +1566,8 @@ fi
 # A PC with a desktop (Ubuntu's or Debian's): it starts in the terminal instead, with Pietato on the screen, as a Pi
 # does. System > Desktop starts the desktop when you want it, and the computer restarting comes back to Pietato. (Not
 # on an update: you may have set it back yourself.)
-if [ "$PC" = yes ] && [ "$UPDATE" != yes ] && [ "$(systemctl get-default 2>/dev/null)" = graphical.target ]; then
+if [ "$PC" = yes ] && [ "$UPDATE" != yes ] && [ "$KEEP_DESKTOP" != yes ] \
+   && [ "$(systemctl get-default 2>/dev/null)" = graphical.target ]; then
   step "This computer starts in Pietato now, not the desktop (System > Desktop starts the desktop)"
   systemctl set-default multi-user.target
   install -d /var/lib/pitato
@@ -1522,6 +1711,12 @@ if [ "$PC" = yes ]; then GAME_FOLDERS="$GAME_FOLDERS n64 psp nds dc ps2 gc wii";
 if [ "${NEO_OLD:-no}" = yes ] && [ "$IMAGE" != yes ]; then   # (no Neo Geo emulator on this Pi: no folder for its games)
   GAME_FOLDERS="${GAME_FOLDERS/ neogeo/}"
 fi
+for part in classic:"gb gbc gba nes snes genesis sms gg" ps1:ps1 neogeo:neogeo ngp:"ngp ngpc" n64:n64 psp:psp \
+            nds:nds dc:dc ps2:ps2 gc:"gc wii"; do  # (none for what's left out)
+  if ! wanted "${part%%:*}"; then
+    for sys in ${part#*:}; do GAME_FOLDERS=" $GAME_FOLDERS "; GAME_FOLDERS="${GAME_FOLDERS// $sys / }"; done
+  fi
+done
 for sys in $GAME_FOLDERS; do                       # a folder for each kind of game, so it's clear where they go
   if [ ! -d "$USER_HOME/Games/$sys" ]; then
     mkdir "$USER_HOME/Games/$sys" && chown "$USER_NAME:$USER_NAME" "$USER_HOME/Games/$sys"
@@ -1613,10 +1808,10 @@ fi
 echo "Pair Bluetooth controllers, keyboards, headphones and the rest in Settings > Bluetooth, or on the web page."
 
 # --------------------------------------------------------------------------
-step "TV Remote through Home Assistant (optional)"
+if [ "$UI" != rich ]; then step "TV Remote through Home Assistant (optional)"; fi   # (rich: asked first)
 if grep -qE '^\s*token\s*=\s*\S' "$STATIC/homeassistant.txt" 2>/dev/null; then
   echo "Keeping your existing $STATIC/homeassistant.txt"
-elif [ "$UPDATE" = yes ] || [ "$IMAGE" = yes ]; then
+elif [ "$UPDATE" = yes ] || [ "$IMAGE" = yes ] || [ "$UI" = rich ]; then   # (rich: setup's questions asked)
   echo "No Home Assistant yet: add it any time in its Settings, on the $MACHINE or the web page."
 else
   echo "The Home tab's TV Remote and Lights work through Home Assistant. You can add it now,"
@@ -1691,7 +1886,9 @@ if [ "$IMAGE" = yes ]; then
   exit 0
 fi
 echo
-if [ "$GPI" = yes ]; then
+if [ "$UI" = rich ]; then
+  echo "All set."                                  # (its own screen says what's next: restarting, or not)
+elif [ "$GPI" = yes ]; then
   echo "All set. Reboot to apply the screen and audio settings."
 else
   echo "All set. Reboot to start."
@@ -1719,8 +1916,14 @@ if [ "$UPDATE" = yes ]; then
   retire_old
   exit 0           # (Update software restarts the Pi now)
 fi
-read -r -p "Reboot now? [Y/n] " ans
-retire_old
+if [ "$UI" = rich ]; then                          # (asked first: restart when it's done, or not)
+  show_end
+  ans="$REBOOT_ANS"
+  retire_old >> "$SETUP_LOG" 2>&1
+else
+  read -r -p "Reboot now? [Y/n] " ans
+  retire_old
+fi
 if [[ ! "$ans" =~ ^[Nn] ]]; then
   reboot
 else

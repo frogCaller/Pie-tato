@@ -5,9 +5,13 @@ game ends here (its saves kept) and the TV picks it up from the same moment, its
 hasn't got goes too (with a key that opens just that file, its sum checked); a disc game it hasn't got, or a console
 it can't play: said, and the game plays on here. A video: X once says X again sends it; X again: it carries on on the TV
 at the same place, from this one's web page (a key for that file only, read from anywhere in it); a station: the
-same station there. Not from one that isn't one of yours; keys that don't fit open nothing; the web page's part, your
-network only."""
+same station there. A PDF, some text or a picture you're looking at: HOME (while another of yours is on) is its menu,
+and View on another Pietato opens it on the TV where you were in it (the page, how close, how far down; the line at the
+top and the letters' size; the picture's turn), from a key to that file, and closes it here; HOME there sends it back.
+A password's file stays here; one the web page couldn't read goes as a copy. Not from one that isn't one of yours; keys
+that don't fit open nothing; the web page's part, your network only."""
 import json, os, shutil, subprocess, sys, threading, time, urllib.error, urllib.request
+real_run = subprocess.run                            # (what's stood in for, below: put back for PDFs' own programs)
 from paths import SP, ROOT, TESTS  # noqa: E402  (this test's folder of work; the Pietato folder; tests)
 sys.path.insert(0, TESTS)
 import pietato_all as g
@@ -47,6 +51,16 @@ check("...and what's playing", HO.clean_media({"media": "video", "title": "A", "
       is None and HO.clean_media({"media": "game", "title": "A", "src": "http://x"}) is None
       and HO.clean_media({"media": "audio", "title": "A", "src": "http://x", "pos": -1}) is None
       and HO.clean_media({"media": "radio", "title": "A", "src": "file:///etc/passwd"}) is None)
+check("...and what you're looking at", HO.clean_file({"view": "pdf", "title": "a.pdf", "size": 9, "page": 3,
+                                                     "fit": "width", "zoom": 1.5, "at": 0.25, "sx": 0.5})
+      == ("pdf", "a.pdf", 9, {"page": 3, "fit": "width", "zoom": 1.5, "at": 0.25, "sx": 0.5})
+      and HO.clean_file({"view": "text", "title": "n.txt", "size": 0, "first": "x" * 500, "frac": 2, "big": True})
+      == ("text", "n.txt", 0, {"first": "x" * HO.FIRST_MOST, "frac": 0.0, "big": 0})
+      and HO.clean_file({"view": "photo", "title": "p.jpg", "size": 5, "rot": 9}) == ("photo", "p.jpg", 5, {"rot": 0})
+      and HO.clean_file({"view": "photo", "title": "../p.jpg", "size": 5}) is None
+      and HO.clean_file({"view": "game", "title": "p", "size": 5}) is None
+      and HO.clean_file({"view": "pdf", "title": "p", "size": HO.FILE_MOST + 1}) is None
+      and HO.clean_file({"view": "pdf", "title": "p", "size": True}) is None and HO.file_place("../a/b?.pdf") == "a_b_.pdf")
 
 # ---- this one: the handheld -------------------------------------------------------------------------------------------
 GAME = "Pokemon Emerald (USA)"
@@ -205,8 +219,36 @@ try:
     check(f"...wider for a longer name ({mw2} for {row_needs('kitchen-pietato-zero'):.0f}), no wider than the screen",
           row_needs("kitchen-pietato-zero") <= mw2 <= 640 - 2 * g.GAME_MENU_EDGE)
     m.pie.heard[THEIRS]["host"] = "tv"
+    # two of your Pietatos with the same name: told apart (the end of their addresses, and each one's colour)
+    TWIN = "http://127.0.0.3:5432"
+    m.pie.heard[THEIRS]["accent"] = "Purple"
+    m.pie.heard[TWIN] = {"host": "tv", "seen": time.time() + 3600, "peer": True, "accent": "Gold"}
+    end = "." + THEIRS.split("//")[1].split(":")[0].rsplit(".", 1)[1]
+    check(f"two of the same name: the end of each one's address after it ({m.saves_peers()})",
+          sorted(h for _, h in m.saves_peers()) == sorted([f"tv ({end})", "tv (.3)"]))
+    seen = []
+    for _ in range(3):
+        seen.append(m.handoff_target()[0])
+        m.game_change("send", 1)
+    check(f"...◀▶ goes to each of them, and round again ({[u.split('//')[1] for u in seen]})",
+          set(seen) == {THEIRS, TWIN} and seen[0] == seen[2] != seen[1])
+    check(f"...each in its own colour (its accent colour, from its beacon: {m.peer_colour(THEIRS)}, "
+          f"{m.peer_colour(TWIN)})", m.peer_colour(THEIRS) == dict(g.ACCENTS)["Purple"]
+          and m.peer_colour(TWIN) == dict(g.ACCENTS)["Gold"])
+    m.handoff_to = TWIN
     m.game_menu = {"sel": [j for j, _ in items].index("send"), "confirm": (None, 0.0), "bg": None}
     m.view = "gamemenu"
+    shot = []
+    was_show = m.fb.show
+    m.fb.show = lambda img: shot.append(img.copy())
+    m.dirty = True; m.flush()
+    m.fb.show = was_show
+    gold = dict(g.ACCENTS)["Gold"]
+    dots = sum(1 for px in shot[-1].convert("RGB").getdata() if px == gold) if shot else 0
+    check(f"...the picked one's dot drawn in its colour ({dots} pixels of gold)", dots >= 40)
+    del m.pie.heard[TWIN]
+    m.handoff_to = THEIRS
+    check(f"...one again: its name alone ({m.saves_peers()})", [h for _, h in m.saves_peers()] == ["tv"])
     m.dirty = True; m.flush()
 
     # ---- sent: the TV has it -----------------------------------------------------------------------------------------
@@ -310,6 +352,167 @@ try:
     check(f"a station: X on Now playing shows its Controls, X again sends it ({shown}, "
           f"{played and played['play']})", shown == "help" and played is not None and played["kind"] == "radio"
           and "stream.example.com/jazz" in played["play"] and m.proc is None)
+
+    # ---- what you're looking at: a PDF, some text, a picture ---------------------------------------------------------
+    from PIL import Image as PI, ImageDraw as PD
+    stub_run = subprocess.run
+    subprocess.run = lambda cmd, *a, **k: (real_run(cmd, *a, **k) if isinstance(cmd, list)
+                                           and cmd[:1] in (["pdfinfo"], ["pdftoppm"]) else stub_run(cmd, *a, **k))
+    PDF = HOME + "/Documents/manual.pdf"
+    pages = [PI.new("RGB", (612, 792), "white") for _ in range(3)]
+    for k, p in enumerate(pages):
+        PD.Draw(p).rectangle((50, 50 + k * 200, 300, 150 + k * 200), fill=(200, 30, 30))
+    pages[0].save(PDF, "PDF", save_all=True, append_images=pages[1:], resolution=72)
+    TXT = HOME + "/Documents/notes.txt"
+    open(TXT, "w").write("".join(f"line {k:03d}: the quick brown fox jumps over the lazy dog\n" for k in range(400)))
+    PIC1, PIC2 = HOME + "/Pictures/beach.jpg", HOME + "/Pictures/hills.jpg"
+    PI.new("RGB", (320, 240), (30, 120, 200)).save(PIC1)
+    PI.new("RGB", (320, 240), (40, 160, 60)).save(PIC2)
+
+    def tv_view(view, secs=15.0):
+        """The TV's screen, once it shows view (or as it is, after a while)."""
+        end = time.time() + secs
+        while True:
+            st = tv_state()
+            if st["view"] == view or time.time() > end:
+                return st
+            time.sleep(0.2)
+
+    def tv_do(line):
+        tv.stdin.write(line + "\n")
+        tv.stdout.readline()
+
+    def home_send():
+        """HOME, then View on another Pietato, A."""
+        m.file_home()
+        m.dirty = True; m.flush()
+        m.press("down")
+        m.press("a")
+
+    heard = dict(m.pie.heard)
+    m.pie.heard.clear()
+    m.open_pdf(PDF)
+    check(f"a PDF open, none of your other Pietatos on: HOME as ever ({m.view})", m.file_home() is False
+          and m.view == "pdf")
+    m.pie.heard.update(heard)
+    m.pdf_goto(2)
+    m.pdf_zoom(1)
+    m.v["scroll"] = 300
+    m.dirty = True; m.flush()
+    sx = m.v["sx"]
+    check(f"...one on: HOME is its menu ({m.view}, {m.file_menu_items()})", m.file_home() and m.view == "filemenu"
+          and m.file_menu_items() == [("back", "Back to the page"), ("send", "View on another Pietato")])
+    frames = FB.frames
+    m.dirty = True; m.flush()
+    check(f"...drawn, saying where you are in it ({FB.frames - frames}, {m.file_where()!r}, {m.where_text()!r})",
+          FB.frames > frames and m.file_where() == "Page 2 of 3" and m.where_text().endswith("manual.pdf"))
+    m.press("b")
+    check(f"...B: back to the page, as it was ({m.view}, page {m.v.get('page')})", m.view == "pdf" and m.v["page"] == 2
+          and m.v["scroll"] == 300)
+    m.file_home()
+    m.file_home()
+    check(f"...HOME again, the same ({m.view})", m.view == "pdf")
+    toasts.clear()
+    home_send()
+    st = tv_view("pdf")
+    sh = st["viewer"]
+    check(f"View on another Pietato: on the TV, at the same page, as close, as far down and across ({sh.get('title')}, "
+          f"page {sh.get('page')}, {sh.get('zoom')}, {sh.get('scroll')}, {sh.get('sx')} for {sx})",
+          st["view"] == "pdf" and sh.get("title") == "manual.pdf" and sh.get("page") == 2 and sh.get("zoom") == 1.5
+          and abs(sh.get("scroll", 0) - 300) <= 2 and sx > 0 and abs(sh.get("sx", 0) - sx) <= 2)
+    check(f"...the very file, from here ({sh.get('path')})", sh.get("path") and open(sh["path"], "rb").read()
+          == open(PDF, "rb").read())
+    check(f"...and closed here, saying so ({m.view}, {toasts[-1:]})", m.view == "list" and not m.v
+          and toasts[-1:] == ["Showing on tv now. HOME there sends it back"])
+    tv_do("home")
+    st = tv_state()
+    check(f"...HOME on the TV: its menu, this one picked to send it back ({st['view']}, {st['file_menu']}, {st['to']})",
+          st["view"] == "filemenu" and st["file_menu"] == ["back", "send"] and st["to"] == MINE)
+    tv_do("press b")
+
+    m.open_text(TXT)
+    m.v["top"] = 150
+    m.press("a")                                       # (bigger letters: the same line at the top)
+    top_line = m.text_lines()[m.v["top"]]
+    home_send()
+    st = tv_view("text")
+    sh = st["viewer"]
+    check(f"some text: on the TV, its letters as big, the same line at the top ({sh.get('title')}, {sh.get('size')}, "
+          f"{sh.get('first')!r})", st["view"] == "text" and sh.get("title") == "notes.txt" and sh.get("size") == 1
+          and sh.get("first") == top_line and top_line.startswith("line 150"))
+
+    m.open_photo([PIC1, PIC2], 1)
+    m.press("y")                                       # (turned)
+    home_send()
+    st = tv_view("photo")
+    sh = st["viewer"]
+    got = (sh.get("items") or [""])[0]
+    check(f"a picture: on the TV, turned as it was ({os.path.basename(got)}, {sh.get('rot')})", st["view"] == "photo"
+          and sh.get("rot") == 1 and os.path.basename(got) == "hills.jpg" and open(got, "rb").read()
+          == open(PIC2, "rb").read())
+    check(f"...and here, back to the list ({m.view})", m.view == "list" and not m.v)
+
+    SECRET = HOME + "/Documents/webui.txt"
+    open(SECRET, "w").write("password = not-for-the-tv\n")
+    n = tv_lines()
+    toasts.clear()
+    m.open_text(SECRET)
+    home_send()
+    check(f"a password's file: it stays here ({toasts[-1:]}, {m.view})", toasts[-1:] == ["That one stays on this Pi"]
+          and m.view == "filemenu")
+    check("...nothing said to the TV", tv_said("toast", n, secs=1.0) is None)
+    m.press("b")
+    m.close_viewer()
+
+    import http.server
+
+    class Older(http.server.BaseHTTPRequestHandler):
+        """Another of yours, not updated yet: it doesn't know what it's asked."""
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            data = json.dumps({"ok": False, "error": "What's that?"}).encode()
+            self.send_response(400)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *a):
+            pass
+    older = http.server.HTTPServer(("127.0.0.1", 0), Older)
+    threading.Thread(target=older.serve_forever, daemon=True).start()
+    OLDER = f"http://127.0.0.1:{older.server_address[1]}"
+    m.pie.heard[OLDER] = {"host": "attic", "seen": time.time() + 3600, "peer": True}
+    m.handoff_to = OLDER
+    toasts.clear()
+    m.open_photo([PIC1], 0)
+    home_send()
+    check(f"one not updated yet: said so, and it stays here ({toasts[-1:]}, {m.view})",
+          toasts[-1:] == ["attic needs updating first (System > Update software there)"] and m.view == "filemenu")
+    m.press("b")
+    m.close_viewer()
+    del m.pie.heard[OLDER]
+    older.shutdown()
+    m.handoff_to = THEIRS
+
+    LOCKED = S + "/locked"
+    os.makedirs(LOCKED)
+    os.chmod(LOCKED, 0o700)
+    shutil.copy(PDF, LOCKED + "/inside.pdf")
+    m.open_pdf(LOCKED + "/inside.pdf")
+    got = m.file_what()
+    check(f"one the web page couldn't read (shut away, outside your home folder): a copy goes "
+          f"({got[0] if isinstance(got, tuple) else got})", isinstance(got, tuple)
+          and got[0].startswith(g.CACHE_DIR + "/handoff-out/") and got[0].endswith(".pdf")
+          and open(got[0], "rb").read() == open(PDF, "rb").read() and os.stat(got[0]).st_mode & 0o004)
+    m.close_viewer()
+    out = m.web_peer_handoff({"kind": "file", "from": "127.0.0.1", "view": "photo", "title": "x.jpg", "size": 3,
+                              "file": "../../etc/passwd"})
+    out2 = m.web_peer_handoff({"kind": "file", "from": "127.0.0.1", "view": "photo", "title": "../x.jpg", "size": 3,
+                               "check": True})
+    check(f"...a key that isn't one, a name that's a path: not taken ({out}, {out2})", out == out2
+          == {"ok": False, "error": "What's that?"})
+    subprocess.run = stub_run
 
     # ---- not one of yours ----------------------------------------------------------------------------------------------
     out = m.web_peer_handoff({"kind": "game", "from": "192.168.1.99", **good})

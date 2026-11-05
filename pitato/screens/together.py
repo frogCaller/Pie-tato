@@ -491,9 +491,16 @@ class TogetherScreen:
         d.rounded_rectangle((x0 - 1, y0 - 1, x0 + cw + 1, y0 + total + 37), radius=17, fill=LINE)
         d.rounded_rectangle((x0, y0, x0 + cw, y0 + total + 36), radius=16, fill=ROW)
         y = y0 + 18
-        for text, font, colour in rows:
+        dot = 15 if self.peer_colour(inv.get("url")) is not None else 0   # (the one asking: its colour's dot first)
+        for k, (text, font, colour) in enumerate(rows):
             h = gaps.get(id(font), 26)
-            d.text((W / 2, y + h / 2), self.fit(d, text, font, cw - 40), font=font, fill=colour, anchor="mm")
+            shown = self.fit(d, text, font, cw - 40 - (dot if k == 0 else 0))
+            if k == 0 and dot:
+                tw = d.textlength(shown, font=font)
+                d.text((W / 2 + dot / 2, y + h / 2), shown, font=font, fill=colour, anchor="mm")
+                self.peer_dot(d, W / 2 + dot / 2 - tw / 2 - 6 - 4.5, y + h / 2, inv.get("url"))
+            else:
+                d.text((W / 2, y + h / 2), shown, font=font, fill=colour, anchor="mm")
             y += h
         hints = [("A", "Play")] + ([("◀▶", "Your game")] if inv.get("link") and len(inv.get("games") or []) > 1
                                    else []) + [("B", "No thanks")]

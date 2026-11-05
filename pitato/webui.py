@@ -1023,14 +1023,16 @@ def saves_news():
 
 
 # ---- what you're playing, sent from one of your Pietatos to another (pitato/handoff.py) -----------------------------
-HANDOFF_KEYS = ("kind", "check", "file", "system", "rel", "name", "title", "size", "sum", "media", "src", "pos")
+HANDOFF_KEYS = ("kind", "check", "file", "system", "rel", "name", "title", "size", "sum", "media", "src", "pos",
+                "view", "page", "fit", "zoom", "at", "sx", "first", "frac", "big", "rot")
 
 
 @app.post("/api/handoff")
 def handoff():
-    """Another of your Pietatos asks whether this one can take a game, or sends one (or a video, a song, a station)."""
+    """Another of your Pietatos asks whether this one can take a game (or what you're looking at), or sends one (or a
+    video, a song, a station; a picture, a PDF, some text)."""
     body = request.get_json(silent=True)
-    if not isinstance(body, dict) or body.get("kind") not in ("game", "media"):
+    if not isinstance(body, dict) or body.get("kind") not in ("game", "media", "file"):
         return jsonify(ok=False, error="What's that?"), 400
     cmd = {k: body[k] for k in HANDOFF_KEYS if k in body}
     cmd["from"] = request.remote_addr

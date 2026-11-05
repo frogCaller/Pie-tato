@@ -480,6 +480,8 @@ check(f"...and on a PC, the PS2's, GameCube's and Wii's too ({pc_line and pc_lin
       pc_line is not None and pc_line.group(1).split() == loop.group(2).split() + list(GM.PC_ONLY))
 block = setup[setup.index('step "Making $USER_HOME/Videos'):setup.index('if [ ! -f "$STATIC/streams.txt" ]')]
 block = block.replace('step "', 'echo "')
+block = ('wanted() { case " $LEAVE_OUT " in *" $1 "*) return 1 ;; esac; return 0; }\n'   # (setup.sh's own: what wasn't
+         + block)                                                                       # left out)
 fresh = S + "/fresh"
 os.makedirs(fresh + "/Games/gb")
 open(fresh + "/Games/gb/kept.gb", "w").write("x")
@@ -511,6 +513,14 @@ r = subprocess.run(["bash", "-c", block], env={**os.environ, "USER_HOME": zero, 
                    capture_output=True, text=True)
 check(f"...on a Pi Zero W (no Neo Geo emulator): no neogeo folder ({sorted(os.listdir(zero + '/Games'))})",
       r.returncode == 0 and sorted(os.listdir(zero + "/Games")) == sorted(set(made) - {"neogeo"}))
+left = S + "/fresh_left"
+os.makedirs(left)
+r = subprocess.run(["bash", "-c", block], env={**os.environ, "USER_HOME": left, "USER_NAME": "root", "STATIC": S,
+                                               "MODEL": "Raspberry Pi 4 Model B Rev 1.4", "LEAVE_OUT": "ps1 classic psp"},
+                   capture_output=True, text=True)
+check(f"...the PlayStation's, the Game Boy's, NES's... and the PSP's left out: no folders for them "
+      f"({sorted(os.listdir(left + '/Games'))})", r.returncode == 0 and sorted(os.listdir(left + "/Games"))
+      == sorted(["BIOS", "neogeo", "ngp", "ngpc", "n64", "nds", "dc"]))
 readme = open(ROOT + "/README.md").read()
 check("...and the README says so", "`gb`, `gbc`, `gba`, `nes`, `snes`, `genesis`, `sms`, `gg`, `ngp`, `ngpc`, `neogeo` and "
                                     "`ps1`, and on a Pi 4 or 5 or a PC, `n64`, `psp`, `nds` and `dc`, and on a PC, "

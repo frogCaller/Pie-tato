@@ -1,4 +1,4 @@
-"""'Show me something cool': one of the Simulator's put on at random (its Clock and htop aside, and Linux's programs
+"""'Show me something cool': one of Apps' put on at random (its Clock and htop aside, and Linux's programs
 only when they're installed), never the same one twice in a row nor the one already on; what it is, said back; one
 of Linux's on already: off first. Typed on the Bot's page, said to it, or asked for by its model. Pictures saved."""
 import os, random, shutil, sys
@@ -74,10 +74,10 @@ def showing():
     return g.LIBRARY[m.tab]["name"] if m.view == "list" else None
 
 
-# none of Linux's programs installed: just the Simulator's own
+# none of Linux's programs installed: just Apps' own
 SA.prog_path = lambda name: None
 names = [t["name"] for t in m.cool_choices()]
-check(f"none of Linux's programs here: the Simulator's own four ({names})", names == SIMS)
+check(f"none of Linux's programs here: Apps' own four ({names})", names == SIMS)
 SA.prog_path = lambda name: "/usr/bin/" + name
 names = [t["name"] for t in m.cool_choices()]
 check(f"...all of them installed: those too, but never the Clock or htop ({names})", names == SIMS + PROGS)
@@ -87,7 +87,7 @@ m.tab = m.tab_index("friend"); m.view = "list"; m.load_tab(m.tab)
 done = m.assist_heard("show me something cool")
 first = showing()
 check(f"'show me something cool': done here, not by its model ({done})", done is True)
-check(f"...one of the Simulator's on ({first})", first in SIMS + PROGS)
+check(f"...one of Apps' on ({first})", first in SIMS + PROGS)
 check(f"...what it is, said back ({spoken[-1] if spoken else None!r})", bool(spoken) and spoken[-1].startswith("Here's")
       and first.lower() in spoken[-1].lower())
 check(f"...and in the Bot's conversation ({m.friend.log[-1] if m.friend.log else None})",

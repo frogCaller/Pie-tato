@@ -87,6 +87,25 @@ b.camera.heard("192.168.1.77", json.dumps({"pietato": 1, "id": a.share_id, "port
 check(f"another's: heard (by the Camera tab's listener), not taken for a camera ({list(b.pie.heard)}, "
       f"{b.camera.found_list()})", b.pie.peers() and A_URL in b.pie.heard and b.pie.heard[A_URL]["peer"]
       and b.camera.found_list() == [])
+check("...one that doesn't say its colour (an older one): none", b.pie.peer_accent(A_URL) is None)
+said = a.share_beacon("kitchen")
+check(f"a beacon says its colour, Settings > Accent colour ({said})", said == {"pietato": 1, "id": a.share_id,
+      "port": 5432, "host": "kitchen", "accent": "Blue"})
+a.set_setting("accent", "Purple")
+b.camera.heard("192.168.1.77", json.dumps(a.share_beacon("kitchen")).encode())
+check(f"...heard: its colour, for a dot beside its name ({b.pie.peer_accent(A_URL)})",
+      b.pie.peer_accent(A_URL) == dict(g.ACCENTS)["Purple"])
+a.set_setting("accent", "Blue")
+b.camera.heard("192.168.1.78", json.dumps({"pietato": 1, "id": "other1", "port": 5432, "host": "kitchen",
+                                           "accent": "Chartreuse"}).encode())
+check("...not one of the colours: none", b.pie.peer_accent("http://192.168.1.78:5432") is None)
+b.camera.heard("192.168.1.78", json.dumps({"pietato": 1, "id": "other1", "port": 5432, "host": "kitchen",
+                                           "accent": ["Gold"]}).encode())
+check("...nor anything else", b.pie.peer_accent("http://192.168.1.78:5432") is None)
+check(f"two of the same name: the end of their addresses after it, by name ({b.saves_peers()})",
+      b.saves_peers() == [(A_URL, "kitchen (.77)"), ("http://192.168.1.78:5432", "kitchen (.78)")])
+del b.pie.heard["http://192.168.1.78:5432"]
+check(f"...one: its name alone ({b.saves_peers()})", b.saves_peers() == [(A_URL, "kitchen")])
 b.pie.answer = (0.0, None)
 got = b.pie.have("coin", "bitcoin")
 check(f"asked: its coin, how old, that it's another Pietato's ({got and (got[0]['price'], round(got[1]), got[2])})",

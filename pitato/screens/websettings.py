@@ -319,7 +319,7 @@ class WebSettingsScreen:
                          **said(getattr(self, "ra_said", None)))]
         sec("cheevos", "Achievements", rows, "With a free account at retroachievements.org, your games earn "
             "achievements as you play.")
-        sec("sim", "Simulator", [choice("sim_full", "Full screen", ["Off", "On"],
+        sec("sim", "Apps", [choice("sim_full", "Full screen", ["Off", "On"],
                                         value="On" if self.setting("sim_full") == "On" else "Off")])
 
         # Finance

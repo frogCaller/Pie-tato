@@ -2,7 +2,7 @@
 picked kept; what each button does on it; its numbers from System's own (the list's rows as they were); the last 5
 minutes' looks (a look every 10 seconds, from the main loop, its own count of the CPU's time); the power and a newer
 version said at the top. Then the Home tab (Home Assistant's, renamed): its name, Settings > Home, the web page's
-Home screen and Home tab apart, Check connection; and the Simulator's rows without "B stops it"."""
+Home screen and Home tab apart, Check connection; and Apps' rows without "B stops it"."""
 import io, json, os, shutil, sys, time
 from paths import SP, ROOT, TESTS  # noqa: E402  (this test's folder of work; the Pietato folder; tests)
 sys.path.insert(0, TESTS)
@@ -245,9 +245,9 @@ page = open(ROOT + "/templates/index.html").read()
 check("the web page: its Home button asks for the Home screen as that (its Apps tab gone: the apps are on the screen)",
       'pi("open", { home: true })' in page and 'a.home ? { home: true } : { app: a.name }' not in page)
 
-# ---- the Simulator's rows --------------------------------------------------------------------------------------
+# ---- Apps' rows --------------------------------------------------------------------------------------
 abouts = [t.get("about", "") for t in g.LIBRARY if t.get("type") == "prog"]
-check(f"the Simulator's programs: no 'B stops it' ({abouts})",
+check(f"Apps' programs: no 'B stops it' ({abouts})",
       abouts == ["Linux's falling code", "Movie hacker screens", "The rainbow cat", "Flames made of letters",
                  "What's running on the Pi"])
 ImageDraw.ImageDraw.text = real_text

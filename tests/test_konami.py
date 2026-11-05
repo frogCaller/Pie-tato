@@ -1,4 +1,4 @@
-"""Konami code (screens/konami.py), in the Simulator: your own button codes that do things. Its page: the classic code
+"""Konami code (screens/konami.py), in Apps: your own button codes that do things. Its page: the classic code
 to start with (▲▲▼▼◀▶◀▶BA: cmatrix), and New code: press it (every button's part of it), stop a moment, then pick what
 it does. A code has 3 buttons at least (any of them), isn't one you have and doesn't start like one (said, and put in
 again); HOME stops. HOME and another button (app.py: test_konami_home) bring up the box for a code, on the home
@@ -88,7 +88,7 @@ m.play = lambda queue, i, start=None, show=True, note=None: plays.append(([q["ti
 m.game_open = lambda it: games.append(it["src"])
 m.rest_start = lambda: rests.append(True)
 KI = m.tab_index("konami")
-SIMI = next(i for i, t in enumerate(g.LIBRARY) if t["name"] == "Simulator")
+SIMI = next(i for i, t in enumerate(g.LIBRARY) if t["name"] == "Apps")
 MUSIC = next(i for i, t in enumerate(g.LIBRARY) if t["name"] == "Music")
 
 
@@ -125,9 +125,9 @@ def code(*names):
     return ok
 
 
-# ---- the Simulator's, and its page ----------------------------------------------------------------------------------
+# ---- Apps', and its page ----------------------------------------------------------------------------------
 names = g.LIBRARY[SIMI]["children"]
-check(f"the Simulator: Konami code, after its worlds and before Linux's programs ({names})",
+check(f"Apps: Konami code, after its worlds and before Linux's programs ({names})",
       names.index("Konami code") == names.index("Mandelbrot Set") + 1 and names.index("cmatrix")
       == names.index("Konami code") + 1)
 m.tab, m.view = SIMI, "list"
@@ -159,8 +159,8 @@ check(f"...its buttons so far ({m.konami_in and m.konami_in['keys']})", m.view =
 m.dirty = True; m.flush()
 FB.last.save(S + "/box_keys.png")
 press("left", "right", "b", "a")
-check(f"...all in: cmatrix, from the Simulator ({progs}, {toasts[-1:]})", progs == ["cmatrix"] and m.konami_in is None
-      and g.LIBRARY[m.tab]["name"] == "Simulator" and toasts[-1] == "Konami code: Open cmatrix")
+check(f"...all in: cmatrix, from Apps ({progs}, {toasts[-1:]})", progs == ["cmatrix"] and m.konami_in is None
+      and g.LIBRARY[m.tab]["name"] == "Apps" and toasts[-1] == "Konami code: Open cmatrix")
 
 # ---- a new one: ▲▲▼◀▼▶A, the TV on ------------------------------------------------------------------------------------
 on_page()
@@ -347,7 +347,13 @@ check(f"the others forgotten too: none ({rows()})", rows() == [("New code", "Pre
 m.go_home()
 toasts.clear()
 check(f"HOME and a button with none: said, no box ({toasts[-1:]})", m.konami_listen() is True and m.view == "home"
-      and toasts[-1:] == ["No codes yet: make one in Simulator > Konami code"])
+      and toasts[-1:] == ["No codes yet: make one in Apps > Konami code"])
 m2 = g.Media()
 check("...and none it stays (it doesn't come back)", m2.konami_codes() == [])
+m2.set_setting("konami", [{"keys": ["up", "down", "a"], "do": "open:Simulator"}])
+check(f"a code made when Apps was the Simulator: it opens Apps ({m2.konami_codes()})",
+      m2.konami_codes() == [{"keys": ["up", "down", "a"], "do": "open:Apps"}])
+out = m.web_command({"cmd": "open", "app": "Simulator"})
+check(f"...and the web page asked for the Simulator by its old name: Apps ({out}, {g.LIBRARY[m.tab]['name']})",
+      out == {"ok": True} and g.LIBRARY[m.tab]["name"] == "Apps" and m.view == "list")
 print("ALL OK" if all(ok_all) else f"{ok_all.count(False)} FAILED")

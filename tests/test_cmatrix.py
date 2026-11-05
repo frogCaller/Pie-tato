@@ -1,5 +1,5 @@
-"""The Simulator's cmatrix: Linux's own cmatrix (the real program), run on a pretend console (a pty), started from
-the Simulator's list; the menus keep off the screen while it's on; the buttons are typed into it as its keys (and
+"""Apps' cmatrix: Linux's own cmatrix (the real program), run on a pretend console (a pty), started from
+Apps' list; the menus keep off the screen while it's on; the buttons are typed into it as its keys (and
 it takes them: red for ◀▶, it pauses for A); B, HOME, q on a keyboard, leaving media mode or shutting down stop it,
 and the menus come back; not installed: it says so. The web page starts and stops it too."""
 import os, sys, time, shutil, select, struct, fcntl, termios, threading
@@ -91,12 +91,12 @@ g.ProgScreen.prog_key = spy_key
 
 m = g.Media()
 m.enter()
-si = m.tab_index("group") if False else next(i for i, t in enumerate(g.LIBRARY) if t["name"] == "Simulator")
+si = m.tab_index("group") if False else next(i for i, t in enumerate(g.LIBRARY) if t["name"] == "Apps")
 m.tab, m.view = si, "list"
 m.load_tab(si)
 rows = m.tab_items()
 row = next((k for k, it in enumerate(rows) if it["title"] == "cmatrix"), None)
-check(f"the Simulator lists cmatrix, then hollywood, nyancat, cacafire and htop, last ({[it['title'] for it in rows]})",
+check(f"Apps lists cmatrix, then hollywood, nyancat, cacafire and htop, last ({[it['title'] for it in rows]})",
       row == len(rows) - 5 and rows[row]["icon"] == "CODE" and rows[row]["sub"] == "Linux's falling code"
       and [it["title"] for it in rows[-4:]] == ["hollywood", "nyancat", "cacafire", "htop"] and rows[-1]["sub"] == "What's running on the Pi")
 m.sels[si] = row
@@ -163,7 +163,7 @@ took = time.monotonic() - t0
 check(f"B: it stops, told q as from a keyboard (Ctrl+Q first: {keys[-1]!r}, exit {p.returncode}, {took:.2f} s)",
       keys[-1] == "\x11q" and p.returncode == 0 and m.prog is None and took < 1.5)
 m.flush()
-check(f"...and the menus are back, the Simulator's list ({len(FB.frames)} drawn, {m.tab == si})",
+check(f"...and the menus are back, Apps' list ({len(FB.frames)} drawn, {m.tab == si})",
       FB.frames and m.tab == si and not m.proc_owns_screen() and getattr(FB, "invalidated", 0) >= 1)
 
 # a keyboard's q (its own way out): media mode sees it's gone
@@ -182,7 +182,7 @@ check(f"q on a keyboard stops it: media mode sees and has the screen again ({p.r
 # HOME, leaving media mode, shutting down
 m.press("a"); time.sleep(0.5)
 p = m.prog
-check("HOME: it stops (back to the Simulator, still in media mode)", m.prog_home() and p.poll() is not None
+check("HOME: it stops (back to Apps, still in media mode)", m.prog_home() and p.poll() is not None
       and m.active and not m.prog_home())
 m.press("a"); time.sleep(0.5)
 p = m.prog
@@ -203,8 +203,8 @@ m2.enter()
 r = m2.web_command({"cmd": "open", "app": "cmatrix"})
 time.sleep(0.5)
 p = m2.prog
-check(f"the web page opens it: the Simulator, and cmatrix on ({r}, {m2.where_text()!r})",
-      r.get("ok") and p is not None and p.poll() is None and g.LIBRARY[m2.tab]["name"] == "Simulator")
+check(f"the web page opens it: Apps, and cmatrix on ({r}, {m2.where_text()!r})",
+      r.get("ok") and p is not None and p.poll() is None and g.LIBRARY[m2.tab]["name"] == "Apps")
 r = m2.web_command({"cmd": "open", "app": "Weather"})
 check(f"...and anything else it puts on the screen stops it ({p.poll()}, {r})", p.poll() is not None and m2.prog is None)
 m2.leave()
@@ -222,14 +222,14 @@ check(f"cmatrix not installed: it says how to put it in ({m.msg!r})", m.prog is 
 g.shutil.which = real_which
 m.leave()
 
-# the controls, on the Simulator's help page
+# the controls, on Apps' help page
 m.enter()
 m.tab, m.view = si, "list"
 m.load_tab(si)
 FB.frames.clear()
 m.press("x")
 m.flush()
-check(f"X on the Simulator's list: its controls, cmatrix's among them ({m.view})", m.view == "help" and FB.frames)
+check(f"X on Apps' list: its controls, cmatrix's among them ({m.view})", m.view == "help" and FB.frames)
 FB.frames[-1].save(SP + "/cmatrix_help.png")
 m.leave()
 check("setup.sh puts cmatrix in (on a line of its own: setup carries on without it)",

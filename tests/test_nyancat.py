@@ -1,6 +1,6 @@
-"""The Simulator's nyancat and cacafire: Linux's own nyancat and setup.sh's own cacafire (libcaca's, built without its
+"""Apps' nyancat and cacafire: Linux's own nyancat and setup.sh's own cacafire (libcaca's, built without its
 "Powered by libcaca", as setup.sh builds it: its build_cacafire, run for real), each on a pretend console (a pty),
-started from the Simulator's list, where Orbits isn't any more; the menus keep off the screen while one's on; B, HOME,
+started from Apps' list, where Orbits isn't any more; the menus keep off the screen while one's on; B, HOME,
 leaving media mode or shutting down stop them, each its own tidy way (nyancat Ctrl+C's signal, cacafire Ctrl+C typed:
 the cursor and colours put back), quickly; cacafire's A pauses it; neither takes the other buttons; the web page starts
 them; not installed: it says so (cacafire, setup.sh's own: Debian's if that's all there is)."""
@@ -111,7 +111,7 @@ g.ProgScreen.prog_key = spy_key
 
 
 def to(m, title):
-    si = next(i for i, t in enumerate(g.LIBRARY) if t["name"] == "Simulator")
+    si = next(i for i, t in enumerate(g.LIBRARY) if t["name"] == "Apps")
     m.tab, m.view = si, "list"
     m.load_tab(si)
     rows = m.tab_items()
@@ -123,7 +123,7 @@ m = g.Media()
 m.enter()
 si, rows = to(m, "nyancat")
 titles = [it["title"] for it in rows]
-check(f"the Simulator: no Orbits; nyancat, cacafire and htop after hollywood, last ({titles})",
+check(f"Apps: no Orbits; nyancat, cacafire and htop after hollywood, last ({titles})",
       "Orbits" not in titles and titles[-4:] == ["hollywood", "nyancat", "cacafire", "htop"]
       and [it["icon"] for it in rows[-3:]] == ["NYAN", "HEAT", "PROC"] and [it["sub"] for it in rows[-3:]] == ["The rainbow cat", "Flames made of letters", "What's running on the Pi"])
 check("...and Orbits isn't a sim any more either", "orbit" not in g.SIMS and not hasattr(g, "Orbits"))
@@ -176,7 +176,7 @@ for name, args in (("nyancat", [shutil.which("nyancat"), "-s"]), ("cacafire", [O
     # HOME, leaving media mode, shutting down
     m.press("a"); time.sleep(1)
     p = m.prog
-    check(f"...HOME stops it (back to the Simulator, still in media mode)",
+    check(f"...HOME stops it (back to Apps, still in media mode)",
           m.prog_home() and p.poll() is not None and m.active and not m.prog_home())
     m.press("a"); time.sleep(1)
     p = m.prog
@@ -194,7 +194,7 @@ for name, args in (("nyancat", [shutil.which("nyancat"), "-s"]), ("cacafire", [O
 r = m.web_command({"cmd": "open", "app": "nyancat"})
 time.sleep(1.5)
 p = m.prog
-check(f"the web page opens nyancat: the Simulator, and nyancat on ({r}, {m.where_text()!r})",
+check(f"the web page opens nyancat: Apps, and nyancat on ({r}, {m.where_text()!r})",
       r.get("ok") and p is not None and p.poll() is None and m.prog_name == "nyancat")
 r = m.web_command({"cmd": "open", "app": "cacafire"})
 time.sleep(1.5)

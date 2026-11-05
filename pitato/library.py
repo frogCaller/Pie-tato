@@ -7,6 +7,8 @@ from .tv import ia_best
 
 
 # ---- media mode: what's in each tab -----------------------------------------
+RENAMED = {"Simulator": "Apps"}   # what an app was called before: asked for by that name (a code kept from then, the web
+                                  # page's address for it), it opens as it's called now
 LIBRARY = [
     {"name": "Home", "type": "group", "empty": "", "children": ["TV Remote", "Lights", "Pi-hole", "Web"]},
     {"name": "TV", "type": "group", "empty": "",
@@ -24,7 +26,7 @@ LIBRARY = [
     {"name": "Weather", "type": "weather", "empty": ""},
     {"name": "Finance", "type": "finance", "files": [settings_glob("finance.txt")], "empty": ""},
     {"name": "Bot", "type": "friend", "files": [settings_glob("bot.txt")], "empty": ""},
-    {"name": "Simulator", "type": "group", "empty": "",
+    {"name": "Apps", "type": "group", "empty": "",
      "children": ["Clock", "Rock Paper Scissors", "Game of Life", "Forest Fire", "Mandelbrot Set", "Konami code",
                   "cmatrix", "hollywood", "nyancat", "cacafire", "htop"]},
     {"name": "Files", "type": "browser", "empty": "This folder is empty"},
@@ -60,29 +62,29 @@ LIBRARY = [
     # inside the Games tab
     {"name": "Snake", "type": "sim", "sim": "snake", "parent": "Games", "badge": "EAT", "title": "Snake",
      "about": "Eat the apples, don't crash", "empty": ""},
-    # inside the Simulator tab
-    {"name": "Clock", "type": "sim", "sim": "clock", "parent": "Simulator", "badge": "TIME",
+    # inside Apps
+    {"name": "Clock", "type": "sim", "sim": "clock", "parent": "Apps", "badge": "TIME",
      "about": "The time and the date", "empty": ""},
-    {"name": "Rock Paper Scissors", "type": "sim", "sim": "rps", "parent": "Simulator", "badge": "RPS",
+    {"name": "Rock Paper Scissors", "type": "sim", "sim": "rps", "parent": "Apps", "badge": "RPS",
      "about": "Last team standing", "empty": ""},
-    {"name": "Game of Life", "type": "sim", "sim": "life", "parent": "Simulator", "badge": "LIFE",
+    {"name": "Game of Life", "type": "sim", "sim": "life", "parent": "Apps", "badge": "LIFE",
      "about": "Cells live, die and are born", "empty": ""},
-    {"name": "Forest Fire", "type": "sim", "sim": "fire", "parent": "Simulator", "badge": "FIRE",
+    {"name": "Forest Fire", "type": "sim", "sim": "fire", "parent": "Apps", "badge": "FIRE",
      "about": "Trees grow, fires spread", "empty": ""},
-    {"name": "Mandelbrot Set", "type": "sim", "sim": "mandel", "parent": "Simulator", "badge": "ZOOM",
+    {"name": "Mandelbrot Set", "type": "sim", "sim": "mandel", "parent": "Apps", "badge": "ZOOM",
      "about": "Dives into the famous fractal", "empty": ""},
-    {"name": "Konami code", "type": "konami", "parent": "Simulator", "badge": "CHEAT",   # (screens/konami.py)
+    {"name": "Konami code", "type": "konami", "parent": "Apps", "badge": "CHEAT",   # (screens/konami.py)
      "about": "Button codes that do things", "empty": ""},
     # (Linux's own cmatrix, hollywood, nyancat, cacafire and htop: A starts one, on the whole screen)
-    {"name": "cmatrix", "type": "prog", "prog": "cmatrix", "parent": "Simulator", "badge": "CODE",
+    {"name": "cmatrix", "type": "prog", "prog": "cmatrix", "parent": "Apps", "badge": "CODE",
      "about": "Linux's falling code", "empty": ""},
-    {"name": "hollywood", "type": "prog", "prog": "hollywood", "parent": "Simulator", "badge": "HACK",
+    {"name": "hollywood", "type": "prog", "prog": "hollywood", "parent": "Apps", "badge": "HACK",
      "about": "Movie hacker screens", "empty": ""},
-    {"name": "nyancat", "type": "prog", "prog": "nyancat", "parent": "Simulator", "badge": "NYAN",
+    {"name": "nyancat", "type": "prog", "prog": "nyancat", "parent": "Apps", "badge": "NYAN",
      "about": "The rainbow cat", "empty": ""},
-    {"name": "cacafire", "type": "prog", "prog": "cacafire", "parent": "Simulator", "badge": "HEAT",
+    {"name": "cacafire", "type": "prog", "prog": "cacafire", "parent": "Apps", "badge": "HEAT",
      "about": "Flames made of letters", "empty": ""},
-    {"name": "htop", "type": "prog", "prog": "htop", "parent": "Simulator", "badge": "PROC",
+    {"name": "htop", "type": "prog", "prog": "htop", "parent": "Apps", "badge": "PROC",
      "about": on_pc("What's running on the Pi"), "empty": ""},
 ]
 

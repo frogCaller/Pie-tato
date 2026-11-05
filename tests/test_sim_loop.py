@@ -1,4 +1,4 @@
-"""The Simulator in the real main loop, in real time: opened with the d-pad from the home screen, Rock
+"""Apps in the real main loop, in real time: opened with the d-pad from the home screen, Rock
 Paper Scissors runs at about SIM_FPS frames a second, mostly sending just its box; START's card stops
 the frames; leaving it stops them too; full screen; Forest Fire keeps up full screen too, and so does the
 Mandelbrot Set while its own thread works out its pictures. Exploring it: buttons held down (no key
@@ -139,14 +139,14 @@ def since(t0):
 
 check("the home screen at start-up", m.active and m.view == "home")
 apps = [a for a, _ in m.home_apps()]
-row, col = divmod(apps.index("Simulator"), 5)
+row, col = divmod(apps.index("Apps"), 5)
 for _ in range(row):
     press(e.BTN_DPAD_DOWN)
 for _ in range(col):
     press(e.BTN_DPAD_RIGHT)
-check(f"the d-pad to its icon ({apps[m.home_sel]})", apps[m.home_sel] == "Simulator")
+check(f"the d-pad to its icon ({apps[m.home_sel]})", apps[m.home_sel] == "Apps")
 press(e.BTN_SOUTH, 0.3)
-check("A opens it: the list of sims", m.tab_type() == "group" and g.LIBRARY[m.tab]["name"] == "Simulator")
+check("A opens it: the list of sims", m.tab_type() == "group" and g.LIBRARY[m.tab]["name"] == "Apps")
 SIMI = m.tab
 press(e.BTN_DPAD_DOWN, 0.2)                    # (past the Clock)
 press(e.BTN_SOUTH, 0.3)
@@ -179,7 +179,7 @@ check(f"R again: System; the game waits, no more frames ({len(since(t0))})",
       m.tab_type() == "system" and len(since(t0)) <= 2 and G.clock - clock < 0.5)
 press(e.BTN_TL, 0.3)
 press(e.BTN_TL, 0.4)
-check("L, L: back to the Simulator's list", m.tab == SIMI)
+check("L, L: back to Apps' list", m.tab == SIMI)
 press(e.BTN_SOUTH, 0.5)
 check("...A: and on it goes", m.tab_type() == "sim" and G.clock > clock)
 press(e.BTN_SELECT, 0.4)

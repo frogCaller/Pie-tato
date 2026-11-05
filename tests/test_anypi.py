@@ -142,7 +142,7 @@ for rw, rh in ((1024, 768), (800, 600)):
     f, _ = fake_fb(rw, rh, 32, RGB32)
     check(f"{rw}x{rh}: 640x480 filling it", (f.w, f.tw, f.th, f.ox, f.oy) == (640, rw, rh, 0, 0))
 
-# 4c) only part of the picture changed (the Simulator, the Bot at work): just that part goes to a big
+# 4c) only part of the picture changed (Apps, the Bot at work): just that part goes to a big
 # screen, scaled exactly as the whole picture would be
 import random
 rnd = random.Random(5)

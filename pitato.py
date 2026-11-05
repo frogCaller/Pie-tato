@@ -167,7 +167,7 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
                 loud. At work, A types a prompt for Claude Code (which takes it through
                 coder_hooks.py's channel), Y rings the bell, X turns its sounds off, up and down
                 set the volume, START shows how to connect an agent
-  Simulator   - little worlds to watch, each in a box beside its numbers or full screen (SELECT):
+  Apps        - little worlds to watch, each in a box beside its numbers or full screen (SELECT):
     Clock       - the time and the date in the middle of the page: a dial (the date under its middle) or big
                 figures (AM or PM and the seconds beside them, the date under them); A switches between
                 them, START has the look, the seconds and the colour (Settings > Clock: 12 or 24 hours)

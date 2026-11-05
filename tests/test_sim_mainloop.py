@@ -1,4 +1,4 @@
-"""The Simulator's programs started as you start them: the real main loop, a controller's A on the program's row,
+"""Apps' programs started as you start them: the real main loop, a controller's A on the program's row,
 then 4 seconds of watching. Each must still be running, still drawing on its console (a pty here), with nothing of
 media mode's drawn over it and nothing stopping it. On an 800x480 HDMI screen turned 180 degrees (the Waveshare's),
 and on the GPi Case's 640x480."""
@@ -159,7 +159,7 @@ def loop():
 
 threading.Thread(target=loop, daemon=True).start()
 time.sleep(0.5)
-si = next(i for i, t in enumerate(g.LIBRARY) if t["name"] == "Simulator")
+si = next(i for i, t in enumerate(g.LIBRARY) if t["name"] == "Apps")
 
 for label, size, turn in (("800x480 HDMI turned 180", (800, 480), 180), ("640x480", (640, 480), 0)):
     g.set_turn(turn)
@@ -174,7 +174,7 @@ for label, size, turn in (("800x480 HDMI turned 180", (800, 480), 180), ("640x48
         k = next((i for i, r in enumerate(rows) if r.get("kind") == "child"
                   and g.LIBRARY[int(r["src"])].get("prog") == name), None)
         if k is None:
-            check(f"{label}: {name} has a row in the Simulator", False); continue
+            check(f"{label}: {name} has a row in Apps", False); continue
         m.sels[si] = k
         m.dirty = True
         time.sleep(0.3)

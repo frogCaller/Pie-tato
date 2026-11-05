@@ -1,4 +1,4 @@
-"""The Simulator's other sims, each on its own (Game of Life, Forest Fire, the Mandelbrot Set),
+"""Apps' other sims, each on its own (Game of Life, Forest Fire, the Mandelbrot Set),
 then all of them in media mode: opened from the list, frames, START's options (live, or a new start
 when the card closes), X, Y, A, full screen for every sim, the box's round corners, and B back."""
 import math, os, random, shutil, sys, time
@@ -455,7 +455,7 @@ def frames(secs, step=0.05):
 
 
 m.view = "home"
-m.home_sel = [a for a, _ in m.home_apps()].index("Simulator")
+m.home_sel = [a for a, _ in m.home_apps()].index("Apps")
 m.press("a")
 SIMI = m.tab
 corner = (g.SIM_BOX[0], g.SIM_BOX[1])

@@ -1,4 +1,4 @@
-"""The Simulator's programs keep going: started as media mode starts them (on its console: here a pretend one, a
+"""Apps' programs keep going: started as media mode starts them (on its console: here a pretend one, a
 pty), with media mode's own loop ticking for 4 seconds, each is still running and still drawing at the end. Once on a
 640x480 screen as it is, once on an 800x480 HDMI screen turned 180 degrees and 90 degrees."""
 import json, os, pty, shutil, subprocess, sys, threading, time

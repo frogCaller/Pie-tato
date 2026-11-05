@@ -1,6 +1,6 @@
 """Every screen drawn at the GPi Case's 640x480 and at wider screens' shapes (a 1080p and a 720p TV, 16:10,
 21:9, a 1024x600 one), and a square one's (720x720): each picture the size the screen's menus are, nothing going
-wrong, and the Simulator, the Bot at work and Photos using the width. A square screen: the menus square, its own
+wrong, and Apps, the Bot at work and Photos using the width. A square screen: the menus square, its own
 pixels (a bigger one's scaled); one near 4:3 (5:4, 4:3 itself) as before."""
 import json, math, os, shutil, subprocess, sys, time
 from paths import SP, ROOT, TESTS  # noqa: E402  (this test's folder of work; the Pietato folder; tests)
@@ -153,7 +153,7 @@ def tour(which):
         return i
 
     for name in ("Home", "TV", "Music", "Radio", "Photos", "Videos", "Games", "Files", "Camera",
-                 "Simulator", "System", "Plex", "Jellyfin", "Cartoons", "Free Movies", "News", "Streams",
+                 "Apps", "System", "Plex", "Jellyfin", "Cartoons", "Free Movies", "News", "Streams",
                  "TV Remote", "Lights"):
         try:
             tab(name)
@@ -232,7 +232,7 @@ def tour(which):
         m.press("left")
     except Exception as ex:
         problems.append(f"{which} bot work: {ex!r}")
-    # simulator worlds
+    # Apps' worlds
     for name in ("Rock Paper Scissors", "Game of Life", "Forest Fire", "Mandelbrot Set", "Snake"):
         try:
             tab(name)
@@ -381,7 +381,7 @@ for which in SIZES:
     a = np.asarray(im).astype(int)
     floor = np.array(g.SIM_FLOOR)
     row = np.nonzero((np.abs(a[250 + (h - 480) // 2][:w - 175] - floor).sum(axis=1) < 4))[0]   # (left of the numbers)
-    check(f"{which}: the Simulator's box as wide as the screen leaves it ({row.max() if len(row) else 0} of {w})",
+    check(f"{which}: Apps' box as wide as the screen leaves it ({row.max() if len(row) else 0} of {w})",
           len(row) and w - 200 < row.max() < w - 180)
 check(f"Photos: 4 columns on the GPi Case, 5 at 1080p", True)
 print("ALL OK" if all(ok_all) else f"{ok_all.count(False)} FAILED")

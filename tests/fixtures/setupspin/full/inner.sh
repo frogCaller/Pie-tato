@@ -9,7 +9,8 @@
 # OS_RELEASE: an os-release of the test's own (Debian's, on a PC); APT_DIR: an /etc/apt of its own (its sources);
 # AS_SU: run with su, as on Debian without sudo: no SUDO_USER, a PATH without sbin, the Pietato folder yours.
 # Without PC_MODE, Raspberry Pi OS's os-release (Debian's) instead of this machine's (Ubuntu's).
-# RCLOCAL_INIT: an rc.local to start from. AFTER: then these, one by one ("stop.sh|start.sh @display-manager|
+# RCLOCAL_INIT: an rc.local to start from. SETUP_CONF_INIT: what was left out before (setup.conf's leave_out).
+# AFTER: then these, one by one ("stop.sh|start.sh @display-manager|
 # uninstall.sh --yes": each from the Pietato folder, with what's after @ running), with what's left after each.
 set -e
 W="${PIETATO_TEST_WORK:?}"
@@ -43,6 +44,7 @@ if [ -n "$RCLOCAL_INIT" ]; then             # (an rc.local of the test's own, Re
   cp "$RCLOCAL_INIT" /etc/rc.local          # machine's own, as sed -i can't replace a file mounted on its own; the test
 fi                                          # takes it away again)
 if [ -n "$OS_RELEASE" ]; then mount --bind "$OS_RELEASE" /etc/os-release; fi
+if [ -n "$SETUP_CONF_INIT" ]; then printf 'leave_out = %s\n' "$SETUP_CONF_INIT" > /var/lib/pitato/setup.conf; fi
 if [ -n "$APT_DIR" ]; then mount --bind "$APT_DIR" /etc/apt; fi
 if [ -z "$PC_MODE" ]; then mount --bind "$F/rpios-os-release" /etc/os-release; fi   # (a Pi: Raspberry Pi OS's, Debian's;
                                                                                    # a PC: this machine's, Ubuntu 24.04's)
@@ -80,6 +82,9 @@ echo "GPI OVERLAY: [$(ls /boot/overlays | tr '\n' ' ')]"
 echo "STATIC: [$(ls /home/gpitest/pitato/static 2> /dev/null | tr '\n' ' ')]"
 echo "GAMES: [$(ls /home/gpitest/Games 2> /dev/null | tr '\n' ' ')]"
 echo "OS: [$(. /etc/os-release && echo "$ID")]"
+echo "SETUP CONF: [$(sed -n 's/^leave_out = //p' /var/lib/pitato/setup.conf 2> /dev/null)]"
+echo "PRIVATE: [$(cd /home/gpitest/pitato/static 2> /dev/null && stat -c '%n %U %a' homeassistant.txt pihole.txt webui.txt retroachievements.txt 2> /dev/null | tr '\n' ' ')]"
+echo "HA FILE: [$(grep -E '^(url|token) = ' /home/gpitest/pitato/static/homeassistant.txt 2> /dev/null | tr '\n' '|')]"
 echo "WEB USER: [$(sed -n 's/^User=//p' /etc/systemd/system/pitato-web.service 2> /dev/null)]"
 echo "AUTOLOGIN: [$(grep -o -- '--autologin [^ ]*' /etc/systemd/system/getty@tty1.service.d/autologin.conf 2> /dev/null)]"
 echo "CHROMIUM PAM: [$(tr '\n' '|' < /etc/pam.d/pietato-chromium 2> /dev/null)]"
