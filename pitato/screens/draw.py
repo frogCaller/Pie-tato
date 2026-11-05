@@ -272,7 +272,9 @@ class DrawScreen:
             self.msg_pill(d)
 
     def msg_pill(self, d):
-        """A short notice (toast) above the footer."""
+        """A short notice (toast) above the footer (or, while the Bot's bored, what it says: in its place)."""
+        if self.bored_bubble(d):
+            return
         if not self.msg:
             return
         F, W, H = self.fonts, self.fb.w, self.fb.h

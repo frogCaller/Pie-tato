@@ -873,7 +873,7 @@ class GameScreen:
         if self.fb is not None and hasattr(self.fb, "invalidate"):
             self.fb.invalidate()                       # (the game drew everywhere: all of it again)
         if getattr(run, "attract", False):             # (a game playing by itself: its saves were never yours)
-            if getattr(self, "attract", None) is not None and self.attract["run"] is run:
+            if getattr(self, "attract", None) is not None and self.attract.get("run") is run:
                 self.attract = None
             self.dirty = True
             return

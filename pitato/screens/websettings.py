@@ -98,7 +98,8 @@ class WebSettingsScreen:
             battery["value"], battery["note"] = "Auto", self.saver_why()   # (Auto: on or off now, and why)
         rows.append(battery)
         attract = choice("attract")
-        attract["note"] = "Left idle, plugged in: a game plays by itself, till a button's pressed."
+        attract["note"] = ("Left idle, plugged in: the Bot gets bored and plays a game, looks through the camera or "
+                           "shows another app, till a button's pressed. Games only: just games.")
         rows.append(attract)
         info = self.res_info() if "resolution" in root else None
         if info:

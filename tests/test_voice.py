@@ -77,10 +77,23 @@ check(f"which Piper: {got}", got == {"aarch64/64": "aarch64", "aarch64/32": "arm
 check("where a voice is", g.voice_folder("en_GB-northern_english_male-medium") == "en/en_GB/northern_english_male/medium"
       and g.voice_folder("en_US-amy-low") == "en/en_US/amy/low")
 said = g.speech_text("It's 71°F and sunny ☀️ — *lovely* out.\nRain at 4 °C later")
-check(f"made for saying: {said!r}", said == "It's 71 degrees and sunny — lovely out. Rain at 4 degrees later")
+check(f"made for saying: {said!r}", said == "It's 71 degrees and sunny — lovely out. Rain at 4 degrees later.")
+said = g.speech_text("Shopping\n- eggs\n• milk\n\n2. bread\nIs that all?")
+check(f"...a note's lines each said as a sentence, a list's dashes and numbers not said: {said!r}",
+      said == "Shopping. eggs. milk. bread. Is that all?")
 parts = g.speech_sentences("Hi! This is me. And here's another sentence? Yes. The end.")
 check(f"a sentence at a time, a short one with the next: {parts}",
       parts == ["Hi! This is me.", "And here's another sentence?", "Yes. The end."])
+long = ("It's 64 degrees and partly cloudy, with a high of 70 and a low of 51 today, so a light jacket should be "
+        "plenty for the walk to the shops and back.")
+parts = g.speech_sentences(long)
+check(f"...a long one in pieces, the first short (it's made before anything's heard), broken where it pauses: {parts}",
+      parts[0] == "It's 64 degrees and partly cloudy," and len(parts[0]) <= g.SAY_FIRST
+      and all(len(p) <= g.SAY_PIECE for p in parts) and " ".join(parts) == long)
+words = " ".join(["word"] * 80)
+parts = g.speech_sentences(words)
+check(f"...one with nowhere to pause: broken between words ({[len(p) for p in parts]})", len(parts[0]) <= g.SAY_FIRST
+      and all(len(p) <= g.SAY_PIECE and not p.startswith(" ") for p in parts) and " ".join(parts) == words)
 wav = S + "/t.wav"
 with wave.open(wav, "wb") as w:
     w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)

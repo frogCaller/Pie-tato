@@ -183,11 +183,13 @@ m.press("a")
 SIMI = m.tab
 rows = [(it["title"], it.get("icon")) for it in m.tab_items()]
 check(f"A opens Apps: a list of sims {rows}", m.tab_type() == "group" and g.LIBRARY[m.tab]["name"] == "Apps"
-      and rows == [("Clock", "TIME"), ("Notes", "NOTE"), ("Rock Paper Scissors", "RPS"), ("Game of Life", "LIFE"),
+      and rows == [("Clock", "TIME"), ("Notes", "NOTE"), ("Fortune Cookie", "LUCK"), ("Rock Paper Scissors", "RPS"),
+                   ("Game of Life", "LIFE"),
                    ("Forest Fire", "FIRE"), ("Mandelbrot Set", "ZOOM"), ("Konami code", "CHEAT"), ("cmatrix", "CODE"),
                    ("hollywood", "HACK"), ("nyancat", "NYAN"), ("cacafire", "HEAT"), ("htop", "PROC")])
 m.dirty = True; m.flush()
 m.fb.last.save(f"{SP}/sim_list_test.png")
+m.press("down")
 m.press("down")
 m.press("down")
 m.press("a")
@@ -273,7 +275,7 @@ m.press("start"); m.press("left"); m.press("r")
 check("R from the options: next app (Files), options closed, new round of 20 waiting",
       g.LIBRARY[m.tab]["name"] == "Files" and m.sim_opts is None and G.counts() == [20, 20, 20])
 m.press("l")
-check("L back: Apps' list, Rock Paper Scissors picked", m.tab == SIMI and m.sels.get(SIMI, 0) == 2)
+check("L back: Apps' list, Rock Paper Scissors picked", m.tab == SIMI and m.sels.get(SIMI, 0) == 3)
 m.press("a")
 check("...A: back in it", m.tab_type() == "sim" and m.sims["rps"] is G)
 m2 = g.Media()

@@ -44,6 +44,7 @@
   sims.py           Apps' little worlds
   clock.py          Apps' Clock
   notes.py          Apps' Notes: what you type on a keyboard (screens/notes.py: its files, the keyboard, its buttons)
+  fortune.py        Apps' Fortune Cookie: a new fortune with A (screens/fortune.py: its buttons)
   mandelbrot.py     the Mandelbrot set
   snake.py          Snake, and its AI's thread
   games.py          your own games: finding them and their emulators, one while it runs

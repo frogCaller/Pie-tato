@@ -462,8 +462,8 @@ corner = (g.SIM_BOX[0], g.SIM_BOX[1])
 for row, name in enumerate(g.LIBRARY[SIMI]["children"]):
     if row:
         m.press("down")
-    if name in ("Clock", "Notes", "Rock Paper Scissors"):
-        continue                                   # (test_clock.py, test_notes.py, test_sim.py)
+    if name in ("Clock", "Notes", "Fortune Cookie", "Rock Paper Scissors"):
+        continue                                   # (test_clock.py, test_notes.py, test_fortune.py, test_sim.py)
     if next(t for t in g.LIBRARY if t["name"] == name)["type"] != "sim":
         continue                                   # (cmatrix, not a sim of its own: test_cmatrix.py)
     m.press("a")

@@ -89,6 +89,7 @@ from .screens.rest import REST_TICK, RestScreen
 from .screens.handoff import HandoffScreen, SEND_AGAIN
 from .screens.attract import AttractScreen
 from .screens.notes import NotesScreen
+from .screens.fortune import FortuneScreen
 from .screens.together import TogetherScreen
 from .screens.konami import KonamiScreen
 
@@ -102,7 +103,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             SnakeScreen, GameScreen, SettingsScreen, BluetoothScreen, ControllerScreen, WeatherScreen, WebScreen,
             ComputersScreen, ProgScreen, PiholeScreen, SysDashScreen, SketchScreen, HaSettingsScreen,
             WebSettingsScreen, WwwScreen, ChromiumScreen, RestScreen, HandoffScreen, AttractScreen, TogetherScreen,
-            KonamiScreen, NotesScreen):
+            KonamiScreen, NotesScreen, FortuneScreen):
     """Media mode: what the screen shows and what the buttons do there. Its state is all here; each
     app's buttons and drawing come from its part (pitato/screens/)."""
 
@@ -1462,6 +1463,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.net_save_tick(now)
         if self.notes_reading or self.note_changed is not None or self.notes_shown():
             self.notes_tick(now)                       # (Notes: the keyboard types into it while it's up; kept)
+        if self.view == "list" and self.tab_type() == "sim" and LIBRARY[self.tab].get("sim") == "fortune":
+            self.fortune_tick(now)                     # (the Fortune Cookie: read out loud, or not)
         if self.prog is not None:
             self.prog_tick()
         if self.chromium is not None:
@@ -1506,8 +1509,8 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             self.np_until = 0.0
             if self.active and self.view == "home":
                 self.dirty = True
-        if self.active and self.view in ("home", "list", "game"):
-            self.attract_tick(now)                     # (left idle: a game plays by itself, Settings > Attract mode)
+        if self.active and (self.view in ("home", "list", "game") or self.attract_on()):
+            self.attract_tick(now)                     # (left idle: the Bot gets bored, Settings > Attract mode)
         if self.invite is not None:
             self.invite_tick(now)                      # (asked to play together, and not answered: no thanks)
         if self.konami_in is not None or self.konami_rec is not None or self.konami_pick is not None \

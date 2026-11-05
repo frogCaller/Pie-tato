@@ -1,5 +1,5 @@
-"""Attract mode (screens/attract.py, Settings > Attract mode): left idle on the home screen, plugged in, a game plays
-by itself. Without the AI player: the game's own demo, from its start; with it (your bot's computer, the model last
+"""Attract mode's games (screens/attract.py, Settings > Attract mode: Games only; test_bored has the rest of what the
+Bot does when it's bored): left idle on the home screen, plugged in, a game plays by itself. Without the AI player: the game's own demo, from its start; with it (your bot's computer, the model last
 picked for games): it plays, from where you were, from a copy of your saves. Its saves apart from yours (yours never
 change, your other Pietatos aren't told, it isn't one of the games played last), its sound off, no achievements, 2D
 games only; the Bot's face in the corner (a picture the emulator puts over the game's, every frame); another game every
@@ -94,6 +94,7 @@ class FB:
 m = g.Media(); m.load_fonts(); m.fb = FB(); m.active = True
 m.saves_tell = lambda run: told.append(run.game["path"])
 m.set_setting("battery", "Off")                       # (plugged in: the battery saver off)
+m.set_setting("attract", "Games only")                # (just games: the rest of what it does is test_bored's)
 m.view = "home"
 now = time.monotonic()
 
@@ -120,7 +121,7 @@ m.set_setting("attract", "Off")
 idle()
 tick()
 check("Settings > Attract mode Off: never", m.attract is None)
-m.set_setting("attract", "On")
+m.set_setting("attract", "Games only")
 m.view = "list"
 m.tab = m.tab_index("camera")
 idle()

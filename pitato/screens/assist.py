@@ -22,7 +22,8 @@ from ..tv import channel_row, ia_row, live_pick, SHELVES
 from .games import fold, game_matches
 from .progs import prog_path
 
-COOL_SKIP = ("Clock", "Notes", "htop", "Konami code")   # Apps' that aren't for "show me something cool"
+COOL_SKIP = ("Clock", "Notes", "Fortune Cookie", "htop", "Konami code")   # Apps' that aren't for "show me
+                                                                         # something cool"
 COOL_THE = ("Game of Life", "Mandelbrot Set")   # ("Here's the Game of Life")
 MUSIC_WORDS = ("music", "song", "songs", "album", "albums", "playlist", "tunes", "track", "tracks", "artist", "band",
                "radio", "station", "stations", "fm")
@@ -436,8 +437,8 @@ class AssistScreen:
 
     # -- something cool: one of Apps' -----------------------------------------------------------------------------
     def cool_choices(self):
-        """What "show me something cool" picks from: Apps' list (but its Clock, Notes, htop and Konami code), the ones
-        here."""
+        """What "show me something cool" picks from: Apps' list (but its Clock, Notes, Fortune Cookie, htop and Konami
+        code), the ones here."""
         group = next((t for t in LIBRARY if t["name"] == "Apps"), {})
         out = []
         for name in group.get("children", []):

@@ -549,6 +549,41 @@ class Friend:
         threading.Thread(target=self.job, args=(None, topic), daemon=True, name="friend").start()
         return True
 
+    def comment(self, ask, look=None, done=lambda text: None):
+        """A word of its own about what it's showing (bored, with nobody about: pitato/screens/attract.py), from its
+        model on a thread of its own: what's true right now, then the ask. look() gives a picture to look at with it
+        ((its JPEG or a file of yours, what it is) or (None, why not)). Not kept in the conversation, and it doesn't
+        keep the bot busy. done(what it said, or None) comes after. False: it isn't set up (or can't see, for a
+        picture)."""
+        if not self.ready() or (look is not None and not self.sees()):
+            return False
+        server, model = self.server, self.model
+
+        def job():
+            text = None
+            try:
+                images = None
+                lines = list(self.facts())
+                if look is not None:
+                    got, note = look()
+                    if not got:
+                        raise ValueError(f"nothing to see ({note})")
+                    images = [self.for_model(friend_image(got))]
+                text = ollama_generate(server, model, self.system(), "\n".join(lines) + "\n\n" + ask, images)
+                if images:
+                    self.vision[model] = True
+                text = friend_command(text)[1].strip() or None   # (asked for nothing: nobody asked it to do anything)
+            except CantSee as ex:
+                self.vision[ex.model] = False
+            except Exception as ex:
+                print(f"the bot couldn't say something of its own: {ex}", flush=True)
+            try:
+                done(text)
+            except Exception as ex:
+                print(f"after the bot's word of its own: {ex!r}", flush=True)
+        threading.Thread(target=job, daemon=True, name="friend-comment").start()
+        return True
+
     def describe(self, look, done=lambda text, error: None):
         """It looks through the camera you chose and says what it sees (the Camera tab's SELECT, the
         web page's Describe): look() gives (a JPEG, the camera) or (None, why not), and done(what it

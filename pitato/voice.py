@@ -48,6 +48,9 @@ PLAY_CHUNK = 4096       # bytes to aplay at a time (a pipe takes this much at on
 PLAY_STUCK = 6.0        # seconds aplay may go without taking any: then it's stuck (the sound card held by something
                         # else, say), and that's said, not waited on for ever
 TALK_GAP = 1.0          # once it's heard, it's still talking through a pause this long (between sentences, say)
+SAY_FIRST = 60          # characters of the first piece of what it says, at most (made before anything's heard: short,
+                        # so a slow Pi starts talking soon; each piece after it is made while the one before plays)
+SAY_PIECE = 160         # ...and of each piece after it
 CHIME_RATE = 22050
 CHIME_NOTES = ((1046.5, 0.0), (1318.5, 0.14), (1568.0, 0.28))   # C, E and G, rising: a timer or a reminder, when
                                                                 # there's no voice to say it
@@ -132,16 +135,23 @@ def voices_here():
 
 
 def speech_text(text):
-    """What it said, made for saying: degrees as a word, and nothing a voice would spell out."""
+    """What it said, made for saying: degrees as a word, nothing a voice would spell out, and each of its lines (a
+    note's, a list's: its dash or number left out) ending as a sentence does, so it's said as one."""
     t = re.sub(r"\s*°\s*[FC]\b", " degrees", text or "").replace("°", " degrees")
     t = "".join(" " if ord(c) >= 0x1F000 or 0x2600 <= ord(c) < 0x2800 or c in "‍️*_#~`|<>"
                 else c for c in t if c.isprintable() or c.isspace())
-    return " ".join(t.split())
+    lines = []
+    for line in t.splitlines():
+        line = " ".join(re.sub(r"^\s*(?:[-•]|\d{1,3}[.)])\s+", "", line).split())
+        if line:
+            lines.append(line if line[-1] in ".!?…:;,\"')" else line + ".")
+    return " ".join(lines)
 
 
 def speech_sentences(text):
-    """A reply a sentence at a time, so the first can be said while the next is made ("Hi." goes
-    with what comes after it)."""
+    """What it says, in pieces, so the first can be said while the next is made: a sentence each ("Hi." goes with
+    what comes after it), a long one broken where it pauses (a comma, a dash) or else between words. The first piece
+    is short (SAY_FIRST): nothing's heard till it's made, and making it takes longest on a small Pi."""
     out = []
     for p in (p.strip() for p in re.split(r"(?<=[.!?…])\s+", text)):
         if not p:
@@ -150,7 +160,20 @@ def speech_sentences(text):
             out[-1] += " " + p
         else:
             out.append(p)
-    return out
+    pieces = []
+    for p in out:
+        most = SAY_PIECE if pieces else SAY_FIRST
+        while len(p) > most:
+            least = int(most * 0.4)
+            stops = [m.end() for m in re.finditer(r"[,;:—–](?=\s)|\s[-–—](?=\s)", p[:most + 1]) if m.end() >= least]
+            spaces = [k for k in range(least, most + 1) if p[k] == " "]
+            cut = stops[-1] if stops else spaces[-1] if spaces else most
+            pieces.append(p[:cut].strip())
+            p = p[cut:].strip()
+            most = SAY_PIECE
+        if p:
+            pieces.append(p)
+    return pieces
 
 
 def read_speech(path, volume=100):

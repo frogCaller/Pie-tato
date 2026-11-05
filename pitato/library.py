@@ -27,7 +27,7 @@ LIBRARY = [
     {"name": "Finance", "type": "finance", "files": [settings_glob("finance.txt")], "empty": ""},
     {"name": "Bot", "type": "friend", "files": [settings_glob("bot.txt")], "empty": ""},
     {"name": "Apps", "type": "group", "empty": "",
-     "children": ["Clock", "Notes", "Rock Paper Scissors", "Game of Life", "Forest Fire", "Mandelbrot Set",
+     "children": ["Clock", "Notes", "Fortune Cookie", "Rock Paper Scissors", "Game of Life", "Forest Fire", "Mandelbrot Set",
                   "Konami code", "cmatrix", "hollywood", "nyancat", "cacafire", "htop"]},
     {"name": "Files", "type": "browser", "empty": "This folder is empty"},
     {"name": "System", "type": "system", "empty": ""},
@@ -67,6 +67,8 @@ LIBRARY = [
      "about": "The time and the date", "empty": ""},
     {"name": "Notes", "type": "sim", "sim": "notes", "parent": "Apps", "badge": "NOTE",   # (pitato/notes.py)
      "about": "Type with a keyboard", "empty": ""},
+    {"name": "Fortune Cookie", "type": "sim", "sim": "fortune", "parent": "Apps", "badge": "LUCK",   # (pitato/fortune.py)
+     "about": "A new fortune with A", "empty": ""},
     {"name": "Rock Paper Scissors", "type": "sim", "sim": "rps", "parent": "Apps", "badge": "RPS",
      "about": "Last team standing", "empty": ""},
     {"name": "Game of Life", "type": "sim", "sim": "life", "parent": "Apps", "badge": "LIFE",

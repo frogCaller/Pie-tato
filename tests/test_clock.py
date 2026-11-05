@@ -431,6 +431,8 @@ check("B: back to the list, the Clock picked", m.tab == SIMI and m.sels[SIMI] ==
 m.press("down")
 check("the next one down is Notes", m.tab_items()[m.sels[SIMI]]["title"] == "Notes")
 m.press("down")
+check("...then the Fortune Cookie", m.tab_items()[m.sels[SIMI]]["title"] == "Fortune Cookie")
+m.press("down")
 m.press("a")
 check("...and then Rock Paper Scissors, in its box as before",
       m.sim_game().key == "rps" and not m.sim_bare() and (m.sim_game().w, m.sim_game().h) == (436, 342))

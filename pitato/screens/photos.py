@@ -384,4 +384,6 @@ class PhotoScreen:
             lw = d.textlength(label, font=F["small"]) + 24
             d.rounded_rectangle((12, 12, 12 + lw, 40), radius=14, fill=BG)
             d.text((24, 26), label, font=F["small"], fill=BODY, anchor="lm")
+        else:
+            self.bored_bubble(d, low=True)             # (the Bot, bored, showing you your photos: what it says)
         self.fb.show(img)

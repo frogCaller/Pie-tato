@@ -67,7 +67,8 @@ SETTINGS = [   # key, label, choices (None: opens a page of its own). (Where you
                                                                 # clockwise (not there on the GPi Case's own)
     ("battery", "Battery saver", ["Auto", "On", "Off"]),   # the screen dark after a few minutes with nothing happening
                                                          # (Auto: while it runs on its battery; screens/rest.py)
-    ("attract", "Attract mode", ["On", "Off"]),   # left idle, plugged in: a game plays by itself (screens/attract.py)
+    ("attract", "Attract mode", ["On", "Games only", "Off"]),   # left idle, plugged in: the Bot gets bored and
+                                                            # finds something to do (screens/attract.py)
     ("sound", "Sound", None),
     ("pad", "Controller", None),
     ("pad_swap", "Swap A and B", ["Off", "On"]),   # on the controller in hand (kept with its buttons, not here)

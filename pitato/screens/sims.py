@@ -10,10 +10,11 @@ from ..sims import (
 from ..clock import Clock
 from ..mandelbrot import Mandelbrot
 from ..notes import Notes
+from ..fortune import Fortune
 from ..snake import Snake
 
 
-SIMS = {s.key: s for s in (Clock, Notes, RockPaperScissors, Life, ForestFire, Mandelbrot, Snake)}
+SIMS = {s.key: s for s in (Clock, Notes, Fortune, RockPaperScissors, Life, ForestFire, Mandelbrot, Snake)}
 CLOCK_KEYS = {"a": "look", "up": "colour", "down": "colour", "left": "font", "right": "font",
               "x": "background", "y": "date"}    # the Clock's buttons: the option each changes (its seconds: START's)
 
@@ -119,8 +120,8 @@ class SimScreen:
         s = self.sim_game()
         if self.sim_opts is not None:
             return self.press_sim_opts(s, name, repeat)
-        if s.key == "notes":                           # (Notes: its own buttons, screens/notes.py)
-            got = self.press_notes(s, name, repeat)
+        if s.key in ("notes", "fortune"):              # (Notes, the Fortune Cookie: their own buttons, screens/)
+            got = (self.press_notes if s.key == "notes" else self.press_fortune)(s, name, repeat)
             if got is not False:
                 return got
         if name in ("b", "l", "r"):
@@ -621,7 +622,7 @@ class SimScreen:
             img.paste(self.sim_feet[hints], (0, fb.h - self.FOOTER))
         self.sim_msg(img, low=full and not card_open)  # (a notice stays over the sim)
         last_key, last_count, last_t, whole_t = self.sim_shown
-        key = (key, self.msg, card_open and hints)
+        key = (key, self.msg, self.bored_said(), card_open and hints)
         if (full or key != last_key or getattr(fb, "frames", None) != last_count or now - last_t > 0.5
                 or now - whole_t > 3 or not hasattr(fb, "show_part")):
             fb.show(img)                               # the whole picture: full screen, or something
@@ -633,10 +634,13 @@ class SimScreen:
 
     def sim_msg(self, img, low=False):
         """A notice (toast) over the sim: as msg_pill draws it, from a kept picture of the words. Low: at
-        the foot of the screen (full screen has no buttons along the bottom)."""
+        the foot of the screen (full screen has no buttons along the bottom). While the Bot's bored: what it says."""
+        from ..fine import ImageDraw
+        if self.bored_said():
+            self.bored_bubble(ImageDraw.Draw(img), low=low)
+            return
         if not self.msg:
             return
-        from ..fine import ImageDraw
         W, H = self.fb.w, self.fb.h
         tile = self.sim_tile(self.msg, "small", TEXT, ROW)
         if tile.width > W - 70:                        # (a long one: shortened, as usual)
