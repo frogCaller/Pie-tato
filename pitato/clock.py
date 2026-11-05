@@ -1,12 +1,13 @@
 """Apps' Clock: the time and the date in the middle of the screen, on a dial (Analogue) or in big figures
-(Digital), in the colour and on the background you pick (up and down, left and right), with or without its seconds (X)
-and the date (Y), its figures in the font you pick (A goes from the dial to the figures, then through the fonts)."""
+(Digital): A switches between them, left and right go through its fonts (the figures', AM and PM's, and the dial's
+12, 3, 6 and 9), up and down its colours, X its backgrounds, and Y turns the date on or off. START has them all, and
+its seconds."""
 import math
 import time
 
 from .sims import Sim
 from .fine import detail
-from .theme import BG, BODY, co_mix, FONT_UI, FONT_UI_BOLD, MUTED, TEXT, typeface
+from .theme import BG, BODY, co_mix, FONT_UI, MUTED, TEXT, typeface
 
 
 # ---- the Clock --------------------------------------------------------------------------------------------
@@ -17,7 +18,7 @@ from .theme import BG, BODY, co_mix, FONT_UI, FONT_UI_BOLD, MUTED, TEXT, typefac
 # pictures too, so a frame is mostly pasting.
 CLOCK_LOOKS = ("Analogue", "Digital")
 CLOCK_FONTS = ("Thin", "Bold", "Pixel", "Terminal", "Future", "Neon", "Poster", "Retro", "Script", "Handwriting",
-               "Typewriter", "Comic")          # its figures' (and the dial's 12, 3, 6 and 9): theme.py's typefaces
+               "Typewriter", "Comic")          # its figures', AM and PM's, and the dial's 12, 3, 6 and 9 (theme.py's)
 CLOCK_COLOURS = (("Blue", (96, 170, 228)), ("Teal", (64, 200, 184)), ("Green", (116, 204, 128)),
                  ("Gold", (230, 190, 80)), ("Orange", (240, 150, 84)), ("Red", (236, 104, 104)),
                  ("Pink", (236, 128, 176)), ("Purple", (166, 138, 236)), ("White", (236, 239, 243)))
@@ -68,9 +69,9 @@ def capsule(a, ax, ay, bx, by, r, colour):
 
 class Clock(Sim):
     """The time and the date, in the middle of its room: a dial with three hands (Analogue) or big figures
-    (Digital), in one font or another. A goes from the dial to the figures, then on through the fonts, and back to the
-    dial; up and down change its colour, left and right its background, X turns its seconds on or off, Y the date;
-    START has them all."""
+    (Digital), in one font or another. A switches between the dial and the figures; left and right go through the
+    fonts, up and down its colours, X its backgrounds; Y turns the date on or off; START has them all, and its
+    seconds."""
     key = "clock"
     blurb = "The time and the date, on a dial or in big figures. Every button changes something."
     poke_label = None
@@ -103,24 +104,16 @@ class Clock(Sim):
     def hints(self):
         """Its buttons, along the bottom (on a screen wider than the GPi Case's, SELECT's and START's too)."""
         out = [("A", self.a_does()), ("▲▼", "Colour"),
-               ("◀▶", "Background"), ("X", "Seconds"), ("Y", "Date")]
+               ("◀▶", "Font"), ("X", "Background"), ("Y", "Date")]
         return out + [("SELECT", "Full screen"), ("START", "More")] if self.w >= 800 else out
 
     def a_does(self):
-        """What A does next: the figures (from the dial), the next font, or (after the last) the dial again."""
-        if self.values.get("look") != "Digital":
-            return "Digital"
-        return "Analogue" if self.values.get("font") == CLOCK_FONTS[-1] else "Next font"
+        """What A does: the other look (the figures, from the dial; the dial, from the figures)."""
+        return "Analogue" if self.values.get("look") == "Digital" else "Digital"
 
     def a_next(self):
-        """A: {look, font} for the next face: the dial, then the figures in each font, then the dial again (Thin)."""
-        if self.values.get("look") != "Digital":
-            return {"look": "Digital"}
-        font = self.values.get("font")
-        k = CLOCK_FONTS.index(font) if font in CLOCK_FONTS else -1
-        if k + 1 >= len(CLOCK_FONTS):
-            return {"look": "Analogue", "font": CLOCK_FONTS[0]}
-        return {"font": CLOCK_FONTS[k + 1]}
+        """A: {look} for the other look, its font as it is (the left and right buttons pick that)."""
+        return {"look": self.a_does()}
 
     def figures(self):
         """Its figures' font: (its file, how big it's set beside Inter's)."""
@@ -321,7 +314,8 @@ class Clock(Sim):
 
     def draw_digital(self, img, x0, y0, t):
         """The time in big figures in the middle of the room (the colon in the colour picked), AM or PM and the
-        seconds beside it, the date under it (unless it's off). Its figures in its font (Thin: Inter's)."""
+        seconds beside it, the date under it (unless it's off). Its figures in its font (Thin: Inter's), AM and PM
+        too, their tops level with the figures'."""
         size = self.digital_size()
         path = self.figures()[0]
         colour, secs = self.colour(), self.seconds()
@@ -333,7 +327,7 @@ class Clock(Sim):
         small, label = round(size * SIDE[1]), round(size * SIDE[2])
         sec_w = 2 * self.font(path, small).getlength("0") if secs else 0   # (the room two figures can need)
         ampm = "" if self.hours24 else time.strftime("%p", t)
-        side = max(sec_w, self.words(ampm, FONT_UI_BOLD, label)[0].width if ampm else 0)
+        side = max(sec_w, self.words(ampm, path, label)[0].width if ampm else 0)
         total = time_w + (size * SIDE[0] + side if side else 0)
         cap = size * self.standing(path)               # (how tall the figures stand, above their baseline)
         date = f"{time.strftime('%A, %B', t)} {t.tm_mday}" if self.date_on() else ""
@@ -344,8 +338,9 @@ class Clock(Sim):
         for i, (p, colour_of) in enumerate(zip(parts, (TEXT, colour, TEXT))):
             x += self.paste_words(img, p, path, size, colour_of, x, base) + (gap if i < 2 else 0)
         x += size * SIDE[0]
-        if ampm:
-            self.paste_words(img, ampm, FONT_UI_BOLD, label, MUTED, x, base - cap + label * 0.73)
+        if ampm:                                       # (its letters' top where the figures' is: their pictures
+            down = self.words(ampm, path, label)[1]    # start a pixel above it)
+            self.paste_words(img, ampm, path, label, MUTED, x, base - cap + down - 1)
         if secs:
             self.paste_words(img, f"{t.tm_sec:02d}", path, small, colour, x, base)
         if not date:

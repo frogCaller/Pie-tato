@@ -20,8 +20,8 @@ Pietato starts on a home screen of apps:
   through Ollama on another computer. It sees through your camera and takes pictures, and talks out loud if
   you give it a voice. At work, it acts out what your coding agent is doing, rings a bell when it's done,
   and sends it prompts you type
-- **Apps**: a Clock with the time and the date (A goes from a dial to big figures, then through a dozen
-  fonts, ▲▼ change its colour, ◀▶ its background, X turns its seconds on or off and Y the date), Notes
+- **Apps**: a Clock with the time and the date (A switches between a dial and big figures, ◀▶ go through a
+  dozen fonts, ▲▼ change its colour, X its background, Y turns the date on or off, and START has its seconds), Notes
   (type with a USB or Bluetooth keyboard: ▲▼ change the words' colour, ◀▶ the background, A the font, Y adds
   a glow, a rainbow or a shadow, X reads it out loud in your Bot's voice, and L and R go through your notes,
   kept in Documents/Notes), Rock Paper Scissors (pick a winner before the first capture), Game of Life, Forest Fire

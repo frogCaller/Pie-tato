@@ -57,7 +57,7 @@
 #   --camera    only share this Pi's USB camera on the network, for Pietato's Camera tab on
 #               another Pi (camera.py, port 5433); nothing else is installed
 #   --update    no questions: it's set up as it was before (System > Update software runs it
-#               once it has the latest release, then restarts the Pi itself)
+#               once it has the newest version, then restarts the Pi itself)
 #   --image     for an SD card image (image/build.sh): no questions, every emulator built (for any
 #               Pi), nothing started and no restart; with --gpi for the GPi Case 2W, --gpi2
 #               for the GPi Case 2

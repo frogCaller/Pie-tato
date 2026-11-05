@@ -40,7 +40,7 @@ Pi on until it says All set.
 
 The same commands set it up [on a PC](docs/pc.md) with Ubuntu 24.04 or Debian 12 or 13, and
 [on an R36S](docs/handheld.md). To update, press Update software at the top of System's list: it puts in the
-latest release. [Setting it up](docs/setup.md) has the rest: setup.sh's options, updating, and taking it off.
+newest version. [Setting it up](docs/setup.md) has the rest: setup.sh's options, updating, and taking it off.
 
 ## More
 

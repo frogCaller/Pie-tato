@@ -14,8 +14,8 @@ from ..snake import Snake
 
 
 SIMS = {s.key: s for s in (Clock, Notes, RockPaperScissors, Life, ForestFire, Mandelbrot, Snake)}
-CLOCK_KEYS = {"a": "look", "up": "colour", "down": "colour", "left": "background", "right": "background",
-              "x": "seconds", "y": "date"}       # the Clock's buttons: the option each changes
+CLOCK_KEYS = {"a": "look", "up": "colour", "down": "colour", "left": "font", "right": "font",
+              "x": "background", "y": "date"}    # the Clock's buttons: the option each changes (its seconds: START's)
 
 
 class SimScreen:
@@ -171,16 +171,14 @@ class SimScreen:
         return None
 
     def press_clock(self, s, name):
-        """The Clock: A its next face (the dial, then the figures in each font, then the dial again), up and down its
-        colour, left and right its background, X its seconds on or off, Y the date. Each kept, as START's card keeps
-        it, and said (but the dial and the figures: that's plain to see)."""
+        """The Clock: A switches between the dial and the figures, left and right go through its fonts, up and down
+        its colours, X its backgrounds (on from the last to the first), Y turns the date on or off. Each kept, as
+        START's card keeps it, and said (but the dial and the figures: that's plain to see)."""
         if name == "a":
             new = s.a_next()
             for k, v in new.items():
                 self.set_setting(f"sim_clock_{k}", v)
             s.configure(new)
-            if "look" not in new:
-                self.toast(f"Font: {new['font']}", 2)
             self.dirty = True
             return
         key = CLOCK_KEYS[name]
@@ -189,8 +187,7 @@ class SimScreen:
         new = ways[((ways.index(cur) if cur in ways else 0) + (-1 if name in ("up", "left") else 1)) % len(ways)]
         self.set_setting(f"sim_clock_{key}", new)
         s.configure({key: new})
-        if key != "look":
-            self.toast(f"{label}: {new}", 2)
+        self.toast(f"{label}: {new}", 2)
         self.dirty = True
 
     def press_mandel(self, s, name, repeat):

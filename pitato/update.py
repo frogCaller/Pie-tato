@@ -1,15 +1,15 @@
-"""System > Update software: Pietato's latest release, and putting it in.
+"""System > Update software: the newest Pietato on GitHub, and putting it in.
 
 The Pietato folder is a git clone (git clone, then sudo bash setup.sh). Update software is always at the top of System;
 now and then it's asked, as the folder's owner (git fetch: never as root, which would leave files in it that git
-couldn't change), whether there's a newer release, and the row says so. It follows the latest release (release.py:
-GitHub's latest, else the newest version tag), not main: what's pushed to main waits for a release. Pressed, the folder
-goes on to the latest release (a fast-forward, as git pull's); if that brought a newer version, setup.sh --update (no
-questions: it keeps how it was set up), then a restart of the Pi, as a job of its own (systemd-run), so setup.sh
-putting in a new media mode can't stop it partway. Nothing newer (the release, or a version newer than it, here
-already): it says it's up to date, and nothing's restarted. setup.sh notes what it put in: an update that got no
-further than git is put in the next time. A folder cloned from one of Pietato's names on GitHub before (pie-tato)
-gets it from its name now, once GitHub answers there (GitHub sends the old name on meanwhile)."""
+couldn't change), whether there's a newer version, and the row says so. It follows main (the branch the repository
+goes by, as GitHub says: whatever's pushed there is what every Pietato gets), not releases (they're for the SD card
+images). Pressed, the folder goes on to main's newest (a fast-forward, as git pull's); if that brought a newer
+version, setup.sh --update (no questions: it keeps how it was set up), then a restart of the Pi, as a job of its own
+(systemd-run), so setup.sh putting in a new media mode can't stop it partway. Nothing newer (main's newest, or a
+version newer than it, here already): it says it's up to date, and nothing's restarted. setup.sh notes what it put in:
+an update that got no further than git is put in the next time. A folder cloned from one of Pietato's names on GitHub
+before (pie-tato) gets it from its name now, once GitHub answers there (GitHub sends the old name on meanwhile)."""
 import os
 import pwd
 import re
@@ -20,7 +20,6 @@ import threading
 import time
 
 from .config import STATE_FILE, STATIC
-from .release import from_github, newest
 
 UPDATE_FIRST = 120          # seconds after it starts that it first looks (the network's up by then)
 UPDATE_EVERY = 6 * 3600     # ...and then between looks
@@ -39,10 +38,10 @@ GITHUB_REMOTE = re.compile(r"(https?://(?:[^@/\s]+@)?github\.com/|git@github\.co
                            r"([^/\s]+/[^/\s]+?)(\.git)?/?", re.I)
 UPDATE_SH = """#!/bin/bash
 # Pietato's update, from System > Update software (pitato/update.py wrote this): the Pietato folder brought to the
-# latest release (GitHub's latest, else the newest version tag: pitato/release.py), as its owner; then, if that brought
-# a newer version (or the last one wasn't put in), setup.sh --update puts it in, and the Pi restarts. Nothing newer
-# (that release, or a newer version, here already): it's up to date, and that's all.
-DIR="$1" OWNER="$2" REPO="$3"
+# newest version on main (the branch the repository goes by), as its owner; then, if that brought a newer version (or
+# the last one wasn't put in), setup.sh --update puts it in, and the Pi restarts. Nothing newer (main's newest, or a
+# newer version, here already): it's up to date, and that's all.
+DIR="$1" OWNER="$2"
 STATUS={status}
 INSTALLED={installed}
 exec > {log} 2>&1
@@ -55,27 +54,27 @@ AS=()
 if [ "$(id -u)" = 0 ] && [ "$OWNER" != root ]; then AS=(runuser -u "$OWNER" --); fi
 git_() {{ "${{AS[@]}}" env HOME="$HOME_DIR" GIT_TERMINAL_PROMPT=0 \\
   GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=20" git -C "$DIR" "$@"; }}
-git_ ls-remote --tags --refs origin > "$STATUS.tags" 2> "$STATUS.pull" || failed
-TAG="$("${{AS[@]}}" python3 -I "$DIR/pitato/release.py" "$REPO" < "$STATUS.tags")"   # (as the owner too: theirs)
-if [ -z "$TAG" ]; then
-  echo "==> No release to update to"
-  say "failed release"
-  exit 1
-fi
-echo "==> The latest release: $TAG"
-git_ fetch --quiet --force --no-tags origin "+refs/tags/$TAG:refs/tags/$TAG" > "$STATUS.pull" 2>&1 || failed
-REL="$(git_ rev-parse -q --verify "refs/tags/$TAG^{{commit}}" 2> /dev/null)"
+SYM="$(git_ ls-remote --symref origin HEAD 2> /dev/null | head -n 1)"   # ("ref: refs/heads/main<tab>HEAD")
+case "$SYM" in
+  "ref: refs/heads/"*) BRANCH="${{SYM#ref: refs/heads/}}"; BRANCH="${{BRANCH%%[[:space:]]*}}" ;;
+  *) BRANCH="" ;;
+esac
+if [ -z "$BRANCH" ] || ! git check-ref-format "refs/heads/$BRANCH" 2> /dev/null; then BRANCH=main; fi
+echo "==> The newest version on $BRANCH"
+git_ fetch --quiet --force --no-tags origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" > "$STATUS.pull" 2>&1 \\
+  || failed
+REL="$(git_ rev-parse -q --verify "refs/remotes/origin/$BRANCH^{{commit}}" 2> /dev/null)"
 WAS="$(git_ rev-parse HEAD 2> /dev/null)"
 if [ -z "$REL" ] || [ -z "$WAS" ]; then
-  echo "fatal: git can't read $TAG here" > "$STATUS.pull"
+  echo "fatal: git can't read $BRANCH here" > "$STATUS.pull"
   failed
 elif [ "$WAS" = "$REL" ] || git_ merge-base --is-ancestor "$REL" "$WAS" 2> /dev/null; then
-  echo "==> $TAG is here already"
+  echo "==> $BRANCH's newest is here already"
 elif git_ merge-base --is-ancestor "$WAS" "$REL" 2> /dev/null; then
   git_ merge --ff-only "$REL" > "$STATUS.pull" 2>&1 || failed
   cat "$STATUS.pull"
 elif [ "$(git_ log -1 --format=%ct "$REL")" -lt "$(git_ log -1 --format=%ct "$WAS")" ] 2> /dev/null; then
-  echo "==> This version is newer than $TAG: kept"   # (one of its own, or GitHub's history written afresh since)
+  echo "==> This version is newer than $BRANCH's newest: kept"   # (one of its own, or GitHub's written afresh since)
 elif [ -z "$(git_ status --porcelain --untracked-files=no 2> /dev/null)" ] \\
      && TREE="$(git_ rev-parse 'HEAD^{{tree}}' 2> /dev/null)" && [ -n "$TREE" ] \\
      && git_ log --format=%T "$REL" 2> /dev/null | grep -qxF "$TREE"; then
@@ -85,7 +84,7 @@ elif [ -z "$(git_ status --porcelain --untracked-files=no 2> /dev/null)" ] \\
   git_ reset --hard "$REL" > "$STATUS.pull" 2>&1 || failed
   cat "$STATUS.pull"
 else
-  echo "fatal: Not possible to fast-forward to $TAG: this folder's history diverges from it" > "$STATUS.pull"
+  echo "fatal: Not possible to fast-forward to $BRANCH: this folder's history diverges from it" > "$STATUS.pull"
   failed
 fi
 NOW="$(git_ rev-parse HEAD 2> /dev/null)"
@@ -133,12 +132,6 @@ def moved_remote(url):
     return f"{m.group(1)}{new}{m.group(3) or ''}" if new else None
 
 
-def github_repo(url):
-    """GitHub's owner/name for a git remote's address (https or ssh), or None: not one of GitHub's."""
-    m = GITHUB_REMOTE.fullmatch((url or "").strip())
-    return m.group(2) if m else None
-
-
 def read_text(path):
     try:
         with open(path) as f:
@@ -150,8 +143,6 @@ def read_text(path):
 def update_why(status):
     """An update's 'failed ...', in words: what went wrong, and what to do."""
     words = status[len("failed"):].strip()
-    if words.startswith("release"):
-        return "The update didn't start: there's no release on GitHub to update to yet"
     if words.startswith("pull"):
         said = words[len("pull"):].lower()
         if any(w in said for w in ("fast-forward", "diverg", "rejected")):
@@ -173,11 +164,10 @@ class Updater:
     def __init__(self, folder=None):
         self.folder = update_folder() if folder is None else folder or None
         self.lock = threading.Lock()
-        self.new = 0               # how many versions (commits) newer than this one the latest release is
+        self.new = 0               # how many versions (commits) newer than this one main's newest is
         self.behind = False        # one got, but not put in yet (an update that didn't finish)
-        self.fetched = False       # the last look got the latest release (nothing newer then: it's up to date)
-        self.release = None        # ...its tag (v1.2)
-        self.none_yet = False      # ...or there isn't one yet (a fork with no releases or version tags)
+        self.fetched = False       # the last look got main's newest (nothing newer then: it's up to date)
+        self.branch = None         # ...main: the branch the repository goes by (another, if it goes by that)
         self.looked = 0.0          # when it last looked (monotonic)
         self.looking = False
         self.started = 0.0         # an update under way since then (monotonic)
@@ -188,7 +178,7 @@ class Updater:
 
     # -- what's there ---------------------------------------------------------------------------------------------
     def available(self):
-        """A newer release is waiting (or one got and not put in)."""
+        """A newer version is waiting (or one got and not put in)."""
         return bool(self.folder) and (self.new > 0 or self.behind)
 
     def shown(self):
@@ -198,7 +188,7 @@ class Updater:
     def words(self):
         """What System's Update software row says on its right."""
         return ("New version" if self.new > 0 else "Finish updating" if self.behind else
-                "Up to date" if self.fetched else "No release yet" if self.none_yet else "")
+                "Up to date" if self.fetched else "")
 
     def owner(self):
         return pwd.getpwuid(os.stat(self.folder).st_uid)
@@ -230,27 +220,33 @@ class Updater:
         print(f"update: Pietato is {shown} on GitHub now: it updates from there", flush=True)
         return True
 
+    def main_branch(self):
+        """The branch the repository goes by (main), as it says itself (git ls-remote --symref): (its name, ""); main
+        when it doesn't say; (None, why) when it doesn't answer."""
+        ok, out, err = self.git("ls-remote", "--symref", "origin", "HEAD", timeout=60)
+        if not ok:
+            return None, err
+        for line in out.splitlines():
+            m = re.fullmatch(r"ref:\s+refs/heads/(\S+)\s+HEAD", line.strip())
+            if m and self.git("check-ref-format", "refs/heads/" + m.group(1), timeout=10)[0]:
+                return m.group(1), ""
+        return "main", ""
+
     def latest(self):
-        """The latest release (GitHub's latest, else the newest version tag there), fetched as the folder's owner:
-        (its tag, its commit, ""), or (None, None, why): "no release" when there isn't one."""
-        ok, url, _ = self.git("remote", "get-url", "origin", timeout=30)
-        tag = from_github(github_repo(url)) if ok else None
-        if tag is None:                                # (GitHub's API didn't answer, or it isn't GitHub)
-            ok, out, err = self.git("ls-remote", "--tags", "--refs", "origin", timeout=60)
-            if not ok:
-                return None, None, err
-            tag = newest(out.splitlines())
-            if tag is None:
-                return None, None, "no release"
-        ok, _, err = self.git("fetch", "--quiet", "--force", "--no-tags", "origin", f"+refs/tags/{tag}:refs/tags/{tag}",
-                              timeout=120)
+        """main's newest version, fetched as the folder's owner: (the branch, its newest commit, ""), or
+        (None, None, why)."""
+        branch, err = self.main_branch()
+        if branch is None:
+            return None, None, err
+        ok, _, err = self.git("fetch", "--quiet", "--force", "--no-tags", "origin",
+                              f"+refs/heads/{branch}:refs/remotes/origin/{branch}", timeout=120)
         if not ok:
             return None, None, err
-        ok, commit, err = self.git("rev-parse", "-q", "--verify", f"refs/tags/{tag}^{{commit}}", timeout=30)
-        return (tag, commit, "") if ok and commit else (None, None, err or "git")
+        ok, commit, err = self.git("rev-parse", "-q", "--verify", f"refs/remotes/origin/{branch}^{{commit}}", timeout=30)
+        return (branch, commit, "") if ok and commit else (None, None, err or "git")
 
     def newer(self, head, rel):
-        """How many versions (commits) newer than this one (head) the release (rel) is: 0 when it's this one, or this
+        """How many versions (commits) newer than this one (head) main's newest (rel) is: 0 when it's this one, or this
         one's newer (past it, or a version of its own made since)."""
         if head == rel or self.git("merge-base", "--is-ancestor", rel, head, timeout=30)[0]:
             return 0
@@ -272,19 +268,19 @@ class Updater:
         return int(out) if ok and out.isdigit() else 1
 
     def check(self):
-        """Looks: the latest release, fetched; how many versions newer than this one it is, and whether the one here
-        is put in."""
+        """Looks: main's newest, fetched; how many versions newer than this one it is, and whether the one here is put
+        in."""
         if not self.folder or self.started:
             return
         self.looking = True
         try:
             self.follow_rename()
-            tag, rel, err = self.latest()
-            if tag is None and err != "no release":
-                print(f"update: couldn't look for the latest release ({err.splitlines()[-1][:120] if err else 'git'})",
+            branch, rel, err = self.latest()
+            if branch is None:
+                print(f"update: couldn't look for a newer version ({err.splitlines()[-1][:120] if err else 'git'})",
                       flush=True)
             here_ok, head, _ = self.git("rev-parse", "HEAD", timeout=30)
-            new = self.newer(head, rel) if tag and here_ok else None
+            new = self.newer(head, rel) if branch and here_ok else None
             put_in = read_text(INSTALLED)
             behind = bool(here_ok and put_in and put_in != head)
             if behind and re.fullmatch(r"[0-9a-f]{40,64}", put_in):   # (the very files put in, under a new id:
@@ -292,12 +288,11 @@ class Updater:
                 if was[0] and was[1] and was[1] == self.git("rev-parse", "HEAD^{tree}", timeout=30)[1]:
                     behind = False
             with self.lock:
-                if new is not None or err == "no release":
-                    self.new = new or 0
+                if new is not None:
+                    self.new = new
                 self.behind = behind
                 self.fetched = new is not None
-                self.release = tag or self.release
-                self.none_yet = err == "no release"
+                self.branch = branch or self.branch
                 self.looked = time.monotonic()
         finally:
             self.looking = False
@@ -351,10 +346,8 @@ class Updater:
             owner = self.owner().pw_name
         except (OSError, KeyError) as ex:
             return f"The update didn't start ({ex})"
-        ok, url, _ = self.git("remote", "get-url", "origin", timeout=10)
-        repo = (github_repo(url) if ok else None) or ""   # (GitHub's: its latest release asked for; else its tags')
         cmd = ["systemd-run", "--quiet", "--collect", f"--unit={UPDATE_UNIT}", "--description=Pietato update",
-               "/bin/bash", UPDATE_SCRIPT, self.folder, owner, repo]
+               "/bin/bash", UPDATE_SCRIPT, self.folder, owner]
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL)
         except (OSError, subprocess.TimeoutExpired) as ex:
@@ -391,8 +384,8 @@ class Updater:
         return False
 
     def progress(self):
-        """How the update's getting on: ("going", words), ("restarting", words), ("uptodate", words): the latest
-        release brought nothing newer, or ("failed", why)."""
+        """How the update's getting on: ("going", words), ("restarting", words), ("uptodate", words): main's newest
+        brought nothing newer, or ("failed", why)."""
         status = read_text(UPDATE_STATUS)
         if status.startswith("failed"):
             return "failed", update_why(status)

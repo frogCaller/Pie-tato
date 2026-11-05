@@ -169,7 +169,31 @@ img = Image.new("RGB", (640, 346), g.BG)
 c.draw(img, 0, 0, now=t9)
 img.save(SP + "/clock_digital_am.png")
 check(f"...9:05 AM: the hour with no 0 before it ({said})", "9" in said and "05" in said and "AM" in said and "07" in said)
+fonts_of, tops = {}, []
+
+
+def words_noted(text, path, size_):
+    fonts_of[text] = path
+    return real_words(text, path, size_)
+
+
+c.words = words_noted
+for font in g.CLOCK_FONTS:                         # (each font: AM or PM in it too, its top level with the figures')
+    c.configure({"font": font})
+    fonts_of.clear()
+    img = Image.new("RGB", (640, 346), g.BG)
+    c.draw(img, 0, 0, now=T)
+    a = np.asarray(img).astype(int)
+    white = np.argwhere(a.min(axis=2) > 200)       # (the figures: not the colon, the seconds or the date)
+    grey = np.argwhere(np.abs(a - np.array(g.MUTED)).max(axis=2) < 14)
+    grey = grey[(grey[:, 1] > white[:, 1].max() + 3) & (grey[:, 0] < 173)]    # (right of them, at the top: PM)
+    tops.append((font, int(grey[:, 0].min() - white[:, 0].min()) if len(grey) else None))
+    if not fonts_of.get("PM") == fonts_of.get("40") == g.typeface(font)[0]:
+        tops.append((font, "in", os.path.basename(str(fonts_of.get("PM")))))
 del c.words
+c.configure({"font": "Thin"})
+check(f"...AM or PM in the figures' own font, whichever it is, its top level with theirs ({tops})",
+      len(tops) == len(g.CLOCK_FONTS) and all(t[1] is not None and abs(t[1]) <= 3 for t in tops))
 c.configure({"seconds": "Off"})
 said = []
 c.words = lambda text, path, size_: said.append(text) or real_words(text, path, size_)
@@ -257,7 +281,7 @@ check("...the dial in the middle of the page: its face from y=86 to 416", shot.g
       and near(shot.getpixel((320, 92)), g.FACE, 3) and near(shot.getpixel((320, 410)), g.FACE, 3)
       and shot.getpixel((320, 420)) == g.BG and near(shot.getpixel((160, 251)), g.FACE, 3))
 hints = [(k, label) for k, label, *_ in m.sim_hints(s)]
-check(f"...its buttons: {hints}", hints == [("A", "Digital"), ("▲▼", "Colour"), ("◀▶", "Background"), ("X", "Seconds"),
+check(f"...its buttons: {hints}", hints == [("A", "Digital"), ("▲▼", "Colour"), ("◀▶", "Font"), ("X", "Background"),
                                            ("Y", "Date")])
 foot = np.asarray(shot)[480 - 48 + 3:].astype(int)
 check(f"...all of them on the screen, the last one ending before its edge "
@@ -267,20 +291,25 @@ check("...the battery saver leaves it on (something to watch)", m.worth_watching
 m.press("a")
 check("A: Digital, kept for next time", s.values["look"] == "Digital" and m.setting("sim_clock_look") == "Digital"
       and g.Media().sim_value(type(s), "look") == "Digital")
-m.dirty = True; m.flush()
+g.time.time = lambda: T + 0.5                     # (5:40:13 PM, as above: not whatever the time is, its seconds
+try:                                               # "11" narrower than the room kept for them)
+    m.dirty = True; m.flush()
+finally:
+    g.time.time = real_time
 m.fb.last.save(SP + "/clock_page_digital.png")
 page = np.asarray(m.fb.last)[78:424].astype(int)
 digits = np.concatenate([np.argwhere(page.min(axis=2) > 200),
                          np.argwhere(np.abs(page - np.array(dict(g.CLOCK_COLOURS)["Blue"])).max(axis=2) < 30)])
 check(f"...its figures in the middle of the page ({len(digits)} px)", len(digits) > 1500
       and abs((digits[:, 1].min() + digits[:, 1].max()) / 2 - 320) < 12)
-m.press("a")
-check(f"A again: the figures in the next font, said and kept ({m.msg})", s.values["look"] == "Digital"
+check(f"...A's hint now: back to the dial ({s.hints()[0]})", s.hints()[0] == ("A", "Analogue"))
+m.press("right")
+check(f"right: the figures in the next font, said and kept ({m.msg})", s.values["look"] == "Digital"
       and s.values["font"] == "Bold" and m.msg == "Font: Bold" and m.setting("sim_clock_font") == "Bold")
 pics, off = set(), []
 for font in g.CLOCK_FONTS[1:]:                     # (each font: drawn its own way, its figures in the middle)
     if s.values["font"] != font:
-        m.press("a")
+        m.press("right")
     m.msg = None                                   # (its name, said: not over the page for this)
     m.dirty = True; m.flush()
     page = np.asarray(m.fb.last)[78:424].astype(int)
@@ -293,10 +322,30 @@ check(f"...on through the fonts, each its own, the time in the middle of the pag
       f"({s.values['font']}, {len(pics)} pictures, {off} off)", s.values["font"] == g.CLOCK_FONTS[-1]
       and len(pics) == len(g.CLOCK_FONTS) - 1 and not off and all(os.path.isfile(g.typeface(f)[0])
                                                                     for f in g.CLOCK_FONTS))
-check(f"...its hint before the last: back to the dial ({s.hints()[0]})", s.hints()[0] == ("A", "Analogue"))
+m.press("right")
+check(f"...right after the last: round to the first ({s.values['font']}, {m.msg})", s.values["font"] == "Thin"
+      and m.msg == "Font: Thin" and s.values["look"] == "Digital")
+m.press("left")
+check(f"...left: back to the last ({s.values['font']}, {m.msg})", s.values["font"] == g.CLOCK_FONTS[-1]
+      and m.msg == f"Font: {g.CLOCK_FONTS[-1]}" and m.setting("sim_clock_font") == g.CLOCK_FONTS[-1])
 m.press("a")
-check("...after the last: the dial again, its figures Thin", s.values["look"] == "Analogue"
-      and s.values["font"] == "Thin")
+check(f"A: the dial again, the font as it was, and kept ({s.values['font']})", s.values["look"] == "Analogue"
+      and s.values["font"] == g.CLOCK_FONTS[-1] and m.setting("sim_clock_look") == "Analogue"
+      and s.hints()[0] == ("A", "Digital"))
+g.time.time = lambda: T + 0.5                     # (the same second for both: just the font changes)
+try:
+    m.msg = None
+    m.dirty = True; m.flush()
+    was = np.asarray(m.fb.last)[78:424].astype(int)
+    m.press("right")
+    m.msg = None
+    m.dirty = True; m.flush()
+    now = np.asarray(m.fb.last)[78:424].astype(int)
+finally:
+    g.time.time = real_time
+check(f"...right on the dial: the next font, its 12, 3, 6 and 9 in it ({s.values['font']}, "
+      f"{int((np.abs(was - now).sum(axis=2) > 60).sum())} pixels changed)", s.values["font"] == "Thin"
+      and s.values["look"] == "Analogue" and (np.abs(was - now).sum(axis=2) > 60).sum() > 200)
 m.press("down")
 check(f"down: its next colour, Teal, said and kept ({m.msg})", s.values["colour"] == "Teal" and m.msg == "Colour: Teal"
       and m.setting("sim_clock_colour") == "Teal")
@@ -304,29 +353,24 @@ m.press("up"); m.press("up")
 check(f"up twice: back past Blue to White, the last one ({s.values['colour']})", s.values["colour"] == "White"
       and g.Media().sim_value(type(s), "colour") == "White")
 m.press("down")
-m.press("right")
+m.press("x")
 frames(0.1)
 page = m.fb.last
-check(f"right: Background Black, said and kept, the page black between the bars ({page.getpixel((20, 200))}, "
+check(f"X: Background Black, said and kept, the page black between the bars ({page.getpixel((20, 200))}, "
       f"{page.getpixel((20, 70))})", s.values["background"] == "Black" and m.msg == "Background: Black"
       and page.getpixel((20, 200)) == (0, 0, 0) and page.getpixel((20, 440)) != (0, 0, 0)
       and m.setting("sim_clock_background") == "Black")
 page.save(SP + "/clock_page_black.png")
-m.press("right")
+m.press("x")
 frames(0.1)
 page = m.fb.last
 check(f"...again: Colour, a deep blue ({page.getpixel((20, 200))})", s.values["background"] == "Colour"
       and page.getpixel((20, 200)) == s.backdrop and page.getpixel((20, 200))[2] > page.getpixel((20, 200))[0])
 page.save(SP + "/clock_page_colour.png")
-m.press("left"); m.press("left")
+m.press("x")
 frames(0.1)
-check("left twice: Dark again, the page's own", s.values["background"] == "Dark"
-      and m.fb.last.getpixel((20, 200)) == g.BG)
-m.press("x")
-check(f"X: its seconds off, said and kept ({m.msg})", s.values["seconds"] == "Off" and m.msg == "Seconds: Off"
-      and m.setting("sim_clock_seconds") == "Off")
-m.press("x")
-check("X again: on", s.values["seconds"] == "On")
+check(f"...and again: round to Dark, the page's own ({m.msg})", s.values["background"] == "Dark"
+      and m.fb.last.getpixel((20, 200)) == g.BG and m.msg == "Background: Dark" and s.values["seconds"] == "On")
 m.press("y")
 check(f"Y: the date off, said and kept ({m.msg})", s.values["date"] == "Off" and m.msg == "Date: Off"
       and m.setting("sim_clock_date") == "Off")

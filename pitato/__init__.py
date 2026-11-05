@@ -38,8 +38,9 @@
   jellyfin.py       Jellyfin
   computers.py      your other computers' files (shared folders, SSH), opened read-only
   shrink.py         big videos made smaller for this Pi, in the background
-  update.py         System > Update software: the latest release (git), put in by setup.sh --update
-  release.py        which release is the latest: GitHub's answer, else the newest version tag
+  update.py         System > Update software: main's newest version (git), put in by setup.sh --update
+  release.py        which release is the latest: GitHub's answer, else the newest version tag (Update software
+                    followed it before; it follows main now)
   sims.py           Apps' little worlds
   clock.py          Apps' Clock
   notes.py          Apps' Notes: what you type on a keyboard (screens/notes.py: its files, the keyboard, its buttons)

@@ -1,7 +1,7 @@
-"""Pietato's latest release, which System > Update software follows (not main): the one GitHub calls the latest for
-the Pietato folder's repository (not a pre-release or a draft), or, when GitHub's API doesn't answer (or it isn't on
-GitHub), the newest version among its tags (v1.10 after v1.9; not v1.3-beta). Python's own modules only, so the
-update can run it by itself, as the folder is changing:
+"""Pietato's latest release (where its SD card images are): the one GitHub calls the latest for the Pietato folder's
+repository (not a pre-release or a draft), or, when GitHub's API doesn't answer (or it isn't on GitHub), the newest
+version among its tags (v1.10 after v1.9; not v1.3-beta). System > Update software followed it before; it follows
+main now (update.py), and doesn't ask it. Python's own modules only, so it can run by itself:
 
     git ls-remote --tags --refs origin | python3 -I release.py OWNER/NAME     (prints the tag, or nothing)
 """
