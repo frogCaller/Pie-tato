@@ -2,9 +2,9 @@
 bored and finds something to do, something else every minute or so: it plays one of your games (as an arcade
 cabinet's does), looks through your camera and says what it sees (turning it to look around, when it's one that turns:
 an OBSBOT on a Pi), puts up the weather, your stocks and coins, one of Apps' (the Game of Life, Forest Fire, the
-Mandelbrot set, Rock Paper Scissors, a fortune cookie cracked open), a slideshow of your photos, or how the Pi's doing. Each time, it says something
-about it: its model's words when it has one (Settings > Bot), else a line of its own; on the screen, and out loud in the
-day (with a voice, and Talks out loud on). Games only: just games, as it was.
+Mandelbrot set, Rock Paper Scissors, a new fortune from the Fortune Cookie), a slideshow of your photos, or how the Pi's
+doing. Each time, it says something about it: its model's words when it has one (Settings > Bot), else a line of its
+own; on the screen, and out loud in the day (with a voice, and Talks out loud on). Games only: just games, as it was.
 
 A game: the AI player plays it (the decision model you last picked for it, on your bot's computer), from where you were
 in it; or, without one, the game's own demo plays, from its start. Its saves are kept apart (your own never change), its
@@ -234,7 +234,7 @@ class AttractScreen:
             if self.web_tab(name) is None:
                 return False
             a["app"], a["shown"] = name, self.tab
-            if name == "Fortune Cookie":               # (a new one, cracked open, and what it says read out)
+            if name == "Fortune Cookie":               # (a new fortune, and what it says read out)
                 cookie = self.sim_game()
                 cookie.new()
                 self.sim_next = 0.0

@@ -1,6 +1,6 @@
-"""Apps' Fortune Cookie (pitato/fortune.py draws it): its buttons. A cracks a new cookie open; the d-pad picks its colours
-(up and down the words', left and right the background's), L and R its font, Y an effect (each kept, as START's card
-keeps them, and said); X reads it out loud in your Bot's voice (X again stops)."""
+"""Apps' Fortune Cookie (pitato/fortune.py draws it): its buttons. A shows a new fortune; the d-pad picks its colours (up
+and down the words', left and right the background's), L and R its font, Y an effect (each kept, as START's card keeps
+them, and said); X reads it out loud in your Bot's voice (X again stops)."""
 
 FORTUNE_KEYS = {"up": "ink", "down": "ink", "left": "paper", "right": "paper", "l": "font", "r": "font",
                 "y": "effect"}
@@ -15,7 +15,7 @@ class FortuneScreen:
                     and self.sim_game().key == "fortune" and self.sim_opts is None)
 
     def press_fortune(self, s, name, repeat):
-        """A: a new fortune (its cookie cracking open); up and down the words' colour, left and right the
+        """A: a new fortune (fading up); up and down the words' colour, left and right the
         background's, L and R the font, Y the effect (each kept, as START's card keeps it, and said); X reads it out
         loud (X again stops). B: back to the list ("pass"). False: as for any of Apps' (SELECT, START)."""
         if name == "b":
@@ -27,7 +27,7 @@ class FortuneScreen:
                 self.voice.stop()                      # (the last one's fortune: not read on over the new one)
             self.fortune_aloud = False
             s.new()
-            self.sim_next = 0.0                        # (its cookie cracks open now, frame by frame)
+            self.sim_next = 0.0                        # (it fades up now, frame by frame)
         elif name in FORTUNE_KEYS:
             key = FORTUNE_KEYS[name]
             label, ways = next((label, list(ways)) for k, label, ways, _ in s.options if k == key)

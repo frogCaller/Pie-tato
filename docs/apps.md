@@ -24,7 +24,7 @@ Pietato starts on a home screen of apps:
   dozen fonts, ▲▼ change its colour, X its background, Y turns the date on or off, and START has its seconds), Notes
   (type with a USB or Bluetooth keyboard: ▲▼ change the words' colour, ◀▶ the background, A the font, Y adds
   a glow, a rainbow or a shadow, X reads it out loud in your Bot's voice, and L and R go through your notes,
-  kept in Documents/Notes), a Fortune Cookie (A cracks a new one open, ▲▼ and ◀▶ pick its colours as in Notes,
+  kept in Documents/Notes), a Fortune Cookie (A shows a new fortune, ▲▼ and ◀▶ pick its colours as in Notes,
   L and R its font, Y an effect, and X reads your fortune and lucky numbers out loud), Rock Paper Scissors (pick a
   winner before the first capture), Game of Life, Forest Fire and the Mandelbrot set, which takes you on dives
   (or press the d-pad to explore it, A to zoom in and Y to zoom out). Press SELECT to watch one full screen.

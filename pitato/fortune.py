@@ -1,23 +1,19 @@
-"""Apps' Fortune Cookie: a fortune on the page, a fortune cookie over it and lucky numbers under it, in the colours,
-font and effect you pick (as Notes has them). A cracks a new cookie open: a new fortune (not one you've had lately).
-The d-pad picks its colours (up and down the words', left and right the background's), L and R its font, Y an effect
-(a glow, a rainbow, a shadow), X reads it out loud in your Bot's voice. START has them all, and how big the letters
-are; SELECT is the whole screen, B goes back. (screens/fortune.py: its buttons.)"""
-import math
+"""Apps' Fortune Cookie: a fortune on the page, big, its lucky numbers under it, in the colours, font and effect you
+pick (as Notes has them). A shows a new fortune (not one you've had lately), coming in as it fades up. The d-pad picks
+its colours (up and down the words', left and right the background's), L and R its font, Y an effect (a glow, a
+rainbow, a shadow), X reads it out loud in your Bot's voice. START has them all, and how big the letters are; SELECT
+is the whole screen, B goes back. (screens/fortune.py: its buttons.)"""
 import time
 
 from .fine import detail
 from .notes import Notes, NOTE_FONTS, NOTE_SIZES
 from .theme import co_mix, typeface
 
-FORTUNE_SIZE = 30            # px: Clean's letters, Normal (the others as big to look at: theme.py)
-FORTUNE_CRACK = 0.8          # seconds a cookie takes to crack open (its fortune coming in as it does)
+FORTUNE_SIZE = 38            # px: Clean's letters, Normal (the others as big to look at: theme.py)
+FORTUNE_FADE = 0.35          # seconds a new fortune takes to fade up
 FORTUNE_FPS = 25             # ...its frames a second meanwhile
 FORTUNE_STILL = 30.0         # seconds between its frames otherwise (nothing on it changes by itself)
-FORTUNE_COOKIE = 104         # px across, the cookie
 FORTUNE_NUMBERS = 6          # lucky numbers, from 1 to 49
-COOKIE = ((228, 174, 98), (186, 126, 58), (248, 210, 146))   # its colour, its shade, its light
-SLIP = ((250, 247, 238), (214, 206, 190))                    # the paper in it, and its edge
 FORTUNES = (
     "A small step today saves a long walk tomorrow.",
     "The answer you're looking for is closer than you think.",
@@ -142,61 +138,9 @@ FORTUNES = (
 )
 
 
-def cookie_picture(size, t, s=1):
-    """The fortune cookie, size px across (s: how finely the screen's drawn), t of the way cracked open (0: whole, its
-    paper's corner showing at its fold; 1: its halves apart and turned out, the paper out between them): an RGBA
-    picture, the cookie in its middle."""
-    from PIL import Image, ImageDraw
-    k = 4                                      # (drawn bigger, then shrunk: smooth edges)
-    size = size * s
-    W, H = int(size * 2.3), int(size * 0.95)
-    img = Image.new("RGBA", (W * k, H * k), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    rx, ry = size * k / 2, size * k * 0.36     # (the whole cookie: this wide and tall, from its middle)
-    cx, cy = W * k / 2, H * k * 0.5
-    t = max(0.0, min(1.0, t))
-    ease = 1 - (1 - t) ** 3                    # (quick at first, settling)
-    out = ease * size * k * 0.36               # how far each half's moved out
-    tilt = math.radians(ease * 28)             # ...and turned, each its own way
-    if t > 0.1:                                # the paper, coming out between them
-        f = (t - 0.1) / 0.9
-        pw, ph = size * k * (0.3 + 1.0 * f), size * k * 0.17
-        y0 = cy + ry * 0.05
-        d.rounded_rectangle((cx - pw / 2, y0 - ph / 2, cx + pw / 2, y0 + ph / 2), radius=ph * 0.2, fill=SLIP[0],
-                            outline=SLIP[1], width=k)
-        for i in range(3):                     # (its print, too small to read from here)
-            x = cx - pw * 0.32 + i * pw * 0.24
-            d.line((x, y0, x + pw * 0.16, y0), fill=SLIP[1], width=max(1, int(k * 1.6 * s)))
-    for side in (-1, 1):
-        def place(x, y):                       # (turned about the fold's foot, then moved out)
-            px, py = cx, cy + ry * 0.55
-            dx, dy = x - px, y - py
-            a = side * tilt
-            return (px + dx * math.cos(a) - dy * math.sin(a) + side * out,
-                    py + dx * math.sin(a) + dy * math.cos(a))
-        top = [place(cx + side * rx * math.sin(math.radians(a)), cy - ry * 0.95 * math.cos(math.radians(a)))
-               for a in range(0, 121, 5)]     # its back, round over the top and down its side
-        foot = [place(cx + side * rx * (0.86 - 0.8 * f), cy + ry * (0.48 + 0.42 * math.sin(math.pi * f)))
-                for f in (i / 12 for i in range(13))]   # its foot, curling in under to the fold
-        fold = [place(cx + side * rx * 0.05, cy + ry * 0.2), place(cx + side * rx * 0.02, cy - ry * 0.5)]
-        d.polygon(top + foot + fold, fill=COOKIE[0])
-        crease = [place(cx + side * rx * (0.12 + 0.4 * f), cy - ry * (0.55 - 1.0 * f) - ry * 0.25 * math.sin(
-            math.pi * f)) for f in (i / 10 for i in range(11))]
-        d.line(crease, fill=COOKIE[1], width=max(1, int(k * 2.4 * s)), joint="curve")
-        light = [place(cx + side * rx * 0.78 * math.sin(math.radians(a)), cy - ry * 0.72 * math.cos(math.radians(a)))
-                 for a in range(28, 84, 4)]
-        d.line(light, fill=COOKIE[2], width=max(1, int(k * 2.6 * s)), joint="curve")
-    if t <= 0.1:                               # whole: the paper's corner, peeking out of its fold
-        pw, ph = size * k * 0.22, size * k * 0.11
-        y0 = cy + ry * 0.62
-        d.rounded_rectangle((cx - pw / 2, y0, cx + pw / 2, y0 + ph), radius=ph * 0.2, fill=SLIP[0],
-                            outline=SLIP[1], width=k)
-    return img.reduce(k)
-
-
 class Fortune(Notes):
-    """A fortune, on the page itself: a fortune cookie at the top (cracking open as a new one comes), the fortune in
-    the middle in its colours, font and effect, and its lucky numbers under it."""
+    """A fortune, on the page itself: in the middle of it, big, in its colours, font and effect (fading up as a new
+    one comes), and its lucky numbers under it."""
     key = "fortune"
     blurb = "A new fortune with A. The d-pad picks its colours, L and R its font, and Y an effect."
 
@@ -204,13 +148,12 @@ class Fortune(Notes):
         super().__init__(w, h, rng, values)
         self.deck = []                  # fortunes still to come (all of them, in no order, then again)
         self.numbers = ()
-        self.cracked = 0.0              # when the cookie was cracked open (time.time())
-        self.pictures = {}              # the cookie, as it cracks: (size, s, step) -> it
-        self.new(at=0.0)                # (the first: already open)
+        self.shown = 0.0                # when the fortune came (time.time()): it fades up from then
+        self.new(at=0.0)                # (the first: up already)
 
     def new(self, at=None):
-        """A new fortune, its cookie cracking open now (at: when it was, time.time()): one you haven't had lately (all
-        of them come before any comes again)."""
+        """A new fortune, fading up now (at: when it came, time.time()): one you haven't had lately (all of them come
+        before any comes again)."""
         if not self.deck:
             self.deck = list(range(len(FORTUNES)))
             self.rng.shuffle(self.deck)
@@ -218,21 +161,21 @@ class Fortune(Notes):
                 self.deck.insert(0, self.deck.pop())   # (not the one just had, straight away again)
         self.text = FORTUNES[self.deck.pop()]
         self.numbers = tuple(sorted(self.rng.sample(range(1, 50), FORTUNE_NUMBERS)))
-        self.cracked = time.time() if at is None else at
+        self.shown = time.time() if at is None else at
 
     def said(self):
         """What X reads out loud: the fortune, and its lucky numbers."""
         nums = [str(n) for n in self.numbers]
         return f"{self.text} Your lucky numbers are {', '.join(nums[:-1])} and {nums[-1]}."
 
-    def cracking(self, wall=None):
-        """How far its cookie's cracked open (1: open)."""
+    def fading(self, wall=None):
+        """How far a new fortune's faded up (1: all there)."""
         wall = time.time() if wall is None else wall
-        return max(0.0, min(1.0, (wall - self.cracked) / FORTUNE_CRACK))
+        return max(0.0, min(1.0, (wall - self.shown) / FORTUNE_FADE))
 
     def frame_in(self, wall):
-        """Seconds until its picture changes: often while its cookie cracks open, else now and then."""
-        return 1.0 / FORTUNE_FPS if self.cracking(wall) < 1.0 else FORTUNE_STILL
+        """Seconds until its picture changes: often while a new fortune fades up, else now and then."""
+        return 1.0 / FORTUNE_FPS if self.fading(wall) < 1.0 else FORTUNE_STILL
 
     def hints(self):
         """Its buttons, along the bottom (on a screen wider than the GPi Case's, Y's, SELECT's and START's too)."""
@@ -263,11 +206,10 @@ class Fortune(Notes):
         return self.fonts[key]
 
     def layout(self, H, s):
-        """(the cookie's middle, the words' room: its top and bottom, the lucky numbers' baseline), down the page."""
+        """(the words' room: its top and bottom, the lucky numbers' baseline), down the page."""
         pad = 22 * s
-        cookie = pad + FORTUNE_COOKIE * 0.42 * s
         numbers = H - pad
-        return cookie, (cookie + FORTUNE_COOKIE * 0.52 * s, numbers - 30 * s), numbers
+        return (pad, numbers - 30 * s), numbers
 
     def picture(self, W, H, s):
         """Its words, as a picture (W x H, see-through where there are none): the fortune in the middle of its room, its
@@ -280,7 +222,7 @@ class Fortune(Notes):
         from PIL import Image, ImageDraw, ImageFilter
         ink, paper = self.ink(), self.backdrop
         pad = 30 * s
-        _, (top, bottom), base = self.layout(H, s)
+        (top, bottom), base = self.layout(H, s)
         for shrink in (1.0, 0.85, 0.72, 0.6, 0.5):     # (the biggest its lines fit)
             font = self.font(s, shrink)
             asc, desc = font.getmetrics()
@@ -310,28 +252,14 @@ class Fortune(Notes):
         self.drawn = (key, out, None)
         return out
 
-    def cookie(self, t, s):
-        """The cookie as it is t of the way open (kept: a few steps of it)."""
-        step = round(t * 20)
-        key = (FORTUNE_COOKIE, s, step)
-        if key not in self.pictures:
-            if len(self.pictures) > 48:
-                self.pictures.clear()
-            self.pictures[key] = cookie_picture(FORTUNE_COOKIE, step / 20, s)
-        return self.pictures[key]
-
     def draw(self, img, x0, y0, now=None):
         s = detail(img)
         pic = img.pic if s > 1 else img
         W, H = self.w * s, self.h * s
         wall = time.time() if now is None else now
-        t = self.cracking(wall)
+        f = self.fading(wall)
         words = self.picture(W, H, s)
-        if t >= 1.0:
+        if f >= 1.0:
             pic.paste(words, (x0 * s, y0 * s), words)
-        elif t > 0.45:                                 # (its fortune comes in as the cookie opens)
-            f = (t - 0.45) / 0.55
+        elif f > 0.0:                                  # (a new one, fading up)
             pic.paste(words, (x0 * s, y0 * s), words.getchannel("A").point(lambda v: int(v * f)))
-        cookie = self.cookie(t, s)
-        cy = self.layout(H, s)[0]
-        pic.paste(cookie, (x0 * s + (W - cookie.width) // 2, y0 * s + int(cy - cookie.height / 2)), cookie)
