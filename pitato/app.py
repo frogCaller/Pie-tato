@@ -5,6 +5,7 @@ import time
 from evdev import ecodes as e, UInput
 
 from .config import move_old_places
+from .handheld import profile as handheld_profile
 from .library import MENU_RATE, MENU_REPEAT, SCREEN_KINDS
 from .inputs import (
     BUTTONS, CHORD_WAIT, Keys, MEDIA_TOGGLE, NAME, Pads, PowerKey, REPEAT, REPEAT_DELAY, REPEAT_RATE, STAR, STAR_TAP,
@@ -365,6 +366,9 @@ def run(ui, media, control=None, stop=None):
     if media.boot_media:                          # Settings: open on the home screen
         media.boot_media = False
         media.enter()
+        if media.boot_game:                       # ...or in the game you played last, from where you were
+            media.boot_game = False
+            media.game_boot()
 
     try:
         while not (stop and stop()):
@@ -478,6 +482,10 @@ def run(ui, media, control=None, stop=None):
 
 
 def main():
+    hand = handheld_profile()                      # (what this is, from its device tree: an RK3326 handheld, or not)
+    if hand:
+        print(f"handheld: {hand['name']} ({hand['model'] or 'no model'}, {hand['chip']}): its gamepad, screen, "
+              "battery and WiFi dongle", flush=True)
     keys = sorted({k for combo in TERMINAL.values() for k in combo})
     ui = UInput({e.EV_KEY: keys}, name=NAME)
     move_old_places()                              # (what it kept by its old name: where it keeps it now)

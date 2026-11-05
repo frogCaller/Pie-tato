@@ -12,7 +12,7 @@ _REPO = (_os.environ.get("PITATO_REPO") or _os.environ.get("PITATO_ROOT")
 if _REPO not in sys.path:
     sys.path.append(_REPO)           # (after this folder)
 
-_ORDER = ["theme", "config", "util", "lengths", "net", "system", "gpicase", "bluetooth", "screen", "gpu", "radio", "tv", "library", "home",
+_ORDER = ["theme", "config", "asyou", "util", "lengths", "net", "system", "gpicase", "bluetooth", "screen", "gpu", "radio", "tv", "library", "home",
           "weather", "documents", "filters", "cameras", "nearby", "voice", "listen", "bot", "coder", "crypto", "stocks",
           "homeassistant", "pihole", "plex", "jellyfin", "computers", "sims", "clock", "mandelbrot", "snake", "shrink", "update", "emulator", "discs", "games", "handoff",
           "www", "chromium",

@@ -1,16 +1,19 @@
 """System > Update software with real git, as a Pi has it: the pitato folder a clone owned by its user (gpitest),
-looked at as that user (never as root: nothing of root's left in it); Update software always at the top of System,
-saying New version while there's a newer one (or Finish updating: one pulled and not put in), Up to date when there
-isn't; pressed twice, the update runs as a job of its own (a stand-in systemd-run): git pull as the folder's owner,
+looked at as that user (never as root: nothing of root's left in it). It follows the latest release, not main: what's
+pushed to main waits for a release (a version tag here, GitHub's latest release where GitHub's API answers: a pretend
+one); a clone of main past the release isn't taken back to it. Update software always at the top of System, saying
+New version while there's a newer release (or Finish updating: one got and not put in), Up to date when there isn't;
+pressed twice, the update runs as a job of its own (a stand-in systemd-run): on to the release as the folder's owner,
 setup.sh --update (a stand-in: as root, no terminal, told who the user is), then a restart (a stand-in systemctl), its
-screen saying how it's getting on, nothing else let on the screen meanwhile. Nothing newer: git pull, and it says it's
-up to date, back on System, no restart; a newer version it hadn't looked for yet: put in all the same. When it doesn't
-work (changes here in the way, setup.sh failing, the job gone), System says why, and offers it again. GitHub's
-history written afresh (every id new, the same versions: git filter-repo): taken as it is, up to date if it's the same
-version, put in if there's a newer one, but not over a version of its own here. Pietato renamed on GitHub: a folder
-cloned from its old name gets it from the new one once that answers (as the folder's owner). In a mount namespace of
-its own: everything it makes is on a tmpfs at /srv there."""
-import json, os, shutil, subprocess, sys, time
+screen saying how it's getting on, nothing else let on the screen meanwhile. Nothing newer: it says it's up to date,
+back on System, no restart; a newer release it hadn't looked for yet: put in all the same; no release at all: said.
+When it doesn't work (changes here in the way, setup.sh failing, the job gone), System says why, and offers it again.
+GitHub's history written afresh (every id new, the same versions: git filter-repo, its tags too): taken as it is, up
+to date if it's the same version, put in if there's a newer release, but not over a version of its own here. Pietato
+renamed on GitHub: a folder cloned from its old name gets it from the new one once that answers (as the folder's
+owner). release.py: the newest version among tags; GitHub's answer, not a pre-release, a draft or a tag it can't
+take. In a mount namespace of its own: everything it makes is on a tmpfs at /srv there."""
+import http.server, json, os, shutil, subprocess, sys, threading, time
 
 from paths import SP, ROOT, TESTS  # noqa: E402  (this test's folder of work; the Pietato folder; tests)
 if os.environ.get("UPD_NS") != "1":
@@ -42,13 +45,30 @@ def sh(cmd, user=USER, cwd=None, ok=True):
     return r
 
 
+CLOCK = [1_760_000_000]
+
+
+def dated():
+    """A commit's date, an hour after the last one's (git's dates go by the second: these never tie)."""
+    CLOCK[0] += 3600
+    return ["env", f"GIT_AUTHOR_DATE=@{CLOCK[0]} +0000", f"GIT_COMMITTER_DATE=@{CLOCK[0]} +0000"]
+
+
 def commit(path, text, msg):
     with open(f"{T}/work/{path}", "w") as f:
         f.write(text)
     sh(["git", "-C", T + "/work", "add", "-A"])
-    sh(["git", "-C", T + "/work", "-c", "user.name=frogCaller", "-c", "user.email=f@example.com", "commit", "-qm", msg])
+    sh(dated() + ["git", "-C", T + "/work", "-c", "user.name=frogCaller", "-c", "user.email=f@example.com", "commit",
+                  "-qm", msg])
     sh(["git", "-C", T + "/work", "push", "-q", "origin", "main"])
     return sh(["git", "-C", T + "/work", "rev-parse", "HEAD"]).stdout.strip()
+
+
+def release(tag, ref="HEAD"):
+    """A release on GitHub: its tag, pushed (GitHub makes one for it)."""
+    sh(["git", "-C", T + "/work", "tag", "-f", tag, ref])
+    sh(["git", "-C", T + "/work", "push", "-q", "--force", "origin", f"refs/tags/{tag}"])
+    return sh(["git", "-C", T + "/work", "rev-parse", f"{tag}^{{commit}}"]).stdout.strip()
 
 
 def not_theirs():
@@ -71,6 +91,8 @@ sh(["git", "init", "-q", "--bare", "-b", "main", T + "/origin.git"])
 sh(["git", "clone", "-q", T + "/origin.git", T + "/work"], ok=False)    # (empty: it says so)
 os.makedirs(T + "/work/static/fonts")
 open(T + "/work/static/fonts/OFL.txt", "w").write("fonts\n")
+os.makedirs(T + "/work/pitato")
+shutil.copy(ROOT + "/pitato/release.py", T + "/work/pitato/release.py")   # (the update asks it for the latest release)
 open(T + "/work/setup.sh", "w").write(f"""#!/bin/bash
 # stand-in setup.sh: what it was asked, as whom; then it notes what it put in, as the real one does
 HERE="$(cd "$(dirname "${{BASH_SOURCE[0]}}")" && pwd)"
@@ -106,6 +128,7 @@ exit 0
     open(f"{T}/bin/{name}", "w").write(body)
     os.chmod(f"{T}/bin/{name}", 0o755)
 first = commit("README.md", "# Pitato\n", "Pitato")
+release("v1.0")
 sh(["git", "clone", "-q", T + "/origin.git", CLONE])
 os.environ["PATH"] = T + "/bin:" + os.environ["PATH"]
 g.UPDATE_RUN, g.UPDATE_SCRIPT, g.UPDATE_STATUS = T + "/run", T + "/run/update.sh", T + "/run/update.status"
@@ -118,8 +141,17 @@ check(f"nothing newer: Update software there all the same, Up to date ({u.new}, 
       u.new == 0 and not u.behind and not u.available() and u.shown() and u.words() == "Up to date")
 second = commit("README.md", "# Pitato\n\nNow with updates.\n", "Update software")
 u.check()
-check(f"a newer version on GitHub: Update software, New version ({u.new})", u.new == 1 and u.available()
-      and u.words() == "New version")
+check(f"a newer version on main, not a release yet: still Up to date ({u.new}, {u.release}, {u.words()!r})",
+      u.new == 0 and not u.available() and u.release == "v1.0" and u.words() == "Up to date")
+release("v1.1-beta")
+release("nightly")
+u.check()
+check(f"...nor with a pre-release's tag, or one that isn't a version ({u.new}, {u.release})",
+      u.new == 0 and u.release == "v1.0")
+release("v1.1")
+u.check()
+check(f"a release of it: Update software, New version ({u.new}, {u.release})", u.new == 1 and u.available()
+      and u.words() == "New version" and u.release == "v1.1")
 check(f"...looked at as the folder's owner: nothing of root's left in it ({not_theirs()[:3]})", not not_theirs())
 check("...and the folder itself not changed by looking", read(CLONE + "/README.md") == "# Pitato\n")
 
@@ -263,9 +295,11 @@ r = m.web_command({"cmd": "open", "app": "Home"})
 check(f"...nothing to press meanwhile, nor anything from the web page put on the screen ({r})",
       m.view == "update" and "error" in r)
 check("...then it restarts the Pi", until(lambda: "reboot" in read(T + "/reboot.log"), 20))
-check(f"...after git pull, as the folder's owner (now {second[:7]}; nothing of root's: {not_theirs()[:3]})",
-      sh(["git", "-C", CLONE, "rev-parse", "HEAD"]).stdout.strip() == second and not not_theirs()
-      and "Now with updates." in read(CLONE + "/README.md"))
+check(f"...after it's on to the release, as the folder's owner (now {second[:7]}; nothing of root's: "
+      f"{not_theirs()[:3]}), still on its branch", sh(["git", "-C", CLONE, "rev-parse", "HEAD"]).stdout.strip() == second
+      and not not_theirs() and "Now with updates." in read(CLONE + "/README.md")
+      and sh(["git", "-C", CLONE, "branch", "--show-current"]).stdout.strip() == "main"
+      and "==> The latest release: v1.1" in read(T + "/update.log"))
 called = dict(line.split("=", 1) for line in read(T + "/setup.called").split())
 check(f"...and setup.sh --update, as root, no terminal, told who the user is ({called})",
       called == {"args": "--update", "uid": "0", "sudo_user": USER, "tty": "no", "debian": "noninteractive"})
@@ -299,19 +333,20 @@ check(f"...its screen: just Updating Pietato, whether or not there's anything ne
 ok = until(lambda: m.view == "list" and m.msg == "Pietato is up to date", 20)
 check(f"...nothing newer: back to System, up to date ({m.msg!r})", ok and m.tab == si)
 time.sleep(0.5)
-check("...git pull was all: nothing put in, no restart", "systemd-run" in read(T + "/calls.log")
+check("...looking was all: nothing put in, no restart", "systemd-run" in read(T + "/calls.log")
       and not os.path.exists(T + "/setup.called") and not os.path.exists(T + "/reboot.log")
-      and "Already up to date" in read(T + "/update.log"))
+      and "v1.1 is here already" in read(T + "/update.log") and "Already up to date" in read(T + "/update.log"))
 
-# ---- a newer version it hadn't looked for yet: pressed, it's pulled and put in all the same ------------------------------
+# ---- a newer release it hadn't looked for yet: pressed, it's got and put in all the same --------------------------------
 pushed = commit("README.md", "# Pitato\n\nNot looked for yet.\n", "Not looked for")
-check(f"a newer version on GitHub, not looked for yet ({u.words()!r})", not u.available())
+release("v1.2")
+check(f"a newer release on GitHub, not looked for yet ({u.words()!r})", not u.available())
 m.view, m.tab = "list", si
 m.load_tab(si)
 m.sels[si] = 0
 m.press("a"); m.press("a")
 check("pressed: updating", m.view == "update")
-check("...pulled, put in, and the Pi restarts", until(lambda: "reboot" in read(T + "/reboot.log"), 25)
+check("...got, put in, and the Pi restarts", until(lambda: "reboot" in read(T + "/reboot.log"), 25)
       and read(T + "/installed-commit").strip() == pushed and os.path.exists(T + "/setup.called"))
 u = g.Updater(folder=CLONE)                     # (after the restart: a new media mode's)
 u.check()
@@ -336,13 +371,14 @@ def back_with(words, secs=25):
 
 # ---- it doesn't work: changes here in the way ---------------------------------------------------------------------
 third = commit("README.md", "# Pitato\n\nA third.\n", "Third")
+release("v1.3")
 open(CLONE + "/README.md", "a").write("my own line\n")                    # (changed here, by hand)
 shutil.chown(CLONE + "/README.md", USER, USER)
 u.check()
 check("a newer version again", u.available() and u.words() == "New version")
 check("pressed: updating", start_update())
 ok = back_with("files in the Pietato folder were changed here")
-check(f"...git pull won't: back to System, saying why ({m.msg!r})", ok)
+check(f"...git won't: back to System, saying why ({m.msg!r})", ok)
 check("...nothing put in, no restart", not os.path.exists(T + "/setup.called") and not os.path.exists(T + "/reboot.log"))
 check("...the change here kept, Update software still there", "my own line" in read(CLONE + "/README.md")
       and until(lambda: m.tab_items(si)[0]["title"] == "Update software", 10))
@@ -355,7 +391,7 @@ ok = back_with("didn't finish putting it in")
 check(f"...back to System, saying so ({m.msg!r})", ok)
 check("...no restart", not os.path.exists(T + "/reboot.log"))
 u.check()
-check(f"...pulled but not put in: Update software says Finish updating ({u.new}, {u.behind})",
+check(f"...got but not put in: Update software says Finish updating ({u.new}, {u.behind})",
       u.new == 0 and u.behind and u.words() == "Finish updating"
       and until(lambda: m.row_right(m.tab_items(si)[0])[0] == "Finish updating", 5))
 os.remove(T + "/setup.result")
@@ -365,11 +401,12 @@ check("...pressed again: put in, and the Pi restarts", start_update()
 # ---- GitHub's history written afresh (a line taken out of its notes): the same versions, every id new ------------------
 def rewrite(old, new):
     """GitHub's history written afresh, as git filter-repo does it: a word changed in a note, so every id from there on
-    is new, every version's files the same; pushed over GitHub's (as the push script does)."""
+    is new, every version's files the same, the releases' tags moved with them; pushed over GitHub's."""
     sh(["git", "-C", T + "/work", "filter-repo", "--force", "--quiet", "--message-callback",
         f"return message.replace({old.encode()!r}, {new.encode()!r})"])
     sh(["git", "-C", T + "/work", "remote", "add", "origin", T + "/origin.git"])     # (filter-repo takes it away)
     sh(["git", "-C", T + "/work", "push", "-q", "--force", "origin", "main"])
+    sh(["git", "-C", T + "/work", "push", "-q", "--force", "--tags", "origin"])
     return sh(["git", "-C", T + "/work", "rev-parse", "HEAD"]).stdout.strip()
 
 
@@ -385,8 +422,9 @@ u = g.Updater(folder=CLONE)                     # (after the restart: a new medi
 m.updater = u
 u.on_change = m.update_found
 afresh = rewrite("Pitato", "Pietato")
-check(f"GitHub's history written afresh: every id new, the same files ({third[:7]}, now {afresh[:7]})",
-      afresh != third and tree(T + "/work") == tree(CLONE) and here() == third)
+check(f"GitHub's history written afresh, its releases with it: every id new, the same files ({third[:7]}, now "
+      f"{afresh[:7]})", afresh != third and tree(T + "/work") == tree(CLONE) and here() == third
+      and sh(["git", "-C", T + "/work", "rev-parse", "v1.3^{commit}"]).stdout.strip() == afresh)
 u.check()
 check(f"...nothing newer for all that: Up to date ({u.new}, {u.behind}, {u.words()!r})",
       u.new == 0 and not u.behind and u.words() == "Up to date")
@@ -398,9 +436,10 @@ check(f"...the folder on GitHub's new history ({here()[:7]}), its new id noted, 
       here() == afresh and read(T + "/installed-commit").strip() == afresh and not os.path.exists(T + "/setup.called")
       and not os.path.exists(T + "/reboot.log") and "written afresh" in read(T + "/update.log"))
 commit("README.md", "# Pitato\n\nA fourth.\n", "Fourth")
-fourth = rewrite("Pietato", "Pietato, again")     # (pushed, then written afresh: the push script's way)
+fourth = rewrite("Pietato", "Pietato, again")     # (pushed, then written afresh)
+release("v1.4", fourth)
 u.check()
-check(f"a newer version, the history written afresh again: just the one newer ({u.new}, {u.words()!r})",
+check(f"a newer release, the history written afresh again: just the one newer ({u.new}, {u.words()!r})",
       u.new == 1 and u.words() == "New version")
 check("pressed: updating", start_update())
 check(f"...GitHub's history taken, the new version put in, and the Pi restarts ({here()[:7]})",
@@ -411,22 +450,29 @@ m.updater = u
 u.on_change = m.update_found
 open(CLONE + "/README.md", "a").write("my own version\n")
 shutil.chown(CLONE + "/README.md", USER, USER)
-sh(["git", "-C", CLONE, "-c", "user.name=me", "-c", "user.email=me@example.com", "commit", "-qam", "Mine"])
+sh(dated() + ["git", "-C", CLONE, "-c", "user.name=me", "-c", "user.email=me@example.com", "commit", "-qam", "Mine"])
 mine = here()
 rewrite("again", "once more")
 u.check()
-check(f"a version of its own here, GitHub's history written afresh: there's a version on GitHub ({u.words()!r})",
-      u.available())
+check(f"a version of its own here, newer than the latest release (GitHub's history written afresh since): nothing "
+      f"newer to go on to, it's its own to put in ({u.new}, {u.behind}, {u.words()!r})",
+      u.new == 0 and u.behind and u.words() == "Finish updating")
+fifth = commit("README.md", "# Pitato\n\nA fifth.\n", "Fifth")
+release("v1.5")
+u.check()
+check(f"...then a newer release: there's a version on GitHub ({u.new}, {u.words()!r})", u.available() and u.new > 0
+      and u.words() == "New version")
 check("pressed: updating", start_update())
 ok = back_with("changes of its own")
-check(f"...git pull won't, and GitHub's isn't taken over it: back to System, saying why ({m.msg!r})", ok)
+check(f"...git won't, and GitHub's isn't taken over it: back to System, saying why ({m.msg!r})", ok)
 check("...its own version kept, nothing put in, no restart", here() == mine and "my own version" in read(CLONE + "/README.md")
       and not os.path.exists(T + "/setup.called") and not os.path.exists(T + "/reboot.log"))
-sh(["git", "-C", CLONE, "reset", "-q", "--hard", "@{upstream}"])
+sh(["git", "-C", CLONE, "fetch", "-q", "--force", "origin", "+refs/tags/v1.4:refs/tags/v1.4"])
+sh(["git", "-C", CLONE, "reset", "-q", "--hard", "v1.4"])
 u.check()
-check(f"put on GitHub's new history by hand (git reset): the files put in, under a new id: Up to date, not Finish "
-      f"updating ({u.new}, {u.behind}, {u.words()!r})", here() != fourth and tree(CLONE) == tree(CLONE, fourth)
-      and u.new == 0 and not u.behind and u.words() == "Up to date")
+check(f"put on GitHub's new history by hand (git reset to v1.4): the files put in, under a new id: not Finish "
+      f"updating, and v1.5 one newer ({u.new}, {u.behind}, {u.words()!r})", here() != fourth
+      and tree(CLONE) == tree(CLONE, fourth) and u.new == 1 and not u.behind and u.words() == "New version")
 
 # ---- the job: one at a time; gone without a word; taken up again -----------------------------------------------------
 open(T + "/unit.running", "w").close()
@@ -445,6 +491,124 @@ check(f"the job gone without a word: it stopped ({state}, {why!r})", state == "f
 open(g.UPDATE_STATUS, "w").write("failed install\n")
 check("an update that didn't work, from before: not taken up", not g.Updater(folder=CLONE).under_way())
 
+# ---- release.py: the newest version among tags; GitHub's answer for its latest release ---------------------------------
+import pitato.release as R  # noqa: E402
+check(f"the newest version among tags: v1.10 after v1.9, not a pre-release or a tag that isn't a version "
+      f"({R.newest(['a' + chr(9) + 'refs/tags/v1.9', 'b' + chr(9) + 'refs/tags/v1.10', 'v1.2.3', 'v2.0-rc1', 'nightly'])})",
+      R.newest(["a\trefs/tags/v1.9", "b\trefs/tags/v1.10", "v1.2.3", "v2.0-rc1", "nightly", "v1..2"]) == "v1.10"
+      and R.newest(["v0.9", "1.0"]) == "1.0" and R.newest(["nightly", "latest"]) is None and R.newest([]) is None)
+
+
+class API(http.server.BaseHTTPRequestHandler):
+    """A pretend GitHub API: its answer for the latest release (what it's set to), and what it was asked."""
+    answer = (200, {"tag_name": "v1.5", "prerelease": False, "draft": False})
+    asked = []
+
+    def do_GET(self):
+        API.asked.append((self.path, self.headers.get("User-Agent"), self.headers.get("Accept")))
+        code, body = API.answer
+        data = body if isinstance(body, bytes) else json.dumps(body).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, *a):
+        pass
+
+
+api = http.server.ThreadingHTTPServer(("127.0.0.1", 0), API)
+threading.Thread(target=api.serve_forever, daemon=True).start()
+os.environ["PITATO_RELEASES_API"] = f"http://127.0.0.1:{api.server_port}/repos/{{repo}}/releases/latest"
+said = {}
+for name, answer in (("latest", (200, {"tag_name": "v1.5", "prerelease": False, "draft": False})),
+                     ("pre", (200, {"tag_name": "v1.6", "prerelease": True, "draft": False})),
+                     ("draft", (200, {"tag_name": "v1.6", "prerelease": False, "draft": True})),
+                     ("none", (404, {"message": "Not Found"})), ("limit", (403, {"message": "API rate limit exceeded"})),
+                     ("junk", (200, b"<html>not json</html>")), ("odd", (200, {"tag_name": "v1.5; rm -rf ~"})),
+                     ("number", (200, {"tag_name": 15}))):
+    API.answer = answer
+    said[name] = R.from_github("frogCaller/Pietato", timeout=5)
+check(f"GitHub's latest release: its tag; not a pre-release or a draft; none, a refusal, junk or an odd tag: none ({said})",
+      said == {"latest": "v1.5", "pre": None, "draft": None, "none": None, "limit": None, "junk": None, "odd": None,
+               "number": None})
+check(f"...asked for the folder's repository, as Pietato, for JSON ({API.asked[0]})",
+      API.asked[0] == ("/repos/frogCaller/Pietato/releases/latest", "Pietato-update", "application/vnd.github+json"))
+API.asked.clear()
+check("...nothing asked for an address that isn't GitHub's owner/name",
+      R.from_github("", 5) is None and R.from_github("not a repo", 5) is None and not API.asked)
+API.answer = (500, {"message": "down"})
+check("...GitHub's API not answering: the newest version tag (and its answer first when it does)",
+      R.latest("frogCaller/Pietato", ["v1.2", "v1.3"], timeout=5) == "v1.3"
+      and (setattr(API, "answer", (200, {"tag_name": "v1.2"})) or R.latest("frogCaller/Pietato", ["v1.3"], 5) == "v1.2"))
+os.environ["PITATO_RELEASES_API"] = "http://127.0.0.1:9/repos/{repo}/releases/latest"
+check("...nor there at all: the tags' all the same", R.latest("frogCaller/Pietato", ["v1.3"], timeout=5) == "v1.3")
+os.environ["PITATO_RELEASES_API"] = f"http://127.0.0.1:{api.server_port}/repos/{{repo}}/releases/latest"
+
+# ---- Update software, asking GitHub's API (a folder from GitHub): its latest release, not a newer tag's -------------------
+real_repo = g.github_repo
+g.github_repo = lambda url: "frogCaller/Pietato" if url else None     # (this pretend GitHub's folder, as GitHub's)
+sixth = commit("README.md", "# Pitato\n\nA sixth.\n", "Sixth")
+release("v1.6")                                    # (on GitHub, a pre-release: its API says v1.5's the latest)
+API.answer = (200, {"tag_name": "v1.5", "prerelease": False, "draft": False})
+API.asked.clear()
+u = g.Updater(folder=CLONE)
+m.updater = u
+u.on_change = m.update_found
+u.check()
+check(f"GitHub's latest release followed, not the newest tag: v1.5, one newer ({u.release}, {u.new}, {API.asked[:1]})",
+      u.release == "v1.5" and u.new == 1 and API.asked and API.asked[0][0] == "/repos/frogCaller/Pietato/releases/latest")
+API.answer = (200, {"tag_name": "v1.6", "prerelease": False, "draft": False})
+u.check()
+check(f"...v1.6 the latest now: two newer ({u.release}, {u.new})", u.release == "v1.6" and u.new == 2)
+API.asked.clear()
+check("pressed: updating", start_update())
+check(f"...the update asked GitHub too, went on to v1.6, put it in, and the Pi restarts ({here()[:7]})",
+      until(lambda: "reboot" in read(T + "/reboot.log"), 25) and here() == sixth
+      and read(T + "/installed-commit").strip() == sixth and API.asked
+      and "==> The latest release: v1.6" in read(T + "/update.log"))
+API.answer = (500, {"message": "down"})
+u = g.Updater(folder=CLONE)
+u.check()
+check(f"GitHub's API not answering: the newest version tag, and that's here: Up to date ({u.release}, {u.words()!r})",
+      u.release == "v1.6" and u.new == 0 and u.words() == "Up to date")
+API.answer = (200, {"tag_name": "v1.6", "prerelease": False, "draft": False})
+
+# ---- a clone of main, newer than the latest release: not taken back to it ---------------------------------------------
+commit("README.md", "# Pitato\n\nA seventh, on main.\n", "Seventh")
+sh(["git", "clone", "-q", T + "/origin.git", HOME + "/main-clone"])
+um = g.Updater(folder=HOME + "/main-clone")
+um.check()
+check(f"a clone of main, newer than the latest release: nothing newer, not taken back to it ({um.release}, {um.new})",
+      um.release == "v1.6" and um.new == 0 and um.fetched)
+
+# ---- no release at all (a fork with none): said, and nothing to update to -------------------------------------------
+sh(["git", "init", "-q", "--bare", "-b", "main", T + "/norel.git"])
+sh(["git", "-C", T + "/work", "push", "-q", T + "/norel.git", "main"])      # (main, and no tags)
+sh(["git", "clone", "-q", T + "/norel.git", HOME + "/norel"])
+API.answer = (404, {"message": "Not Found"})
+open(T + "/installed-commit", "w").write(sh(["git", "-C", HOME + "/norel", "rev-parse", "HEAD"]).stdout)   # (put in, as setup.sh does)
+un = g.Updater(folder=HOME + "/norel")
+un.check()
+check(f"no release, nor a version tag: No release yet ({un.words()!r}, {un.new})",
+      un.words() == "No release yet" and un.new == 0 and not un.fetched and not un.available())
+for f in ("setup.called", "reboot.log"):
+    if os.path.exists(f"{T}/{f}"):
+        os.remove(f"{T}/{f}")
+until(lambda: not os.path.exists(T + "/unit.running"), 15)     # (the last update's job over)
+err = un.begin()
+ok = err is None and until(lambda: read(g.UPDATE_STATUS).startswith("failed"), 15)
+state, why = un.progress()
+check(f"...pressed: it says so, nothing put in, no restart ({err}, {state}, {why!r})",
+      ok and state == "failed" and "no release" in why and not os.path.exists(T + "/setup.called")
+      and not os.path.exists(T + "/reboot.log") and "No release to update to" in read(T + "/update.log"))
+un.done()
+g.github_repo = real_repo
+API.answer = (200, {"tag_name": "v1.6", "prerelease": False, "draft": False})
+api.shutdown()
+os.environ.pop("PITATO_RELEASES_API", None)
+
 # ---- git's words, as System says them ----------------------------------------------------------------------------------
 W = g.update_why
 check("why, in words", "GitHub didn't answer" in W("failed pull fatal: unable to access 'https://github.com/x/y/': "
@@ -455,6 +619,9 @@ check("why, in words", "GitHub didn't answer" in W("failed pull fatal: unable to
                                     "possible to fast-forward, aborting.")
       and "changed here" in W("failed pull error: Your local changes to the following files would be overwritten "
                               "by merge: README.md Please commit your changes or stash them before you merge. Aborting")
+      and "changes of its own" in W("failed pull fatal: Not possible to fast-forward to v1.5: this folder's history "
+                                    "diverges from it")
+      and "no release" in W("failed release")
       and W("failed install").startswith("The update didn't finish"))
 
 print("ALL OK" if all(ok_all) else f"FAILED {ok_all.count(False)}", flush=True)

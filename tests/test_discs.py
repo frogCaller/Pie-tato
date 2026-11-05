@@ -521,8 +521,8 @@ r = subprocess.run(["bash", "-c", block], env={**os.environ, "USER_HOME": left, 
 check(f"...the PlayStation's, the Game Boy's, NES's... and the PSP's left out: no folders for them "
       f"({sorted(os.listdir(left + '/Games'))})", r.returncode == 0 and sorted(os.listdir(left + "/Games"))
       == sorted(["BIOS", "neogeo", "ngp", "ngpc", "n64", "nds", "dc"]))
-readme = open(ROOT + "/README.md").read()
-check("...and the README says so", "`gb`, `gbc`, `gba`, `nes`, `snes`, `genesis`, `sms`, `gg`, `ngp`, `ngpc`, `neogeo` and "
+readme = "\n".join(open(f).read() for f in [ROOT + "/README.md"] + sorted(__import__("glob").glob(ROOT + "/docs/*.md")))
+check("...and the README (and docs/) says so", "`gb`, `gbc`, `gba`, `nes`, `snes`, `genesis`, `sms`, `gg`, `ngp`, `ngpc`, `neogeo` and "
                                     "`ps1`, and on a Pi 4 or 5 or a PC, `n64`, `psp`, `nds` and `dc`, and on a PC, "
                                     "`ps2`, `gc` and `wii`" in " ".join(readme.split())
       and "the BIOS from your own PS2" in " ".join(readme.split())

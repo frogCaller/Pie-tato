@@ -390,7 +390,17 @@ def no_frames(resp):
 # ---- the page ----------------------------------------------------------------------
 PI_MODEL = "/proc/device-tree/model"            # a Pi's model; a PC hasn't one...
 DMI = "/sys/class/dmi/id"                      # ...but its firmware's description of itself (pitato/system.py's is_pc)
+COMPATIBLE = "/proc/device-tree/compatible"    # an RK3326 handheld's chip, in its device tree (pitato/handheld.py's)
 PC_WORDS = re.compile(r"\b([Tt]he|[Tt]his|[Yy]our|[Aa]) Pi\b(?![-\w]| \d| Zero| OS| Case)")
+
+
+def is_handheld():
+    """An RK3326 handheld (the R36S and its kind, on dArkOS) rather than a Pi or a PC."""
+    try:
+        with open(COMPATIBLE, "rb") as f:
+            return b"rockchip,rk3326" in f.read().split(b"\0")
+    except OSError:
+        return False
 
 
 def is_pc():
@@ -401,12 +411,18 @@ def is_pc():
                 return False
     except OSError:
         pass
-    return os.path.isdir(DMI)
+    return os.path.isdir(DMI) and not is_handheld()
+
+
+def machine_word():
+    """What "the Pi" is here: "PC", "handheld", or None on a Pi."""
+    return "PC" if is_pc() else "handheld" if is_handheld() else None
 
 
 def pc_said(text):
-    """What the server says, as it goes on a PC: "the PC", not "the Pi"."""
-    return PC_WORDS.sub(lambda m: m.group(1) + " PC", text) if isinstance(text, str) and is_pc() else text
+    """What the server says, as it goes on a PC: "the PC", not "the Pi" (on an RK3326 handheld, "the handheld")."""
+    word = machine_word() if isinstance(text, str) else None
+    return PC_WORDS.sub(lambda m: m.group(1) + " " + word, text) if word else text
 
 
 @app.after_request
@@ -429,11 +445,12 @@ def pc_errors(resp):
 
 def page_file(path, mimetype=None):
     """One of the page's own files, handed out: on a PC, what it says about the Pi says "the PC" instead (never a
-    Pi-hole, a Pi 4 or a Pi Zero)."""
-    if not is_pc():
+    Pi-hole, a Pi 4 or a Pi Zero); on an RK3326 handheld, "the handheld"."""
+    word = machine_word()
+    if not word:
         return send_file(path, mimetype=mimetype)
     with open(path, encoding="utf-8") as f:
-        text = PC_WORDS.sub(lambda m: m.group(1) + " PC", f.read())
+        text = PC_WORDS.sub(lambda m: m.group(1) + " " + word, f.read())
     return Response(text, mimetype=mimetype or "text/html")
 
 

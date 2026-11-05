@@ -16,6 +16,7 @@ fi
 
 SYSD=/etc/systemd/system
 WAS_DESKTOP=/var/lib/pitato/was-graphical      # (setup.sh: this computer started in its desktop before Pietato)
+WAS_ES=/var/lib/pitato/was-emulationstation    # (setup.sh: this handheld started in dArkOS's EmulationStation before)
 
 found=no
 for unit in pitato pitato-web pitato-camera; do  # media mode, the web page, the camera server
@@ -39,5 +40,13 @@ if [ -f "$WAS_DESKTOP" ]; then
   echo "The computer starts in its desktop again."
   if ! systemctl is-active --quiet display-manager; then
     systemctl --no-block start display-manager  # (last: run from the console, the desktop takes its place)
+  fi
+fi
+if [ -f "$WAS_ES" ]; then                      # (an RK3326 handheld: EmulationStation at start-up again, the console off)
+  systemctl --quiet enable emulationstation 2> /dev/null || true
+  if [ -f /var/lib/pitato/was-no-console ]; then systemctl --quiet disable getty@tty1 2> /dev/null || true; fi
+  echo "The handheld starts in EmulationStation again."
+  if ! systemctl is-active --quiet emulationstation; then
+    systemctl --no-block start emulationstation   # (last: EmulationStation on the screen, in Pietato's place)
   fi
 fi

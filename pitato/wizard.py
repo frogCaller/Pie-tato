@@ -68,6 +68,9 @@ class Machine:
         self.left_out = set(get("LEAVE_OUT").split())
         self.keep_login = get("KEEP_LOGIN") == "yes"
         self.desktop = get("DESKTOP") == "yes"       # a PC that starts in its desktop now
+        self.handheld = get("HANDHELD")              # an RK3326 handheld (on dArkOS): what it's called, or "" (a Pi, a PC)
+        self.es = get("ES") == "yes"                 # ...that starts in dArkOS's EmulationStation now (in Pietato after)
+        self.darkos = get("DARKOS_CORES")            # ...and dArkOS's own emulators (RetroArch's cores), where they are
         self.mode = get("MODE")                      # default or custom (--default, --custom), or ask
         self.without = get("WITHOUT")                # --without's: no question about what goes in
         self.cores = get("CORES") or CORES
@@ -75,9 +78,11 @@ class Machine:
 
     @property
     def speed(self):
-        """0: a Pi Zero 2 or 3 (or a board it doesn't know); 1: a Pi 4; 2: a Pi 5; 3: a PC."""
+        """0: a Pi Zero 2 or 3 (or a board it doesn't know, or an RK3326 handheld); 1: a Pi 4; 2: a Pi 5; 3: a PC."""
         if self.pc:
             return 3
+        if self.handheld:
+            return 0
         if "Pi 5" in self.model or "Compute Module 5" in self.model:
             return 2
         if "Pi 4" in self.model or "Pi 400" in self.model or "Compute Module 4" in self.model:
@@ -85,8 +90,14 @@ class Machine:
         return 0
 
     def name(self):
+        if self.handheld:
+            return self.handheld
         m = re.sub(r"\s+Rev\s+[\d.]+$", "", self.model.replace("\0", "")).strip()
         return m or ("This computer" if self.pc else "This Pi")
+
+    def kind(self):
+        """What it's called in a heading: "This Pi", "This computer", "This handheld"."""
+        return "This computer" if self.pc else "This handheld" if self.handheld else "This Pi"
 
 
 # ---- what goes in: setup.sh's optional parts ------------------------------------------------------------------------
@@ -114,6 +125,8 @@ BASE = (12, 6, 4, 3)                    # minutes for the rest (packages, media 
 SIXTY_FOUR = ("arm64", "aarch64", "amd64", "x86_64")
 GAME_FILES = {"ps1": "pcsx_rearmed", "n64": "mupen64plus_next", "psp": "ppsspp", "nds": "melonds", "dc": "flycast",
               "ps2": "pcsx2", "gc": "dolphin", "neogeo": "fbneo_neogeo", "ngp": "mednafen_ngp", "link": "gambatte"}
+DARKOS_FILES = {"classic": ("mgba", "snes9x", "genesis_plus_gx"), "ps1": ("pcsx_rearmed",), "neogeo": ("fbneo",),
+                "ngp": ("mednafen_ngp",)}   # an RK3326 handheld's: dArkOS's own emulators, nothing to build (setup.sh)
 
 
 def can_have(part, m, case=None):
@@ -133,7 +146,11 @@ def can_have(part, m, case=None):
 
 
 def already(part, m):
-    """It's in already (built here before, or installed): nothing much to do for it this time."""
+    """It's in already (built here before, or installed; on an RK3326 handheld, dArkOS's own): nothing much to do for
+    it this time."""
+    if m.darkos and part in DARKOS_FILES and all(os.path.isfile(os.path.join(m.darkos, f + "_libretro.so"))
+                                                for f in DARKOS_FILES[part]):
+        return True
     if part in GAME_FILES:
         return os.path.isfile(os.path.join(m.cores, GAME_FILES[part] + "_libretro.so"))
     if part == "cheevos":
@@ -672,7 +689,7 @@ class Wizard:
             room.append(f"{m.mem / 1024:.0f} GB of memory" if m.mem >= 1536 else f"{m.mem} MB of memory")
         if m.free:
             room.append(f"{m.free / 1024:.0f} GB free" + ("" if m.pc else " on its card"))
-        s.note("This computer" if m.pc else "This Pi", [f" {l.dot} ".join(x) for x in (what, room) if x])
+        s.note(m.kind(), [f" {l.dot} ".join(x) for x in (what, room) if x])
         steps = [self.ask_case, self.ask_mode, self.ask_parts, self.ask_services, self.ask_restart, self.ask_go]
         asked, i, marks, start = [], 0, {}, s.lines
         while i < len(steps):
@@ -820,6 +837,8 @@ class Wizard:
         lines = []
         if self.gpi == "yes":
             lines.append(f"In a GPi Case {'2W' if self.case == '2w' else '2'}: its screen, sound and power switch")
+        if m.handheld and m.es:                    # (an RK3326 handheld on dArkOS: in EmulationStation's place)
+            lines.append("Starts in Pietato, not EmulationStation (System > EmulationStation opens it)")
         lines.append({"keep": "As it is", "default": "Default: everything"}.get(self.mode, "Custom")
                      + f", {how_long(estimate(self.parts, m))}")
         if out:

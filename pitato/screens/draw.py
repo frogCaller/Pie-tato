@@ -7,7 +7,8 @@ from ..theme import (
     MUTED, ROW, TEXT, WARN)
 from ..config import home_dir
 from ..util import clock, human_size, short_path
-from ..system import cpu_temp, HOT_C, on_pc, wifi_bars, wifi_quality
+from ..system import cpu_temp, HOT_C, LOW_BATTERY, on_pc, wifi_bars, wifi_quality
+from ..handheld import battery, is_handheld
 from ..library import LIBRARY, LISTEN_KINDS
 from ..screen import slow_pi
 from ..home import mix
@@ -284,8 +285,9 @@ class DrawScreen:
     # status bar and headers -----------------------------------------------------
     def status_signature(self):
         t = cpu_temp()
-        return (time.strftime("%H:%M"), wifi_bars(wifi_quality()),
-                None if t is None else round(t), self.kind, self.meta.get("song"), self.assist_status())
+        sig = (time.strftime("%H:%M"), wifi_bars(wifi_quality()),
+               None if t is None else round(t), self.kind, self.meta.get("song"), self.assist_status())
+        return sig + (battery(),) if is_handheld() else sig   # (an RK3326 handheld's battery: its level, on the bar)
 
     def status_bar(self, d, clock=True):
         F, W = self.fonts, self.fb.w
@@ -310,6 +312,9 @@ class DrawScreen:
         if bars == 0:
             d.text((x, y), "No WiFi", font=F["status"], fill=WARN, anchor="rm")
             x -= d.textlength("No WiFi", font=F["status"]) + 14
+        b = battery() if is_handheld() else None
+        if b:                                          # (a handheld's battery: how full, and a bolt while it charges)
+            x = self.battery_mark(d, x, y, *b)
         t = cpu_temp()
         if t is not None:
             txt = f"{t:.0f}°C"
@@ -319,6 +324,22 @@ class DrawScreen:
             what = self.meta.get("song") or self.meta.get("title") or self.cur["title"]
             txt = self.fit(d, "♪ " + what, F["status"], max(x - 120, 40))
             d.text((x, y), txt, font=F["status"], fill=ACCENT, anchor="rm")
+
+    def battery_mark(self, d, x, y, percent, charging):
+        """The battery on the status bar, its right edge at x: a little battery filled as far as it's charged, and its
+        percent beside it (orange when it's low and not charging). Where the next thing goes, to its left."""
+        low = percent <= LOW_BATTERY and not charging
+        colour = WARN if low else MUTED
+        right = x
+        d.rectangle((right - 2, y - 2, right, y + 2), fill=colour)          # (its tip)
+        d.rectangle((right - 22, y - 6, right - 3, y + 6), outline=colour, width=1)
+        full = round(15 * percent / 100)
+        if full:
+            d.rectangle((right - 20, y - 4, right - 21 + full, y + 4), fill=WARN if low else ACCENT if charging
+                        else TEXT)
+        txt = f"{percent}%"
+        d.text((right - 28, y), txt, font=self.fonts["status"], fill=WARN if low else MUTED, anchor="rm")
+        return right - 28 - d.textlength(txt, font=self.fonts["status"]) - 14
 
     def header(self, img, d):
         """Status bar plus the tab strip, scrolled so the current tab shows (Full screen apps: just the app's name)."""

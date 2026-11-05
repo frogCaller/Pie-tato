@@ -9,7 +9,8 @@ import threading
 import time
 
 from ..theme import ACCENT, BODY, LINE, MUTED, ROW, TEXT
-from ..config import SCREEN_MODES
+from ..asyou import as_you, nice_now
+from ..config import home_dir, SCREEN_MODES
 from ..util import clock
 from ..lengths import probe_length
 from ..screen import (aplay_device, bt_output_name, bt_outputs, screen_turn, slow_pi, sound_cards, sound_device,
@@ -303,10 +304,13 @@ class PlayerScreen:
         if self.fb and self.kind in SCREEN_KINDS and hasattr(self.fb, "invalidate"):
             self.fb.invalidate()                       # the picture covers the menus' black edges
         self.muted = self.settling = False
+        pre, you = as_you(home_dir())                  # (as you, not root: what it opens could be anyone's)
         self.proc = subprocess.Popen(
-            args + [target], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            pre + args + [target], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True, bufsize=1, errors="replace",
-            preexec_fn=lambda: os.nice(PLAYER_NICE))
+            **(you or {"preexec_fn": lambda: os.nice(PLAYER_NICE)}))
+        if you:
+            nice_now(self.proc, PLAYER_NICE)
         self.proc.said = collections.deque(maxlen=PLAYER_SAID)
         threading.Thread(target=self.reader, args=(self.proc,), daemon=True).start()
         threading.Thread(target=self.errors, args=(self.proc,), daemon=True).start()

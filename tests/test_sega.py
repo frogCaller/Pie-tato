@@ -402,9 +402,9 @@ sys.path.append(ROOT + "/pitato")
 import webui
 check("the web page takes them as games", all(x in webui.KINDS["games"] for x in (".md", ".gen", ".smd", ".sms", ".gg",
                                                                                   ".bin")))
-readme = open(ROOT + "/README.md").read()
+readme = "\n".join(open(f).read() for f in [ROOT + "/README.md"] + sorted(__import__("glob").glob(ROOT + "/docs/*.md")))
 flat = " ".join(readme.split())
-check("README: the consoles, their folders, their emulator, two players",
+check("README and docs/: the consoles, their folders, their emulator, two players",
       "SNES, Genesis, Master System, Game Gear, Neo Geo, Neo Geo Pocket and PlayStation games" in flat and "`genesis`, `sms`, `gg`" in flat
       and "Genesis Plus GX" in flat and "the next one to press a button is player 2" in flat
       and "start over, the players, the volume" in flat)

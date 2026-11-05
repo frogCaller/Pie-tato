@@ -57,7 +57,7 @@
 #   --camera    only share this Pi's USB camera on the network, for Pietato's Camera tab on
 #               another Pi (camera.py, port 5433); nothing else is installed
 #   --update    no questions: it's set up as it was before (System > Update software runs it
-#               after git pull, then restarts the Pi itself)
+#               once it has the latest release, then restarts the Pi itself)
 #   --image     for an SD card image (image/build.sh): no questions, every emulator built (for any
 #               Pi), nothing started and no restart; with --gpi for the GPi Case 2W, --gpi2
 #               for the GPi Case 2
@@ -289,7 +289,19 @@ if [[ "$MODEL" != *"Raspberry Pi"* ]] && [ ! -f "$CONFIG" ] && [ "$IMAGE" != yes
     amd64|x86_64) PC=yes ;;
   esac
 fi
-if [ "$PC" = yes ]; then MACHINE=computer; else MACHINE=Pi; fi     # (what to leave on while it works)
+# an RK3326 handheld (the R36S and its kind, on dArkOS: Debian's ArkOS), from its device tree as Pietato tells it
+# (pitato/handheld.py): its own gamepad, screen and battery, dArkOS's own emulators, no config.txt and no GPi Case
+HANDHELD=no
+HANDHELD_NAME=""
+if [ "$PC" != yes ] && [ "$IMAGE" != yes ] && tr '\0' '\n' 2> /dev/null \
+     < "${PITATO_COMPATIBLE_FILE:-/proc/device-tree/compatible}" | grep -qx 'rockchip,rk3326'; then
+  HANDHELD=yes
+  HANDHELD_NAME="$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); from pitato.handheld import nice_name
+print(nice_name(sys.argv[2]))' "$HERE" "$MODEL" 2> /dev/null || true)"
+  HANDHELD_NAME="${HANDHELD_NAME:-RK3326 handheld}"
+fi
+if [ "$PC" = yes ]; then MACHINE=computer; elif [ "$HANDHELD" = yes ]; then MACHINE=handheld; else MACHINE=Pi; fi
+                                                                    # (what to leave on while it works)
 os_field() {       # os_field NAME: os-release's (ID: ubuntu, or debian, as Raspberry Pi OS's is too; VERSION_CODENAME)
   sed -n "s/^$1=//p" "${PITATO_OS_RELEASE:-/etc/os-release}" 2> /dev/null | tr -d '"' | head -n 1
 }
@@ -311,6 +323,11 @@ if [ -f "$SETUP_CONF" ]; then SAVED=yes; fi
 LEAVE_OUT="$(clean_parts "$(sed -n 's/^leave_out *= *//p' "$SETUP_CONF" 2> /dev/null | head -n 1)")"
 if [ "$IMAGE" = yes ] || [ "$MODE" = default ]; then LEAVE_OUT=""; fi
 if [ -n "$WITHOUT" ]; then LEAVE_OUT="$(clean_parts "$WITHOUT")"; fi
+darkos_has() {     # darkos_has CORE...: an RK3326 handheld's dArkOS has all these emulators already (nothing to build)
+  local c
+  [ -n "${DARKOS_CORES:-}" ] || return 1
+  for c in "$@"; do [ -f "$DARKOS_CORES/${c}_libretro.so" ] || return 1; done
+}
 wanted() {         # wanted PART: it goes in (it wasn't left out)
   case " $LEAVE_OUT " in *" $1 "*) return 1 ;; esac
   return 0
@@ -396,6 +413,9 @@ fi
 if [ "$PC" = yes ]; then     # (a PC: every emulator, and Chromium; never in a GPi Case)
   BIG=yes GPI=no CASE=""
 fi
+if [ "$HANDHELD" = yes ]; then   # (an RK3326 handheld: a Pi Zero 2's kind of emulators, dArkOS's own; no GPi Case)
+  BIG=no GPI=no CASE=""
+fi
 if [ -z "$GPI" ] && [ "$UPDATE" = yes ]; then       # (as it was set up: the case's settings there, or not)
   if [ -n "$WAS" ]; then GPI=yes CASE="${CASE:-$WAS}"; else GPI=no; fi
 fi
@@ -420,6 +440,17 @@ case "$MODEL" in                                   # (Neo Geo games: a Pi 2 or n
 esac
 case "$(dpkg --print-architecture 2>/dev/null || uname -m)" in armel|armv6l) NEO_OLD=yes ;; esac
 if [ "$IMAGE" = yes ]; then NEO_OLD=no; fi
+
+# an RK3326 handheld: dArkOS's own emulators (RetroArch's cores: Pietato plays games with them, nothing to build), and
+# whether it starts in dArkOS's EmulationStation now (Pietato takes its place: System > EmulationStation starts it)
+DARKOS_CORES=""
+ES_ON=no
+if [ "$HANDHELD" = yes ]; then
+  for d in "$USER_HOME/.config/retroarch/cores" /home/*/.config/retroarch/cores; do
+    if [ -d "$d" ]; then DARKOS_CORES="$d"; break; fi
+  done
+  if [ "$(systemctl is-enabled emulationstation 2> /dev/null)" = enabled ]; then ES_ON=yes; fi
+fi
 
 # Setup's own screen (pitato/wizard.py), on a terminal: the questions first, then a line for each step (all it does
 # in its log). Without a terminal (Update software, an SD card image, answers piped in), or with --plain: the old way
@@ -446,7 +477,8 @@ if [ "$UI" = rich ]; then
     PIETATO_W_OS="$(os_field PRETTY_NAME)" PIETATO_W_MEM="$(awk '/MemTotal/ {print int($2 / 1024)}' /proc/meminfo)" \
     PIETATO_W_FREE="$(df -Pm "$HERE" 2> /dev/null | awk 'NR == 2 {print $4}')" PIETATO_W_SAVED="$SAVED" \
     PIETATO_W_LEAVE_OUT="$LEAVE_OUT" PIETATO_W_KEEP_LOGIN="$KEPT" PIETATO_W_DESKTOP="$DESK" \
-    PIETATO_W_MODE="$MODE" PIETATO_W_WITHOUT="$WITHOUT" \
+    PIETATO_W_MODE="$MODE" PIETATO_W_WITHOUT="$WITHOUT" PIETATO_W_HANDHELD="$HANDHELD_NAME" PIETATO_W_ES="$ES_ON" \
+    PIETATO_W_DARKOS_CORES="$DARKOS_CORES" \
     python3 "$HERE/pitato/wizard.py" ask "$ANSWERS" || rc=$?
   answer() {       # answer KEY: the wizard's (letters, numbers and a few marks only)
     sed -n "s/^$1=//p" "$ANSWERS" 2> /dev/null | head -n 1 | tr -cd 'A-Za-z0-9 ,._:/()-'
@@ -503,6 +535,8 @@ elif [ "$GPI" = yes ]; then
   echo "Setting up for the GPi Case 2W: its screen, speaker and buttons."
 elif [ "$PC" = yes ]; then
   echo "Setting up this computer. Plug in any USB or Bluetooth game controller."
+elif [ "$HANDHELD" = yes ]; then
+  echo "Setting up for the $HANDHELD_NAME: its own screen, buttons and battery, and WiFi through a USB dongle."
 else
   echo "Setting up for a screen on HDMI${MODEL:+ ($MODEL)}. Plug in any USB or Bluetooth game controller."
 fi
@@ -510,6 +544,8 @@ if [ "$UI" = rich ]; then
   :                                                # (the questions said how long it takes)
 elif [ "$PC" = yes ]; then
   echo "The first time takes a while (about an hour) as it builds the game emulators."
+elif [ "$HANDHELD" = yes ]; then
+  echo "The first time takes a while (about half an hour): dArkOS has most game emulators already."
 else
   echo "The first time takes a while: an hour or more on a Pi 4, as it builds the game emulators."
 fi
@@ -624,7 +660,8 @@ fi
 # (kbd: chvt, to change the screen over; openssl: the web page's secure page)
 apt-get install -y python3-evdev python3-pil python3-numpy fonts-dejavu-core \
   mplayer poppler-utils iw evtest device-tree-compiler python3-flask alsa-utils ffmpeg bluez kbd openssl
-if [ "$PC" = yes ]; then   # (NAME.local, for the web page, as on a Pi: Ubuntu's and Debian's servers haven't it)
+if [ "$PC" = yes ] || [ "$HANDHELD" = yes ]; then   # (NAME.local, for the web page, as on a Pi: Ubuntu's and
+                                                    # Debian's servers haven't it, nor has dArkOS)
   apt-get install -y avahi-daemon || echo "(Couldn't install avahi-daemon: open the web page by its address.)"
 fi
 # a USB camera (v4l2-ctl: its sizes, and turning one that turns) and a USB microphone (Vosk needs libatomic)
@@ -675,7 +712,9 @@ else
 fi
 # the Games tab's emulators: Game Boy, Color and Advance (mGBA), NES (Nestopia), SNES (Snes9x), and Genesis (Mega
 # Drive), Master System and Game Gear (Genesis Plus GX)
-if wanted classic; then
+if wanted classic && darkos_has mgba snes9x genesis_plus_gx; then   # (an RK3326 handheld: dArkOS's own)
+  echo "dArkOS's own emulators play Game Boy, NES, SNES and Genesis games: nothing to install."
+elif wanted classic; then
   for pkg in libretro-mgba libretro-nestopia libretro-snes9x libretro-genesisplusgx; do
     apt-get install -y "$pkg" || echo "(Couldn't install $pkg: the games it plays won't start without it.)"
   done
@@ -722,6 +761,8 @@ build_pcsx_rearmed() {
 }
 if ! wanted ps1; then
   left_out ps1 "the PlayStation emulator (PCSX ReARMed)"
+elif darkos_has pcsx_rearmed; then
+  echo "dArkOS's own PlayStation emulator (PCSX ReARMed) is here already."
 elif [ "$(cat "$CORES/pcsx_rearmed.version" 2>/dev/null)" = "$PCSX_REARMED" ] && [ -f "$CORES/pcsx_rearmed_libretro.so" ]; then
   echo "The PlayStation emulator (PCSX ReARMed) is built already."
 else
@@ -772,6 +813,8 @@ elif [ "$BIG" = yes ]; then
     step "Building the N64 emulator (Mupen64Plus-Next): $(how_long "about 20 minutes on a Pi 4, less on a Pi 5" "a few minutes")"
     build_mupen64plus || echo "(Couldn't build Mupen64Plus-Next: N64 games won't start.)"
   fi
+elif [ "$HANDHELD" = yes ]; then
+  echo "(N64 games aren't Pietato's on the $HANDHELD_NAME: dArkOS's EmulationStation plays them.)"
 else
   echo "(N64 games need a Pi 4 or 5: no N64 emulator on this one.)"
 fi
@@ -838,6 +881,8 @@ elif [ "$BIG" = yes ]; then
     step "Building the PSP emulator (PPSSPP): $(how_long "about an hour on a Pi 4, 20 minutes on a Pi 5" "about 15 minutes")"
     build_ppsspp || echo "(Couldn't build PPSSPP: PSP games won't start.)"
   fi
+elif [ "$HANDHELD" = yes ]; then
+  echo "(PSP games aren't Pietato's on the $HANDHELD_NAME: dArkOS's EmulationStation plays them.)"
 else
   echo "(PSP games need a Pi 4 or 5: no PSP emulator on this one.)"
 fi
@@ -881,6 +926,8 @@ if [ "$BIG" = yes ]; then
       fi ;;
     *) echo "(DS games need the 64-bit Raspberry Pi OS: no DS emulator on this one.)" ;;
   esac
+elif [ "$HANDHELD" = yes ]; then
+  echo "(DS games aren't Pietato's on the $HANDHELD_NAME: dArkOS's EmulationStation plays them.)"
 else
   echo "(DS games need a Pi 4 or 5: no DS emulator on this one.)"
 fi
@@ -935,6 +982,8 @@ elif [ "$BIG" = yes ]; then
     step "Building the Dreamcast emulator (Flycast): $(how_long "about 20 minutes on a Pi 4, less on a Pi 5" "a few minutes")"
     build_flycast || echo "(Couldn't build Flycast: Dreamcast games won't start.)"
   fi
+elif [ "$HANDHELD" = yes ]; then
+  echo "(Dreamcast games aren't Pietato's on the $HANDHELD_NAME: dArkOS's EmulationStation plays them.)"
 else
   echo "(Dreamcast games need a Pi 4 or 5: no Dreamcast emulator on this one.)"
 fi
@@ -963,6 +1012,8 @@ build_neopop() {
 }
 if ! wanted ngp; then
   left_out ngp "the Neo Geo Pocket emulator (Beetle NeoPop)"
+elif darkos_has mednafen_ngp; then
+  echo "dArkOS's own Neo Geo Pocket emulator (Beetle NeoPop) is here already."
 elif [ "$(cat "$CORES/mednafen_ngp.version" 2>/dev/null)" = "$NEOPOP" ] && [ -f "$CORES/mednafen_ngp_libretro.so" ]; then
   echo "The Neo Geo Pocket emulator (Beetle NeoPop) is built already."
 else
@@ -1080,6 +1131,8 @@ if [ "${NEO_OLD:-no}" = yes ] && [ "$IMAGE" != yes ]; then      # (NEO_OLD: work
   echo "(Neo Geo games need a Pi 2 or newer: no Neo Geo emulator on this one.)"
 elif ! wanted neogeo; then
   left_out neogeo "the Neo Geo emulator (FinalBurn Neo)"
+elif darkos_has fbneo; then
+  echo "dArkOS's own Neo Geo emulator (FinalBurn Neo) is here already."
 elif [ "$(cat "$CORES/fbneo_neogeo.version" 2>/dev/null)" = "$FBNEO" ] && [ -f "$CORES/fbneo_neogeo_libretro.so" ] \
     && [ -f "$CORES/fbneo_neogeo.gamelist.txt" ]; then
   echo "The Neo Geo emulator (FinalBurn Neo) is built already."
@@ -1574,6 +1627,21 @@ if [ "$PC" = yes ] && [ "$UPDATE" != yes ] && [ "$KEEP_DESKTOP" != yes ] \
   touch /var/lib/pitato/was-graphical          # (it started in its desktop: stop.sh and uninstall.sh put that back)
 fi
 
+# An RK3326 handheld on dArkOS: it starts in Pietato now, in EmulationStation's place (never both at once: they'd fight
+# over the screen and the buttons). System > EmulationStation starts it till the handheld restarts; stop.sh and
+# uninstall.sh put it back. And the console's on again (dArkOS turns it off for EmulationStation): the terminal's.
+# (Not on an update: as it was set up.)
+if [ "$HANDHELD" = yes ] && [ "$UPDATE" != yes ] && [ "$ES_ON" = yes ]; then
+  step "The $HANDHELD_NAME starts in Pietato now, not EmulationStation (System > EmulationStation starts it)"
+  systemctl disable emulationstation 2> /dev/null || true
+  install -d /var/lib/pitato
+  touch /var/lib/pitato/was-emulationstation   # (it started in EmulationStation: stop.sh and uninstall.sh put that back)
+  if [ "$(systemctl is-enabled getty@tty1 2> /dev/null)" != enabled ]; then
+    systemctl enable getty@tty1 2> /dev/null || true
+    touch /var/lib/pitato/was-no-console       # (dArkOS had it off: off again with EmulationStation)
+  fi
+fi
+
 # --------------------------------------------------------------------------
 step "Installing the web page (port 5432, and 5443 for its secure page)"
 install -d /usr/local/share/pitato/templates
@@ -1626,6 +1694,10 @@ fi
 # Both go through the Loopback sound card (snd-aloop), card 7 so it's never the Pi's own sound (a Pi's kernel has
 # room for cards 0 to 7 only); media mode plays into it mixed (pietato_web), and the web page (in the audio group)
 # hands out what comes out of it.
+if [ "$HANDHELD" = yes ] && ! modinfo snd-aloop > /dev/null 2>&1; then   # (an RK3326 handheld's kernel: none)
+  echo "(This handheld's kernel has no Loopback sound card: the web page's Sound here and Mic here won't work.)"
+  rm -f /etc/modprobe.d/pietato-loopback.conf /etc/modules-load.d/pietato-loopback.conf
+else
 cat > /etc/modprobe.d/pietato-loopback.conf <<'ALOOP'
 # Pietato's web page: Sound here and Mic here go through this card
 options snd-aloop index=7 id=Loopback pcm_substreams=2
@@ -1636,6 +1708,7 @@ if ! modprobe snd-aloop 2>/dev/null; then
     apt-get install -y "linux-modules-extra-$(uname -r)" > /dev/null 2>&1 || true
   fi
   modprobe snd-aloop 2>/dev/null || echo "(The Loopback sound card didn't load yet: Sound here and Mic here work after a restart.)"
+fi
 fi
 if command -v wireplumber > /dev/null 2>&1; then   # (a desktop's PipeWire leaves the card alone: it's not a speaker)
   install -d /etc/wireplumber/main.lua.d /etc/wireplumber/wireplumber.conf.d
@@ -1896,6 +1969,10 @@ fi
 if [ "$PC" = yes ] && [ -e /etc/systemd/system/display-manager.service ]; then
   echo "This computer starts in Pietato. System > Desktop starts the desktop, and restarting comes back to Pietato."
 fi
+if [ "$HANDHELD" = yes ] && [ -f /var/lib/pitato/was-emulationstation ]; then
+  echo "The $HANDHELD_NAME starts in Pietato. System > EmulationStation starts EmulationStation, and restarting comes"
+  echo "back to Pietato (sudo bash stop.sh puts EmulationStation back for good)."
+fi
 echo "It starts on the home screen (Settings > At start-up can make it the terminal)."
 if [ -f "$AUTOLOGIN" ]; then
   echo "It signs you in by itself at start-up: no password needed at the console."
@@ -1903,7 +1980,7 @@ fi
 echo "On your phone or computer, open  http://$(hostname).local:5432"
 echo "to see the screen, work it with a remote, and add files."
 echo "Your settings files are in $STATIC"
-# what's put in now (git's id for it), for System > Update software: an update that got no further than git pull
+# what's put in now (git's id for it), for System > Update software: an update that got no further than git
 # is offered again, to finish
 install -d /var/lib/pitato
 if [ -d "$HERE/.git" ] && command -v git > /dev/null \
@@ -1927,5 +2004,9 @@ fi
 if [[ ! "$ans" =~ ^[Nn] ]]; then
   reboot
 else
+  if [ "$HANDHELD" = yes ] && [ -f /var/lib/pitato/was-emulationstation ] \
+     && systemctl is-active --quiet emulationstation; then
+    systemctl stop emulationstation || true      # (Pietato in its place now: never both at once)
+  fi
   systemctl restart pitato || true
 fi

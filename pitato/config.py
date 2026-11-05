@@ -73,7 +73,8 @@ SETTINGS = [   # key, label, choices (None: opens a page of its own). (Where you
     ("pad_swap", "Swap A and B", ["Off", "On"]),   # on the controller in hand (kept with its buttons, not here)
     ("friend", "Bot", None),
     ("homeassistant", "Home", None),             # Home Assistant's address and token, for the TV Remote and Lights
-    ("start", "At start-up", ["Home screen", "Terminal"]),
+    ("start", "At start-up", ["Home screen", "Terminal", "Game"]),   # (Game: the one you played last, where you
+                                                                     # were: screens/games.py game_boot)
     ("start_song", "Random song at start-up", ["Off", "On"]),   # one of yours from ~/Music, as it starts
     ("share", "Share with other Pietatos", ["On", "Off"]),   # prices and the weather fetched once for them all, and
                                                             # your game saves following you (savesync.py)

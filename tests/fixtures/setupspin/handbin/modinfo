@@ -1,0 +1,5 @@
+#!/bin/bash
+# stand-in for modinfo on an RK3326 handheld: dArkOS's kernel has no Loopback sound card (snd-aloop)
+echo "modinfo $*" >> "$STUB_LOG"
+for a in "$@"; do case "$a" in snd-aloop|snd_aloop) echo "modinfo: ERROR: Module snd-aloop not found." >&2; exit 1 ;; esac; done
+exec /usr/sbin/modinfo "$@"

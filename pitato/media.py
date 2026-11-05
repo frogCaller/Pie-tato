@@ -16,6 +16,7 @@ from .config import (clean_name, home_dir, HOME_STYLE_WAS, SCREEN_MODES, SETTING
                      TURN_DEGREES, WEB_PORT, web_private)
 from .util import classify, clock, FILE_KINDS, find_files, IMAGE_EXTS, item, looks_like_text, title_of
 from .system import SysHistory, has_desktop, is_pc, on_pc, system_info, system_numbers, system_stopping
+from .handheld import has_emulationstation
 from .bluetooth import Bluetooth
 from . import screen as screen_out
 from .screen import Framebuffer, slow_pi
@@ -444,9 +445,11 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.camera.turns = self.state["cam_turn"]   # (a camera's picture turned: kept with the rest)
         self.camera.flips = self.state["cam_flip"]   # (...one steered with left and right swapped, too)
         self.camera.flips_v = self.state["cam_flip_v"]   # (...or up and down)
-        self.boot_media = self.setting("start") == "Home screen"
+        self.boot_media = self.setting("start") in ("Home screen", "Game")
+        self.boot_game = self.setting("start") == "Game"   # (and the game you played last, from where you were)
         self.res_boot()                                # (just restarted at a new resolution: it asks if you'll keep it)
-        self.boot_song = time.monotonic() + BOOT_SONG_WAIT if self.setting("start_song") == "On" else 0.0
+        self.boot_song = (time.monotonic() + BOOT_SONG_WAIT if self.setting("start_song") == "On" and not self.boot_game
+                          else 0.0)                    # (a game to start: it has the speaker)
         set_accent(self.setting("accent"))
         turn = TURN_DEGREES.get(self.setting("turn"), 0)
         screen_out.set_turn(turn)                      # (Settings > Rotate screen: everything drawn turned)
@@ -1260,11 +1263,16 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
                            else "Press A again to get the newest version. If there is one, the Pi restarts", 4)
             elif act == "desktop":
                 self.toast("Press A again for the desktop. Restarting the computer comes back to Pietato", 4)
+            elif act == "es":
+                self.toast("Press A again for EmulationStation. Restarting the handheld comes back to Pietato", 4)
             self.dirty = True
             return
         self.confirm = (None, 0.0)
         if act == "desktop":
             self.desktop_start()
+            return
+        if act == "es":
+            self.es_start()
             return
         if act == "update":
             err = self.updater.begin()
@@ -1318,6 +1326,25 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         except OSError as ex:
             self.halting = 0.0
             self.toast(f"The desktop didn't start ({ex.strerror or ex})", 5)
+
+    def es_start(self):
+        """System > EmulationStation (an RK3326 handheld on dArkOS): Pietato stops and dArkOS's own EmulationStation
+        starts, till the handheld restarts (it starts in Pietato, setup.sh's way): never both at once, as with a PC's
+        desktop. A job of its own does it (systemd-run), as stopping Pietato stops this."""
+        if not has_emulationstation():
+            self.toast("There's no EmulationStation here", 3)
+            return
+        self.halting = time.monotonic() + HALT_WAIT       # nothing draws over it
+        self.halt_note = "EmulationStation didn't start"
+        self.render_wait("Starting EmulationStation", "Restart the handheld to come back to Pietato")
+        self.save_state()
+        self.stop()                                    # (nothing goes on playing under it)
+        try:
+            subprocess.Popen(["systemd-run", "--no-block", "--collect", "--unit=pietato-es", "sh", "-c",
+                              "systemctl stop pitato; systemctl start emulationstation"])
+        except OSError as ex:
+            self.halting = 0.0
+            self.toast(f"EmulationStation didn't start ({ex.strerror or ex})", 5)
 
     def close_viewer(self):
         tmp = self.v.get("tmp")

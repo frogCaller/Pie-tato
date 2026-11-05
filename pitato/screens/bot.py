@@ -18,6 +18,7 @@ from ..voice import BOT_VOICES, voice_name, VOICE_SAMPLE, voices_here
 from ..listen import (LISTEN_AGAIN, LISTEN_MB, LISTEN_TRIES, LISTENS, MIC_LOOK, PATIENCE, WAKE, WAKE_MOST, WEB_MIC,
                       have_vosk, mics, supported as listen_supported, tidy_phrase, wake_for, wake_name)
 from ..system import is_pc
+from ..handheld import is_handheld
 from ..bot import (
     Friend, FRIEND_BUBBLE, FRIEND_CHATTER, FRIEND_HEAD, FRIEND_HELLO_AFTER, FRIEND_KEEP, FRIEND_PAGES,
     FRIEND_PIC_ROOM, FRIEND_SIGHT, FRIEND_STYLES, FRIEND_TOPICS)
@@ -358,9 +359,9 @@ class BotScreen:
 
     def auto_mics(self, found=None):
         """The microphones it listens with by itself (Listens: Auto): one you plugged in, not a webcam's (that's there
-        for its pictures), nor in a GPi Case the case's own sound, nor on a PC its own sound card (that records whether
-        there's a microphone or not)."""
-        case, pc = getattr(self, "case", None), is_pc()
+        for its pictures), nor in a GPi Case (or an RK3326 handheld) its own sound, nor on a PC its own sound card (that
+        records whether there's a microphone or not)."""
+        case, pc = getattr(self, "case", None) or is_handheld(), is_pc()
         return [c for c in (mics() if found is None else found)
                 if not c["camera"] and not (case and c["plays"]) and (c["usb"] or not pc)]
 

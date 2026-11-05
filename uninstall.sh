@@ -42,6 +42,10 @@ user_home=""
 if [ -n "$web_user" ]; then user_home="$(getent passwd "$web_user" | cut -d: -f6)"; fi
 desktop=no
 if [ -f /var/lib/pitato/was-graphical ]; then desktop=yes; fi
+es=no                                            # (an RK3326 handheld that started in dArkOS's EmulationStation)
+if [ -f /var/lib/pitato/was-emulationstation ]; then es=yes; fi
+console_off=no
+if [ -f /var/lib/pitato/was-no-console ]; then console_off=yes; fi
 
 # its services: stopped, and gone
 for unit in pitato pitato-web pitato-camera; do
@@ -66,6 +70,12 @@ systemctl daemon-reload
 systemctl try-restart bluealsa 2> /dev/null || true
 if [ "$desktop" = yes ]; then
   systemctl set-default graphical.target > /dev/null
+fi
+if [ "$es" = yes ]; then
+  systemctl --quiet enable emulationstation 2> /dev/null || true
+fi
+if [ "$console_off" = yes ]; then
+  systemctl --quiet disable getty@tty1 2> /dev/null || true
 fi
 
 # the web page's sound card (Sound here and Mic here), and Chromium's session
@@ -109,5 +119,11 @@ if [ "$desktop" = yes ]; then
   echo "The computer starts in its desktop again."
   if ! systemctl is-active --quiet display-manager; then
     systemctl --no-block start display-manager  # (last: run from the console, the desktop takes its place)
+  fi
+fi
+if [ "$es" = yes ]; then
+  echo "The handheld starts in EmulationStation again."
+  if ! systemctl is-active --quiet emulationstation; then
+    systemctl --no-block start emulationstation   # (last: EmulationStation on the screen, in Pietato's place)
   fi
 fi

@@ -1,8 +1,13 @@
 #!/bin/bash
 # stand-in for systemctl: notes how it was asked, and does nothing (get-default: STUB_DEFAULT_TARGET's, or
-# multi-user.target; is-active: running only if STUB_ACTIVE names it)
+# multi-user.target; is-active: running only if STUB_ACTIVE names it; is-enabled: enabled only if STUB_ENABLED does)
 echo "systemctl $*" >> "$STUB_LOG"
 if [ "$1" = get-default ]; then echo "${STUB_DEFAULT_TARGET:-multi-user.target}"; fi
+if [ "$1" = is-enabled ]; then
+  for a in "$@"; do case " ${STUB_ENABLED:-} " in *" $a "*) echo enabled; exit 0 ;; esac; done
+  echo disabled
+  exit 1
+fi
 if [ "$1" = is-active ]; then
   for a in "$@"; do case " ${STUB_ACTIVE:-} " in *" $a "*) exit 0 ;; esac; done
   exit 3

@@ -10,7 +10,7 @@ import time
 import unicodedata
 import urllib.parse
 
-from ..config import CACHE_DIR
+from ..asyou import read_theirs, shm_path
 from ..theme import ACCENT, BG, BODY, LINE, MUTED, ROW, TEXT
 from ..util import item
 from ..screen import aplay_device, screen_turn, sound_place
@@ -461,6 +461,18 @@ class GameScreen:
         used = getattr(self, "input_pad", None)       # the controller that started it: player 1 (from the web page or
         self.game_players = {used.path: 0} if used is not None and self.pads and \
             self.pads.by_path.get(used.path) is used else {}      # a keyboard: the first controller pressed)
+
+    def game_boot(self):
+        """Settings > At start-up's Game, as the Pi starts: the game you played last, from where you were (saved as
+        you left it, or by the power switch, or a minute before the battery ran out). None played yet, or it's gone:
+        the home screen."""
+        games = {g["path"]: g for g in find_games()}
+        g = next((games[p] for p in self.games_recent() if p in games), None)
+        if g is None:
+            self.toast("Play a game first: the Pi starts in the one you played last", 4)
+            return
+        print(f"start-up: {g['title']}, the game played last", flush=True)
+        self.game_open({"src": g["path"], "title": g["title"], "system": g["system"]})
 
     @staticmethod
     def game_cant(g):
@@ -1211,15 +1223,16 @@ class GameScreen:
         elif job in GAME_CHANGE:
             self.game_change(job, 1)
         elif job == "cheevos":                         # the game's achievements, as a list over the menu
-            path = os.path.join(CACHE_DIR, "games", "cheevos.json")
-            os.makedirs(os.path.dirname(path), exist_ok=True)
+            path = shm_path(f"pitato-cheevos-{os.getpid()}.json")   # (where the game can leave it, as you)
             what, _ = run.ask(f"cheevolist {path}", ("cheevolist",), 5)
             try:
-                with open(path) as f:
-                    got = json.load(f)
-                os.remove(path)
+                got = json.loads(read_theirs(path, 4 << 20))
             except (OSError, ValueError):
                 got = None
+            try:
+                os.remove(path)
+            except OSError:
+                pass
             if what != "cheevolist" or not isinstance(got, dict) or not got.get("list"):
                 self.toast("Its achievements aren't here just now", 3)
                 return

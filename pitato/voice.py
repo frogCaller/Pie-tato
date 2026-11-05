@@ -74,7 +74,7 @@ def piper_bin():
 def voice_user():
     """Who Piper runs as: the home folder's owner rather than root (what it reads comes from a
     voice file, and from words anyone could get the bot to say). aplay, only given samples, stays
-    root like mplayer, so it plays where mplayer plays.
+    root; it plays where mplayer plays (mplayer runs as you too, in the audio group: pitato/asyou.py).
     (uid, gid, groups, home); uid None when this isn't running as root to begin with."""
     home = home_dir()
     try:

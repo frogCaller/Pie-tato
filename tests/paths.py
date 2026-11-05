@@ -37,3 +37,5 @@ if not SP:
     SP = make_work()
     os.environ["PIETATO_TEST_WORK"] = SP
 os.environ.setdefault("PITATO_ROOT", ROOT)
+os.environ.setdefault("PITATO_AS_ROOT", "1")   # (the players and games as root, as before: the tests' folders are
+                                               #  root's. test_as_you has them run as you)

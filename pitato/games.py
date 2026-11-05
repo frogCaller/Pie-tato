@@ -20,6 +20,7 @@ import urllib.request
 import zipfile
 import zlib
 
+from .asyou import as_you, hand_over, nice_now
 from .cheevos import CHEEVO_CONSOLES, ra_account
 from .config import CACHE_DIR, home_dir
 from .discs import cue_files, cue_fixed, dc_title, DISC_EXTS, disc_info, disc_number, gdi_files, m3u_files
@@ -92,6 +93,8 @@ NEOGEO_LOOK = 5.0                                # seconds between looks for Fin
 CORE_DIRS = ("/usr/lib/*/libretro", "/usr/lib/libretro", "/usr/local/lib/libretro",
              "/home/*/.config/retroarch/cores")
 GAMES_FOLDER, SAVES_FOLDER, BIOS_FOLDER, IMAGES_FOLDER = "Games", "Saves", "BIOS", "Images"
+GAME_NICE = -4           # a game's priority, a little ahead of the rest (as root it gives itself that; as you,
+                         # media mode does: only root can)
 GAME_DEPTH = 3           # folders inside the Games folder looked in, at most this deep
 GAME_START = 15          # seconds a game has to start before it's given up on
 GAME_QUIT = 6            # ...and to save and end when it's asked to
@@ -1025,8 +1028,15 @@ class GameRun:
             elif self.game["system"] == "ps2":
                 ps2_files(sysdir)
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        env = dict(os.environ)
+        pre, you = as_you(home_dir())                  # (as you, not root: a game could be anyone's)
+        if you:
+            hand_over(saves, you)                      # (what root left there: an older Pietato's, another's save)
+            if own:
+                hand_over(sysdir, you)
+        env = dict(you.pop("env", None) or os.environ)
         env["PYTHONPATH"] = root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        if you:
+            env["PYTHONNOUSERSITE"] = "1"              # (Pietato's own modules, not ones of yours by those names)
         env.pop("PITATO_RA", None)
         console = CHEEVO_CONSOLES.get(self.game["system"])
         account = ra_account() if cheevos and console else None   # your RetroAchievements account, and the game's
@@ -1044,8 +1054,10 @@ class GameRun:
             cmd += ["--turn", str(int(turn))]
         for o in options:
             cmd += ["--option", o]
-        self.p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env, text=True,
-                                  bufsize=1, cwd=root)
+        self.p = subprocess.Popen(pre + cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env, text=True,
+                                  bufsize=1, cwd=root, **you)
+        if you:
+            nice_now(self.p, GAME_NICE)
         threading.Thread(target=self.listen, daemon=True).start()
 
     def listen(self):

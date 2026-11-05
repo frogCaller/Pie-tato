@@ -8,6 +8,7 @@ import socket
 import subprocess
 import time
 
+from .handheld import battery, has_emulationstation, is_handheld, name as handheld_name, temperatures, wifi_adapter
 from .util import human_size, item
 
 
@@ -53,8 +54,13 @@ def wifi_saved():
     return saved
 
 
+NO_DONGLE = "No WiFi adapter: plug in a USB WiFi dongle"   # (an RK3326 handheld has none of its own)
+
+
 def wifi_scan():
     """The networks around, strongest first: [{ssid, signal, secure, active}]."""
+    if is_handheld() and not wifi_adapter():
+        raise ValueError(NO_DONGLE)
     ok, out, err = nm(["-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi", "list", "--rescan", "yes"], 30)
     if not ok:                                      # scanned a moment ago: take what it has
         ok, out, err = nm(["-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi", "list"], 20)
@@ -87,6 +93,7 @@ def nm_why(err):
 
 
 HOT_C = 70                                     # status bar warns above this
+LOW_BATTERY = 15                               # a handheld's battery this low (%, not charging): said in orange
 SLOW_EVERY = 10.0      # seconds: what takes a program to find out (power, WiFi, the address) is looked at this often
 PROC_STAT = "/proc/stat"   # how long the CPU's spent working, and not, since the Pi started
 _cpu_was = None        # /proc/stat's CPU line when System last looked: (busy, all, when)
@@ -124,14 +131,20 @@ NO_NAME = re.compile(r"to be filled|default string|system product name|system ma
 
 def is_pc():
     """A computer of your own (Intel or AMD, with Ubuntu or Debian) rather than a Pi: no Pi model, and its firmware's
-    own description of itself."""
-    return "Raspberry Pi" not in read_file(PI_MODEL) and os.path.isdir(DMI)
+    own description of itself. (Never an RK3326 handheld: pitato/handheld.py's.)"""
+    return "Raspberry Pi" not in read_file(PI_MODEL) and os.path.isdir(DMI) and not is_handheld()
 
 
 def on_pc(text):
     """Words on the screen about the Pi, as they go on a PC: "the Pi restarts" says "the PC restarts" there (never
-    a Pi-hole, a Pi 4 or a Pi Zero)."""
-    return PC_WORDS.sub(lambda m: m.group(1) + " PC", text) if isinstance(text, str) and is_pc() else text
+    a Pi-hole, a Pi 4 or a Pi Zero); on an RK3326 handheld, "the handheld restarts"."""
+    if not isinstance(text, str):
+        return text
+    if is_pc():
+        return PC_WORDS.sub(lambda m: m.group(1) + " PC", text)
+    if is_handheld():
+        return PC_WORDS.sub(lambda m: m.group(1) + " handheld", text)
+    return text
 
 
 def pc_name():
@@ -288,7 +301,10 @@ def system_numbers(background=()):
     n = {"background": list(background), "temp": cpu_temp(), "busy": cpu_busy()}
     freq = read_file("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq")
     n["mhz"] = int(freq) // 1000 if freq.isdigit() else None
-    n["power"] = None if is_pc() else now_and_then("power", throttle_text)   # (a Pi's own: a PC hasn't it)
+    n["power"] = None if is_pc() or is_handheld() else now_and_then("power", throttle_text)   # (a Pi's own)
+    if is_handheld():                              # (an RK3326 handheld's battery, and its GPU's temperature: /sys)
+        n["battery"] = battery()
+        n["gpu"] = dict(temperatures()).get("GPU")
     mem = {}
     for line in read_file("/proc/meminfo").splitlines():
         k, _, v = line.partition(":")
@@ -302,16 +318,26 @@ def system_numbers(background=()):
     n["ssid"] = ssid.group(1) if ssid else None
     n["dbm"] = int(sig.group(1)) if ssid and sig else None
     n["wifi_q"] = None if ssid else wifi_quality()
+    if is_handheld():
+        n["no_dongle"] = not wifi_adapter()            # (its WiFi's a USB dongle: none plugged in)
     ips = now_and_then("ip", lambda: run_out(["hostname", "-I"])).split()
     n["ip"] = ips[0] if ips else None
     n["host"] = socket.gethostname()
     up = read_file("/proc/uptime").split()
     n["up"] = int(float(up[0])) if up else None
-    n["board"] = read_file(PI_MODEL).replace("\x00", "") or (pc_name() if is_pc() else "")
+    n["board"] = (handheld_name() if is_handheld() else
+                  read_file(PI_MODEL).replace("\x00", "") or (pc_name() if is_pc() else ""))
     osname = re.search(r'PRETTY_NAME="([^"]+)"', read_file("/etc/os-release"))
     n["os"] = osname.group(1) if osname else "Linux"
     n["kernel"] = os.uname().release
     return n
+
+
+def battery_text(b):
+    """A handheld's battery, in words: "76%", "76% · charging", "unknown"."""
+    if not b:
+        return "unknown"
+    return f"{b[0]}%" + (" · charging" if b[1] else "")
 
 
 def uptime_text(s):
@@ -332,6 +358,11 @@ def system_info(background=(), nums=None):
     t = n["temp"]
     add("CPU temperature", f"{t:.1f} °C" if t is not None else "unknown",
         t is not None and t >= HOT_C)
+    if n.get("gpu") is not None:
+        add("GPU temperature", f"{n['gpu']:.1f} °C", n["gpu"] >= HOT_C)
+    if "battery" in n:
+        add("Battery", battery_text(n["battery"]), bool(n["battery"]) and n["battery"][0] <= LOW_BATTERY
+            and not n["battery"][1])
     busy = n["busy"]
     add("CPU", (f"{busy:.0f}% busy" if busy is not None else "…")
         + (f" · {n['mhz']} MHz" if n["mhz"] is not None else ""))
@@ -350,7 +381,7 @@ def system_info(background=(), nums=None):
         add("WiFi", n["ssid"] + (f" · {n['dbm']} dBm" if n["dbm"] is not None else ""))
     else:
         q = n["wifi_q"]
-        add("WiFi", "connected" if q else "not connected", not q)
+        add("WiFi", "connected" if q else "no USB WiFi dongle" if n.get("no_dongle") else "not connected", not q)
     add("IP address", n["ip"] or "none")
     add("Hostname", n["host"])
     if n["up"] is not None:
@@ -363,6 +394,8 @@ def system_info(background=(), nums=None):
     rows.append(item("act:restart", "Restart media mode", "action", "restart"))
     if has_desktop():
         rows.append(item("act:desktop", "Desktop", "action", "desktop"))
+    if has_emulationstation():                     # (an RK3326 handheld's own front end, dArkOS's)
+        rows.append(item("act:es", "EmulationStation", "action", "es"))
     rows.append(item("act:reboot", "Reboot", "action", "reboot"))
     rows.append(item("act:poweroff", "Shut down", "action", "poweroff"))
     return rows

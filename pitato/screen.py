@@ -14,6 +14,7 @@ import struct
 import subprocess
 import time
 
+from .handheld import is_handheld
 from .system import is_pc, on_pc, read_file, run_out
 from .fine import detail
 
@@ -115,10 +116,11 @@ def pi_model():
 
 
 def slow_pi():
-    """Pi Zero, 1, 2 and 3: they play 480 lines smoothly, not much more."""
+    """Pi Zero, 1, 2 and 3: they play 480 lines smoothly, not much more. An RK3326 handheld too (its CPU's a Pi 3's
+    kind, and its screen's 480 lines)."""
     m = pi_model()
     return ("Zero" in m or bool(re.search(r"Raspberry Pi [123]\b", m)) or "Raspberry Pi Model" in m
-            or bool(re.search(r"Compute Module( 3)?( Plus)? Rev", m)))
+            or bool(re.search(r"Compute Module( 3)?( Plus)? Rev", m)) or is_handheld())
 
 
 FINE_PIXELS = {"pi4": 2_100_000, "fast": 4_000_000}   # most pixels a frame of the menus drawn finely may have (fine.py):
@@ -232,6 +234,8 @@ def sound_list():
                 name = "HDMI" + (f" {int(hd.group(1)) + 1}" if hd.group(1) else "")
             elif cid == "Headphones" or "headphone" in desc.lower():
                 name = "Headphones"
+            elif is_handheld() and "rk817" in (cid + full).lower():
+                name = "Speaker"                       # (an RK3326 handheld's own: dArkOS moves it to the headphones)
             elif usb:
                 name = "USB speaker"
             else:

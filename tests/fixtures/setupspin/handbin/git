@@ -1,0 +1,4 @@
+#!/bin/bash
+# stand-in for git: no emulator sources from GitHub here (clone and fetch fail at once); the rest as git is
+for a in "$@"; do case "$a" in clone|fetch) echo "fatal: no network here (pretend)" >&2; exit 128 ;; esac; done
+exec /usr/bin/git "$@"

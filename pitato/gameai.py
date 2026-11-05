@@ -21,6 +21,7 @@ import time
 import traceback
 
 from . import anygame, emerald
+from .asyou import read_theirs
 from .bot import CantSee, ollama_decide
 from .coach import Coach
 from .emulator import game_data
@@ -158,8 +159,7 @@ class GameIO:
         if what != "mem" or rest != "ok":
             self.live()
             raise emerald.Stop() if self.run.ended else RuntimeError("The game didn't let its memory be read")
-        with open(self.mem_path, "rb") as f:
-            data = f.read()
+        data = read_theirs(self.mem_path, 1 << 20)      # (the game's: it runs as you, media mode as root)
         return emerald.Mem(data[:emulator_iwram()], data[emulator_iwram():], self.rom)
 
     def peek(self, *ranges):
@@ -193,8 +193,8 @@ class GameIO:
             return None
         try:
             from PIL import Image
-            with Image.open(self.shot_path) as im:
-                got = Look(im)
+            with Image.open(_io.BytesIO(read_theirs(self.shot_path, 16 << 20)), formats=["PPM"]) as im:
+                got = Look(im)                       # (the game's picture, as it makes them: nothing else read)
         except (OSError, ValueError):
             self.shots_missed += 1
             return None

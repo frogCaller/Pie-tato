@@ -1,0 +1,4 @@
+#!/bin/bash
+# stand-in for dpkg on an RK3326 handheld: its architecture is arm64 (dArkOS's); the rest as dpkg is
+if [ "$1" = --print-architecture ]; then echo arm64; exit 0; fi
+exec /usr/bin/dpkg "$@"

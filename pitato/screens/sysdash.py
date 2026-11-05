@@ -5,7 +5,7 @@ import time
 
 from ..config import WEB_PORT
 from ..library import LISTEN_KINDS
-from ..system import HISTORY_EVERY, HISTORY_KEEP, HOT_C, is_pc, on_pc, uptime_text
+from ..system import HISTORY_EVERY, HISTORY_KEEP, HOT_C, LOW_BATTERY, battery_text, is_pc, on_pc, uptime_text
 from ..theme import ACCENT, BODY, DONE, LINE, MUTED, ROW, TEXT, WARN
 from ..util import human_size
 from .pihole import PH_ALLOWED, PH_AXIS, PH_CLIENTS, PH_KINDS
@@ -109,6 +109,10 @@ class SysDashScreen:
             out.append((now[:1].upper() + now[1:], WARN, WARN))
         elif text.startswith("OK"):
             out.append(("Power OK", TEXT, DONE))
+        b = n.get("battery")
+        if b:                                          # (an RK3326 handheld's battery: low is orange)
+            low = b[0] <= LOW_BATTERY and not b[1]
+            out.append(("Battery " + battery_text(b), WARN if low else TEXT, WARN if low else ACCENT if b[1] else DONE))
         up = self.updater
         if up.available():                             # (Update software's in the list: SELECT)
             out.append(("New version" if up.new > 0 else "Finish updating", TEXT, ACCENT))
@@ -242,6 +246,13 @@ class SysDashScreen:
                 ("Board", n.get("board")), ("System", n.get("os")), ("Kernel", n.get("kernel")),
                 ("Up for", uptime_text(n["up"]) if n.get("up") is not None else None),
                 ("CPU speed", f"{n['mhz']} MHz" if n.get("mhz") else None)) if value]
+            b = n.get("battery")
+            if b:                                      # (an RK3326 handheld's: its battery, and its GPU's temperature)
+                out.insert(1, ("Battery", battery_text(b), b[0] / 100, WARN if b[0] <= LOW_BATTERY and not b[1]
+                               else SD_MEM))
+            if n.get("gpu") is not None:
+                out.insert(2 if b else 1, ("GPU temperature", f"{n['gpu']:.1f} °C", None,
+                                           WARN if n["gpu"] >= HOT_C else TEXT))
             return out
         out = []                                       # (in the background: how far each has got, and on what)
         for what, far in n.get("background") or ():

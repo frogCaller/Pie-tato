@@ -199,6 +199,7 @@ class SettingsScreen:
         self.res_drawn = None                    # ...the seconds left, as last drawn
         if self.setting("resolution_try"):
             self.boot_media = True
+            self.boot_game = False                   # (the new size asked about first: no game over it)
             self.res_until = time.monotonic() + RES_START + RES_KEEP
 
     def res_info(self):

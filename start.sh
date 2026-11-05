@@ -16,6 +16,7 @@ fi
 
 SYSD=/etc/systemd/system
 WAS_DESKTOP=/var/lib/pitato/was-graphical      # (setup.sh: this computer started in its desktop before Pietato)
+WAS_ES=/var/lib/pitato/was-emulationstation    # (setup.sh: this handheld started in dArkOS's EmulationStation before)
 
 if [ ! -f "$SYSD/pitato.service" ] && [ ! -f "$SYSD/pitato-camera.service" ]; then
   echo "Pietato isn't set up on this computer: run  sudo bash setup.sh  first."
@@ -34,6 +35,11 @@ fi
 systemctl --quiet enable pitato
 if [ -f "$WAS_DESKTOP" ]; then
   systemctl set-default multi-user.target > /dev/null
+fi
+if [ -f "$WAS_ES" ]; then                      # (an RK3326 handheld: Pietato in EmulationStation's place, the console on)
+  systemctl --quiet disable emulationstation 2> /dev/null || true
+  if [ -f /var/lib/pitato/was-no-console ]; then systemctl --quiet enable getty@tty1 2> /dev/null || true; fi
+  systemctl stop emulationstation 2> /dev/null || true   # (never both at once: they'd fight over the screen and buttons)
 fi
 if systemctl is-active --quiet display-manager; then   # (never both at once: they'd fight over the screen)
   echo "Pietato's on: restart the computer and it starts in Pietato instead of the desktop."

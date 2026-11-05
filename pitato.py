@@ -31,7 +31,8 @@ whole screen until B (kept in ~/Pictures/Drawings). It talks to this script on 1
 While a video plays, Y turns full screen on or off (the choice is kept for the next videos);
 Settings > Video size picks Fit (all of the picture), Full screen (zoomed) or Stretch.
 
-It starts in media mode (Settings > At start-up can start it in the terminal instead).
+It starts in media mode (Settings > At start-up can start it in the terminal instead, or in the game you played
+last, where you were).
 Home button toggles between:
   terminal mode - buttons type keys in the console (arrows, Enter, Tab...)
   media mode    - opens on a home screen of app icons (d-pad and A to open one,
@@ -196,8 +197,8 @@ Tabs (edit LIBRARY in pitato/library.py to change them):
   System      - a dashboard: CPU temperature, how busy the CPU is (the last 5 minutes), memory,
                 storage, ◀▶ the network, the temperature, the Pi, what's in the background. SELECT: a
                 list instead (kept), with reboot and shut down, and Update software at the top, always
-                (New version on it when there's one; A on the dashboard then, too): git pull, and if that
-                brought a newer version, setup.sh --update, then a restart; nothing newer: it says it's up
+                (New version on it when there's one; A on the dashboard then, too): the latest release (not
+                main), and if that's newer, setup.sh --update, then a restart; nothing newer: it says it's up
                 to date
   Settings    - WiFi (scan, connect, forget), Bluetooth (look, pair, connect, forget: a keyboard shows
                 its code to type), the home screen's style (Bright, Glass or Cards: the weather on it

@@ -1,7 +1,9 @@
 """A game, in a process of its own: a libretro core (mGBA, Nestopia, Snes9x, PCSX ReARMed, Mupen64Plus, PPSSPP,
 Flycast, Dolphin, LRPS2...) runs it, and this draws its pictures straight onto the screen and plays its sound through
 aplay, a frame at a time. A game drawn in 3D (an N64's, a PSP's, a Dreamcast's, a PlayStation 2's, a GameCube's or a
-Wii's) is drawn by the graphics chip, and each frame read back (pitato/gpu.py).
+Wii's) is drawn by the graphics chip, and each frame read back (pitato/gpu.py). Where you are is saved as it plays,
+every minute (a big game's every three: an N64's or a PSP's on a Pi) and as it ends, and its in-game save whenever it
+changes: a flat battery loses a minute or so at most.
 Media mode starts it (pitato/games.py) and tells it what to do, a line at a time:
     down a / up a        a button pressed, let go (a b x y l r l2 r2 start select up down left right)
     stick lx -64         where a stick is (lx ly: the left one, rx ry: the right), -127 to 127 (up and left
@@ -47,6 +49,7 @@ import subprocess
 import sys
 import tempfile
 import termios
+import threading
 import time
 import zipfile
 import zlib
@@ -116,6 +119,15 @@ LATE_STATES = ("Mupen64Plus-Next", "ParaLLEl N64")   # ...those emulators
 SKIP_MOST = 3            # frames in a row left undrawn when it's behind, at most
 SOUND_BUFFER = (80000, 20000)   # aplay's buffer and period (microseconds)
 KEEP_EVERY = 10          # seconds between looks at the in-game save, to write it if it changed
+AUTO_EVERY = 60          # seconds between saves of where you are as it plays, not only as it ends: a flat
+                         # battery (a GPi Case can't say how full it is) or a pulled plug loses no more than
+                         # that (PITATO_AUTO_EVERY: the tests' own)
+try:
+    AUTO_EVERY = max(0.5, float(os.environ.get("PITATO_AUTO_EVERY") or AUTO_EVERY))
+except ValueError:
+    pass
+AUTO_FELT = 0.03         # ...but a game whose state takes longer than this to take (a big one, an N64's or a PSP's on a
+AUTO_SLOW = 180          # Pi: the game stops for it) is saved this often instead, so it's seldom felt
 LOG_EVERY = 30           # seconds between lines in the log on how it's keeping up
 SLOW_WINDOW, SLOW_SHARE = 300, 0.2   # frames looked back on, and the share undrawn that's "slow"
 BIG_SCREEN_MOST = 640 * 480 * 2   # pixels of picture, at most, on a big screen (a Pi Zero keeps up)
@@ -322,8 +334,8 @@ def game_data(path, exts):
 
 
 def give_back(folder):
-    """What an emulator made in the saves folder (this runs as root: a Dreamcast's memory card, a PSP's saves), made
-    yours, like the folder."""
+    """What an emulator made in the saves folder (a Dreamcast's memory card, a PSP's saves), made yours, like the
+    folder, when this runs as root (it runs as you, unless your home folder is root's: pitato/asyou.py)."""
     try:
         st = os.stat(folder)
     except OSError:
@@ -350,18 +362,31 @@ def read_disc(path):
         return None
 
 
-def write_file(path, data):
-    """A save written whole or not at all, owned like its folder (this runs as root)."""
+def write_file(path, data, sync=False):
+    """A save written whole or not at all, owned like its folder (when this runs as root). sync: on the card itself
+    before it takes the old one's place, and that noted too (the power could go any moment)."""
     folder = os.path.dirname(path)
     tmp = os.path.join(folder, "." + os.path.basename(path) + ".part")
     with open(tmp, "wb") as f:
         f.write(data)
+        if sync:
+            f.flush()
+            os.fsync(f.fileno())
     try:
         st = os.stat(folder)
         os.chown(tmp, st.st_uid, st.st_gid)
     except OSError:
         pass
     os.replace(tmp, path)
+    if sync:
+        try:
+            fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+        except OSError:
+            pass
 
 
 def picture_size(sw, sh, w, h, aspect, mode, most=None, whole=True):
@@ -1279,6 +1304,8 @@ class Session:
         self.inbuf = b""
         self.saved_sram = None
         self.next_keep = time.monotonic() + KEEP_EVERY
+        self.next_auto = time.monotonic() + AUTO_EVERY  # where you are, saved as it plays (auto_save)
+        self.auto_writer = None                       # ...written on a thread of its own
         self.stats = [0, 0, 0.0, 0.0, time.monotonic()]   # frames, not drawn, emulator secs, picture secs, since
         self.recent = [[0, 0], [0, 0]]                # (frames, not drawn): the window before, and this one
         self.core = None                              # (until it's started: a frame can come as it starts)
@@ -1587,6 +1614,37 @@ class Session:
             except Exception as ex:
                 print(f"game: achievements' progress not kept ({ex!r})", file=sys.stderr, flush=True)
         return True
+
+    def auto_save(self):
+        """Where you are, saved as it plays (every AUTO_EVERY seconds; AUTO_SLOW for a big one), as it is when it ends:
+        the game's state taken between two frames, then written on a thread of its own (the game plays on
+        meanwhile), on the card before it takes the last one's place. Its achievements' progress beside it."""
+        if self.auto_writer is not None and self.auto_writer.is_alive():
+            return                                    # (the last one's still being written: a slow card)
+        t = time.monotonic()
+        data = self.core.serialize()
+        if data is None:
+            return
+        if time.monotonic() - t > AUTO_FELT:          # (felt: the game stopped for it a moment)
+            self.next_auto = max(self.next_auto, t + AUTO_SLOW)
+        progress = None
+        if self.ra is not None:
+            try:
+                progress = self.ra.serialize_progress()
+            except Exception as ex:
+                print(f"game: achievements' progress not kept ({ex!r})", file=sys.stderr, flush=True)
+        path = self.base + ".state.auto"
+
+        def write():
+            try:
+                write_file(path, data, sync=True)
+                if progress:
+                    write_file(path + CHEEVOS_EXT, progress, sync=True)
+            except OSError as ex:
+                print(f"game: couldn't save where you are ({ex})", file=sys.stderr, flush=True)
+
+        self.auto_writer = threading.Thread(target=write, daemon=True, name="auto-save")
+        self.auto_writer.start()
 
     def load_state(self, ext):
         """True: put back; False: it wouldn't go; None: there isn't one."""
@@ -2011,6 +2069,9 @@ class Session:
             if now >= self.next_keep:
                 self.next_keep = now + KEEP_EVERY
                 self.keep()
+            if now >= self.next_auto:
+                self.next_auto = now + AUTO_EVERY
+                self.auto_save()
             if now - self.stats[4] >= LOG_EVERY:
                 n, sk, core_s, pic_s, since = self.stats
                 print(f"game: {n / (now - since):.0f} frames a second, {sk} not drawn, the emulator "
@@ -2033,6 +2094,8 @@ class Session:
                 self.insert_at = None
             self.keep()
             self.keep_disc()
+            if self.auto_writer is not None:
+                self.auto_writer.join(timeout=4)      # (the one it was writing, done before the last one)
             self.save_state(".state.auto")
         finally:
             self.cheevos_close()                      # (an unlock still on its way: sent first)
@@ -2072,7 +2135,7 @@ def main(argv=None):
     signal.signal(signal.SIGINT, on_signal)
     signal.signal(signal.SIGPIPE, signal.SIG_IGN)
     try:
-        os.setpriority(os.PRIO_PROCESS, 0, -4)        # (a little ahead of the rest)
+        os.setpriority(os.PRIO_PROCESS, 0, -4)        # (a little ahead of the rest: as you, media mode's done it)
     except OSError:
         pass
     os.set_blocking(0, False)

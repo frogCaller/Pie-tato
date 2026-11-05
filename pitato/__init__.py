@@ -3,10 +3,13 @@
   theme.py          colours, fonts and the accent
   config.py         the static folder, settings files, saved settings
   util.py           small helpers: files, kinds of file, text, numbers
+  asyou.py          what the players and games run as: you, not root (setpriv's no new privileges too)
   lengths.py        how long songs and videos are: their own headers, else ffprobe
   net.py            machines on your network: addresses, requests
   system.py         this Pi's numbers, and WiFi
   gpicase.py        the GPi Case it's in (the 2W, or the GPi Case 2), and the GPi Case 2's dock
+  handheld.py       an RK3326 handheld on dArkOS (the R36S...), told by its device tree: its own gamepad,
+                    battery and temperatures, and WiFi through a USB dongle
   bluetooth.py      Bluetooth: finding, pairing and connecting devices (BlueZ)
   screen.py         the screen, the framebuffer, sound outputs (Bluetooth headphones too), a TV or
                     monitor's resolution, and a screen on its side (the picture turned)
@@ -35,7 +38,8 @@
   jellyfin.py       Jellyfin
   computers.py      your other computers' files (shared folders, SSH), opened read-only
   shrink.py         big videos made smaller for this Pi, in the background
-  update.py         System > Update software: a newer version (git), put in by setup.sh --update
+  update.py         System > Update software: the latest release (git), put in by setup.sh --update
+  release.py        which release is the latest: GitHub's answer, else the newest version tag
   sims.py           Apps' little worlds
   clock.py          Apps' Clock
   mandelbrot.py     the Mandelbrot set

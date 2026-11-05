@@ -10,6 +10,7 @@ import time
 from evdev import ecodes as e, InputDevice, list_devices
 
 from .gpicase import case_kind
+from .handheld import gamepad_codes
 
 
 # ---- gamepad code -> button name ------------------------------------------
@@ -501,7 +502,10 @@ class Pad:
         """Its buttons: the standard ones for its kind, with those set up in Settings > Controller
         in their place (one that wasn't set up keeps its standard code); then A and B swapped, if
         Settings > Swap A and B has them swapped on it."""
-        if self.kind == "joystick":
+        own = gamepad_codes(self.dev.name)             # (an RK3326 handheld's own gamepad: its buttons as printed)
+        if own:
+            keys = own
+        elif self.kind == "joystick":
             keys = dict(JOY_CODES)
             keys.update({c: n for c, n in CODES.items() if c in self.has})
         else:
@@ -531,6 +535,8 @@ class Pad:
                          if {e.ABS_Z, e.ABS_RZ, e.ABS_RX, e.ABS_RY} <= sticks else {})
         self.home = (any(n == "home" and c in self.has for c, n in keys.items())
                      or any("home" in dirs.values() for dirs in axes.values()))
+        if own and not names:                          # (its FN is HOME, and SELECT and START together too: on a clone
+            self.home = False                          # whose FN is wired elsewhere, till Settings > Controller has it)
         self.now = {}                                  # axis -> the way it's pushed: -1, 0, 1
         self.down = set()                              # buttons held down
         self.sticks = {}                               # axis -> lx ly (the left stick), rx ry (the right)

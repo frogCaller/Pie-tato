@@ -8,6 +8,8 @@ import shutil
 import struct
 import subprocess
 
+from .asyou import as_you
+
 MOST = 48 * 3600          # seconds: anything longer is a header misread
 MP3_LOOK = 1 << 17        # bytes looked through for an MP3's first frame (after its ID3 tag, however big that is)
 OGG_LOOK = 1 << 17        # bytes at the end of an Ogg file looked through for its last page (a page is 64 KB at most)
@@ -269,19 +271,21 @@ def probe_length(path):
         return n
     if not os.path.isfile(path):
         return 0.0
+    pre, you = as_you()                                # (as you, not root: the file could be anyone's)
     if shutil.which("ffprobe"):
         try:
-            r = subprocess.run(["nice", "-n", "15", "ffprobe", "-v", "error", "-show_entries", "format=duration",
-                                "-of", "default=nw=1:nk=1", path], capture_output=True, text=True, timeout=30,
-                               stdin=subprocess.DEVNULL)
+            r = subprocess.run(pre + ["nice", "-n", "15", "ffprobe", "-v", "error", "-show_entries",
+                                      "format=duration", "-of", "default=nw=1:nk=1", path], capture_output=True,
+                               text=True, timeout=30, stdin=subprocess.DEVNULL, **you)
             n = float(r.stdout.strip().splitlines()[0])
             if 0 < n < MOST:
                 return n
         except (OSError, subprocess.TimeoutExpired, ValueError, IndexError):
             pass
     try:
-        r = subprocess.run(["nice", "-n", "15", "mplayer", "-identify", "-frames", "0", "-vo", "null", "-ao", "null",
-                            path], capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL)
+        r = subprocess.run(pre + ["nice", "-n", "15", "mplayer", "-identify", "-frames", "0", "-vo", "null", "-ao",
+                                  "null", path], capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL,
+                           **you)
         m = re.search(r"^ID_LENGTH=([\d.]+)", r.stdout, re.M)
         return float(m.group(1)) if m else 0.0
     except (OSError, subprocess.TimeoutExpired):
