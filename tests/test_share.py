@@ -189,6 +189,37 @@ a.sharing = False
 check(f"it says it's there, again and again ({heard[:1]})", len(heard) >= 2 and heard[0]["pietato"] == 1
       and heard[0]["id"] == a.share_id and heard[0]["port"] == 5432 and heard[0]["host"])
 
+# ---- and straight to each of yours: what's said to everyone, a Pi's WiFi saving power can miss ------------------------
+check(f"the other Pietatos heard: kept, on disk too, to be told straight to each ({b.pie.peer_tell()})",
+      b.pie.peer_tell() == ["192.168.1.77", "192.168.1.78"] and A_URL in json.load(open(S + "/cache/peers.json")))
+again = N.PieInk()
+check("...started again, it still knows them", again.peer_tell() == ["192.168.1.77", "192.168.1.78"]
+      and again.peers_kept[A_URL]["host"] == "kitchen")
+b.sharing, told = True, []
+b.share_tell = lambda ip: told.append(ip)
+new_one = json.dumps({"pietato": 1, "id": "other9", "port": 5432, "host": "den"}).encode()
+b.camera.heard("192.168.1.79", new_one)
+b.camera.heard("192.168.1.79", new_one)
+check(f"a new one heard: told this one's there at once, straight to it, and not again and again ({told})",
+      told == ["192.168.1.79"])
+b.sharing = False
+b.set_setting("share", "Off")
+check("...none told, with sharing off", b.pie.peer_tell() == [])
+b.set_setting("share", "On")
+near = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+near.bind(("127.0.0.1", 0))                            # (one of yours here: what's sent to everyone never gets to it)
+near.settimeout(3)
+MEDIA.CAM_BEACON = near.getsockname()[1]
+a.pie.peers_kept = {"http://127.0.0.1:5432": {"host": "den", "seen": time.time()}}
+a.share_start()
+try:
+    straight = json.loads(near.recvfrom(4096)[0])
+except OSError:
+    straight = None
+a.sharing = False
+check(f"...and every few seconds, to each of yours, straight to it ({straight})",
+      straight is not None and straight["id"] == a.share_id)
+
 # ---- the web page: your network only, no password -----------------------------------------------------------------------
 W = importlib.import_module("pitato.webui")
 W.ask_pi = lambda method, path, **k: (200, json.dumps(a.web_shared()).encode(), "application/json") \

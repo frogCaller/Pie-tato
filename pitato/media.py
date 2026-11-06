@@ -293,7 +293,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         self.face_step = False       # ...and it's to be drawn again (just it)
         self.face_shot = None        # ...the page it was drawn on: (it, where the face is, the screen's count, where)
         self.pie = PieInk(cameras=self.pie_cameras)   # PiE-ink on another Pi: asked first for what it has
-        self.camera.on_pie = self.pie.hear
+        self.camera.on_pie = self.pie_heard
         self.share_id = uuid.uuid4().hex[:12]   # this Pietato, to your other Pietatos (share_loop): its beacon's its own
         self.pie.own = self.share_id
         self.pie.peers_on = lambda: self.setting("share") != "Off"
@@ -1399,11 +1399,28 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
         while self.sharing:
             if self.setting("share") != "Off":
                 msg = json.dumps(self.share_beacon(host)).encode()
-                try:
-                    s.sendto(msg, ("255.255.255.255", CAM_BEACON))
-                except OSError:
-                    pass                               # (no network yet: next time)
+                for to in ["255.255.255.255"] + self.pie.peer_tell():   # (everyone; and straight to each of yours
+                    try:                                                  #  heard before, which a Pi's WiFi saving
+                        s.sendto(msg, (to, CAM_BEACON))                   #  power can't miss as it can the first)
+                    except OSError:
+                        pass                           # (no network yet: next time)
             time.sleep(PEER_SAYS)
+
+    def pie_heard(self, ip, msg):
+        """(The Camera tab's listener.) A PiE-ink's beacon, or another Pietato's. Another Pietato new here, or back
+        after a while: told this one's there too, straight to it, so it needn't wait to hear this one's beacon to
+        everyone (which a Pi's WiFi saving power can miss)."""
+        if self.pie.hear(ip, msg) and self.sharing and self.setting("share") != "Off":
+            self.share_tell(ip)
+
+    def share_tell(self, ip):
+        """This Pietato's beacon, straight to one at ip."""
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.sendto(json.dumps(self.share_beacon(clean_name(socket.gethostname(), 40))).encode(),
+                         (ip, CAM_BEACON))
+        except OSError:
+            pass
 
     def share_beacon(self, host):
         """What this Pietato's beacon says: that it's one, which (this run of it), where its web page is, its name and its

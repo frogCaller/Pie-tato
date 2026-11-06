@@ -721,6 +721,43 @@ try:
     check("...with no other Pietato on: HOME as ever (the terminal)", m.media_home() is False and m.view == "list")
     m.pie.heard.update(heard)
     g.LIBRARY[mi]["dirs"] = was_dirs
+
+    # ---- HOME on a video picked in your Videos: the same, from where you left off in it ------------------------------
+    vt = next(k for k, t in enumerate(g.LIBRARY) if t["name"] == "Videos")
+    was_vdirs = g.LIBRARY[vt]["dirs"]
+    g.LIBRARY[vt]["dirs"] = [HOME + "/Videos"]
+    os.makedirs(HOME + "/Videos", exist_ok=True)
+    CLIP = HOME + "/Videos/Boat Trip.mp4"
+    open(CLIP, "wb").write(b"\0" * 4096)
+    m.tab, m.view = vt, "list"
+    m.load_tab(vt)
+    m.sels[vt] = [r["src"] for r in m.items[vt]].index(CLIP)
+    m.state["pos"][m.items[vt][m.sels[vt]]["key"]] = 61.0
+    took = m.media_home()
+    m.dirty = True
+    m.flush()
+    check(f"HOME on a video picked in your Videos: its menu, where you left off in it ({m.media_menu_items()})",
+          took and m.view == "mediamenu" and m.media_menu["row"]["src"] == CLIP
+          and m.media_menu_items() == [("back", "Back to the list"), ("send", "Play on another Pietato"),
+                                       ("keep", "Send to another Pietato")])
+    n = tv_lines()
+    toasts.clear()
+    m.press("down")
+    m.press("a")
+    played = tv_said("play", n)
+    check(f"...Play on another Pietato, A: it plays on the TV from where you left off; here, the list as it was "
+          f"({played and played['args'][-2:]}, {toasts[-1:]})", played is not None and played["kind"] == "video"
+          and "/api/handoff/file?token=" in played["play"] and "-ss" in played["args"] and m.view == "list"
+          and m.proc is None and toasts[-1:] == ["Playing on tv now"])
+    n = tv_lines()
+    m.media_home()
+    m.press("down")
+    m.press("down")
+    m.press("a")
+    check(f"...Send to another Pietato, A: a copy kept in the TV's Videos ({toasts[-1:]})",
+          until_kept(TV + "/Videos/Boat Trip.mp4", n) and os.path.getsize(TV + "/Videos/Boat Trip.mp4") == 4096
+          and m.view == "list" and toasts[-1:] == ["Sending it to tv, for its Videos"])
+    g.LIBRARY[vt]["dirs"] = was_vdirs
     check("...a song sent just to be shown: not taken (it goes only to be kept)",
           m.handoff_take_file({"view": "music", "title": "x.mp3", "size": 3, "file": "a" * 32}, "http://10.0.0.9",
                               "tv") == {"ok": False, "error": "What's that?"})

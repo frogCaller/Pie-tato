@@ -26,9 +26,12 @@ REL_MOST = 300
 POS_MOST = 7 * 24 * 3600
 FILE_VIEWS = ("photo", "pdf", "text")   # what a file you're looking at is shown in (a picture, a PDF or a document,
                                         # some text): each can go to another of your Pietatos
-KEEP_ONLY = ("music",)        # ...and a file that goes only to be kept there (a song of yours, for its Music)
+KEEP_ONLY = ("music", "video")   # ...and a file that goes only to be kept there (a song of yours, for its Music; a
+                                 # video, for its Videos)
 FILE_MOST = 256 << 20         # bytes: what you're looking at goes if it's no bigger
-FILE_COPY_TIME = 300.0        # seconds its copy may take
+VIDEO_KEEP_MOST = 16 << 30    # ...a video, to keep there
+FILE_COPY_TIME = 300.0        # seconds its copy may take (at least)
+FILE_COPY_RATE = 1 << 20      # ...or as long as it takes at this many bytes a second, for a bigger one (a video)
 FIRST_MOST = 80               # some text: the start of its line at the top, as much as is said of it
 
 
@@ -166,7 +169,8 @@ def clean_file(d):
         return None
     view, title, size = d.get("view"), d.get("title"), d.get("size")
     if (view not in FILE_VIEWS + KEEP_ONLY or not isinstance(title, str) or not title.strip() or "/" in title
-            or "\0" in title or type(size) is not int or not 0 <= size <= FILE_MOST):
+            or "\0" in title or type(size) is not int
+            or not 0 <= size <= (VIDEO_KEEP_MOST if view == "video" else FILE_MOST)):
         return None
 
     def num(key, most, default=0.0):
@@ -201,7 +205,7 @@ def copy_file(url, dest, size):
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     part = dest + ".part"
     try:
-        if not fetch_file(url, part, size, timeout=FILE_COPY_TIME):
+        if not fetch_file(url, part, size, timeout=max(FILE_COPY_TIME, size / FILE_COPY_RATE)):
             raise OSError("it didn't come whole")
         os.replace(part, dest)
     finally:

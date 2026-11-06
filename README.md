@@ -51,7 +51,7 @@ newest version. [Setting it up](docs/setup.md) has the rest: setup.sh's options,
 - [Cameras](docs/cameras.md)
 - [Other computers](docs/computers.md)
 - [The Bot](docs/bot.md)
-- [Claude Code](docs/claude-code.md)
+- [Claude Code](docs/bot.md#claude-code)
 - [Settings files](docs/settings.md)
 
 ## License

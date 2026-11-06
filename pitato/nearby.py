@@ -25,6 +25,9 @@ PIE_NOT = 3600                   # ...and before an address that isn't a PiE-ink
 PIE_NEAR = 25                    # km: its weather is yours when it's for somewhere this close
 PIE_NWS_AGE = 3 * 3600           # its worded forecast is used while it's younger than this
 PEER_SAYS = 20                   # seconds between this Pietato saying it's there, for your other Pietatos
+PEER_KEPT = 24 * 3600            # seconds another Pietato is remembered (on disk too): told this one's there straight to
+                                 # it, as well as to everyone (a Pi's WiFi saving power can miss what's sent to everyone)
+PEER_KEPT_SAVE = 600             # ...written down again no more often than this, for one that's still there
 PEER_KEEP = 2 * 3600             # what it shares: fetched no longer ago than this
 TICKER = re.compile(r"[A-Z0-9^][A-Z0-9.^=_-]{0,19}")    # a stock's symbol, as Yahoo writes it (stocks.py's SYMBOL)
 
@@ -230,9 +233,11 @@ class PieInk:
         self.bad = {}                 # an address -> when it may be asked again
         self.answer = (0.0, None)     # (when, what it had): see fetch()
         self.remembered = None        # {"url", "host"}: the one that answered last (kept on disk)
+        self.peers_kept = {}          # another Pietato's address -> {"host", "seen"}: heard within PEER_KEPT (on disk)
         self.lock = threading.Lock()
         self.asking = threading.Lock()   # one question at a time; the others wait for its answer
         self.load()
+        self.load_peers()
 
     @property
     def path(self):
@@ -247,6 +252,48 @@ class PieInk:
                 self.remembered = {"url": url, "host": clean_name(got.get("host"), 40), "peer": got.get("peer") is True}
         except (OSError, ValueError, AttributeError):
             pass
+
+    @property
+    def peers_path(self):
+        return os.path.join(CACHE_DIR, "peers.json")
+
+    def load_peers(self):
+        """Your other Pietatos heard before (this one just started, say): told it's there straight away."""
+        try:
+            with open(self.peers_path) as f:
+                got = json.load(f)
+        except (OSError, ValueError):
+            return
+        if not isinstance(got, dict):
+            return
+        now = time.time()
+        for url, p in list(got.items())[:16]:
+            seen = p.get("seen") if isinstance(p, dict) else None
+            if (pie_addr(url) == url and isinstance(seen, (int, float)) and not isinstance(seen, bool)
+                    and 0 <= now - seen <= PEER_KEPT):
+                self.peers_kept[url] = {"host": clean_name(p.get("host"), 40) or "", "seen": float(seen)}
+
+    def save_peers(self):
+        with self.lock:
+            kept = dict(self.peers_kept)
+        try:
+            os.makedirs(CACHE_DIR, exist_ok=True)
+            with open(self.peers_path + ".tmp", "w") as f:
+                json.dump(kept, f)
+            os.replace(self.peers_path + ".tmp", self.peers_path)
+        except OSError:
+            pass
+
+    def peer_tell(self):
+        """Your other Pietatos to tell this one's there straight to each (as well as to everyone): their addresses,
+        heard lately or kept from before (PEER_KEPT). None with sharing off."""
+        if not self.peers_on():
+            return []
+        now = time.time()
+        with self.lock:
+            urls = {u for u, h in self.heard.items() if h.get("peer") and now - h["seen"] <= PEER_KEPT}
+            urls |= {u for u, p in self.peers_kept.items() if now - p["seen"] <= PEER_KEPT}
+        return sorted({urllib.parse.urlsplit(u).hostname for u in urls} - {None})
 
     def remember(self, url, host, peer=False):
         if self.remembered == {"url": url, "host": host, "peer": peer}:
@@ -268,20 +315,22 @@ class PieInk:
         return pie_addr(v) or ""
 
     def hear(self, ip, msg):
-        """A PiE-ink's beacon, or another Pietato's: it's there (the Camera tab's listener hears them all)."""
+        """A PiE-ink's beacon, or another Pietato's: it's there (the Camera tab's listener hears them all). True for
+        another Pietato new here, or back after a while (to be told this one's there too, straight to it)."""
         peer = msg.get("pietato") == 1
         if peer and (not self.peers_on() or not isinstance(msg.get("id"), str) or msg["id"] == self.own):
-            return
+            return False
         port = msg.get("port") or (WEB_PORT if peer else PIE_PORT)
         if isinstance(port, str) and port.isdigit():
             port = int(port)
         if isinstance(port, bool) or not isinstance(port, int) or not 0 < port < 65536:
-            return
+            return False
         try:
             ipaddress.ip_address(ip)
         except ValueError:
-            return
+            return False
         url, now = f"http://{ip}:{port}", time.time()
+        save = False
         with self.lock:
             back = now - (self.heard.get(url) or {}).get("seen", 0) > 60     # new, or back after a while
             accent = msg.get("accent")
@@ -294,6 +343,16 @@ class PieInk:
                 self.bad.pop(cam_key(url), None)      # (it's there now, whatever it did before)
                 if self.answer[1] is None:
                     self.answer = (0.0, None)         # (nobody to ask a moment ago: there is now)
+            if peer:                                  # (remembered, for next time: on disk now and then)
+                kept = self.peers_kept.get(url)
+                save = kept is None or now - kept["seen"] > PEER_KEPT_SAVE
+                self.peers_kept[url] = {"host": self.heard[url]["host"], "seen": now}
+                if len(self.peers_kept) > 16:
+                    for old in sorted(self.peers_kept, key=lambda u: self.peers_kept[u]["seen"])[:-16]:
+                        del self.peers_kept[old]
+        if save:
+            self.save_peers()
+        return peer and back
 
     def candidates(self):
         """Who to ask, best first: (addresses, the ones of them that are only guesses). The one

@@ -48,8 +48,9 @@ If you have two Pietatos, with Settings > Share with other Pietatos on, a game's
   HOME there sends it back. **Send to another Pietato** gives it a copy to keep instead, in its Pictures
   (for a picture) or Documents (the rest), with a number added to the name if it already has one. A song
   of yours on Now playing has it too: a copy goes in its Music, and the song keeps playing here. HOME on a
-  song picked in your Music list, or a picture picked in Photos, has the same menu for it, without opening
-  it first: Play on another Pietato starts the song there, View on another Pietato shows the picture.
+  song picked in your Music list, a video in Videos or a picture in Photos has the same menu for it, without
+  opening it first: Play on another Pietato starts the song there (a video, from where you left off), and
+  View on another Pietato shows the picture. Send to another Pietato keeps a copy there, a video in its Videos.
 - **Play together** asks the other one to play too. In an NES, SNES, Genesis, Master System or Neo Geo
   game, it joins as player 2 (if it hasn't got the game, it's copied over). A Game Boy or Game Boy Color
   game has **Link cable** instead: you each play your own game, linked, to trade or battle Pokémon. It
