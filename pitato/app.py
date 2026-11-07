@@ -17,6 +17,8 @@ from .pilot import changes, PILOT_MOST, Pilots
 
 NEVER = float("inf")
 HOT_HELD = 10.0  # HOME down in the menus this long without letting go: as if it had (◀ or ▶ go as themselves)
+WEB_HOLD_LOST = 1.0  # a button held down on the web page's remote, in a game: let go of here when the page hasn't said
+                     # it's still held for this long (the page closed, or its WiFi gone)
 
 
 # ---- the main loop ----------------------------------------------------------------------
@@ -29,6 +31,8 @@ def run(ui, media, control=None, stop=None):
     chorded = set()  # (pad, button) pressed as SELECT + START: its release goes nowhere
     star = {}        # pad -> [when its star went down, whether another button went with it]
     hot = {}         # HOME down in the menus: {"at": when, "used": another button went with it (Konami code)}
+    web_held = {}    # a button held down on the web page's remote, in a game -> when it's let go of here, unless the
+                     # page says it's still held before then
     was = {"learning": False, "keys": False}
     pilots = Pilots()                 # your other Pietatos controlling this one (pilot.py)
     via = {"from": None}              # where the button being handled now is from: "here" (a controller or keyboard of
@@ -427,6 +431,22 @@ def run(ui, media, control=None, stop=None):
         media.pilot_began(name, len(pilots.sessions) == 1)
         return {"ok": True, "port": pilots.port, "key": sess.key}
 
+    def web_hold(name, still):
+        """A button the web page's remote holds down here (in a game): still held, for a while longer; or let go.
+        One that isn't held here (let go of already: the page quiet too long), nothing: the page holds it again."""
+        if name not in web_held:
+            return {"ok": True}
+        if still:
+            web_held[name] = time.monotonic() + WEB_HOLD_LOST
+            return {"ok": True, "held": True}
+        del web_held[name]
+        web_up(name)
+        return {"ok": True}
+
+    def web_up(name):
+        if media.active:                               # (media mode closed since: the game with it, nothing to let go)
+            button(name, False)
+
     def handle(cmd):
         """One request from the web page. It works media mode, never the terminal."""
         if time.monotonic() < media.halting:
@@ -443,6 +463,9 @@ def run(ui, media, control=None, stop=None):
             name = cmd.get("button")
             if name not in BUTTONS:
                 return {"error": "No such button"}
+            hold = cmd.get("hold")
+            if hold in ("still", "up"):                # (held down on the page, in a game: still, or let go)
+                return web_hold(name, hold == "still")
             if not media.active and name != MEDIA_TOGGLE:
                 return {"error": "The remote works in media mode. Press Home to open it."}
             if cmd.get("repeat"):                      # held down on the page
@@ -456,11 +479,18 @@ def run(ui, media, control=None, stop=None):
                         media.press(name, repeat=True)
                     return {"ok": True}
             media.here_begin(cmd.get("here") is True)  # (Play here: what it starts plays on the web page instead)
+            out = {"ok": True}
             try:
-                button(name, True)
-                button(name, False)
+                if hold == "down" and name != MEDIA_TOGGLE and media.web_holds():
+                    if name not in web_held:           # held down on the page, in a game: down here too, till it's
+                        button(name, True)             # let go of there (or the page goes quiet)
+                    web_held[name] = time.monotonic() + WEB_HOLD_LOST
+                    out["held"] = True
+                else:
+                    button(name, True)
+                    button(name, False)
             finally:
-                out = media.here_end({"ok": True})
+                out = media.here_end(out)
             return out
         if c == "pilot":                               # (another of yours: to control this one, or not any more)
             return pilot_ask(cmd)
@@ -509,7 +539,7 @@ def run(ui, media, control=None, stop=None):
     try:
         while not (stop and stop()):
             nxt = min([t for _, t in held.values()] + list(menu_held.values()) + list(pending.values())
-                      + [pads.next_scan, pilots.next_due()])
+                      + list(web_held.values()) + [pads.next_scan, pilots.next_due()])
             timeout = max(0.0, nxt - time.monotonic())
             if media.active or media.proc or media.learn:
                 timeout = min(timeout, media.tick_limit())
@@ -613,6 +643,10 @@ def run(ui, media, control=None, stop=None):
                     else:
                         media.press(name, repeat=True)
                         menu_held[name] = now + MENU_RATE
+            for name, t in list(web_held.items()):
+                if now >= t:                          # held down on the web page, and it's gone quiet: let go of it
+                    del web_held[name]
+                    web_up(name)
 
             media.flush()
     finally:

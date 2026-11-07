@@ -525,7 +525,7 @@ class PilotOut:
             self.why = "password"
             return False
         if not got or not got.get("ok"):
-            self.why = str((got or {}).get("error") or f"{self.name} isn't answering")[:120]
+            self.why = str((got or {}).get("error") or f"{self.name} not responding")[:120]
             return False
         port, key = got.get("port"), got.get("key")
         if isinstance(port, bool) or not isinstance(port, int) or not 0 < port < 65536 or not isinstance(key, str) \

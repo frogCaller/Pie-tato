@@ -32,6 +32,10 @@ def check(what, cond):
 
 
 # ---- the names and the keys, on their own ------------------------------------------------------------------------
+check(f"one that didn't take it, in a few words ({HO.not_sent('tv', None)!r}, "
+      f"{HO.not_sent('tv', {'ok': False, 'error': 'It has no Game Boy games'})!r})",
+      HO.not_sent("tv", None) == "tv not responding" and HO.not_sent("tv", {"ok": False}) == "tv not responding"
+      and HO.not_sent("tv", {"ok": False, "error": "It has no Game Boy games"}) == "tv: It has no Game Boy games")
 keys = HO.Tokens()
 f = S + "/x.bin"
 open(f, "wb").write(b"x")

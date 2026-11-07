@@ -19,7 +19,7 @@ from ..fine import detail, made_fine, scale
 from ..games import find_games, games_dir, GAME_SYSTEMS, playable, save_name, SAVES_FOLDER
 from ..handoff import (clean_file, clean_ident, clean_media, copy_file, copy_game, copy_place, file_place, FILE_MOST,
                        FILE_VIEWS, FIRST_MOST, GAME_COPY_MOST, game_ident, HANDOFF_ASK, HANDOFF_GO, KEEP_ONLY,
-                       local_game, MEDIA_KINDS, TOKEN, Tokens, VIDEO_KEEP_MOST)
+                       local_game, MEDIA_KINDS, not_sent, TOKEN, Tokens, VIDEO_KEEP_MOST)
 from ..library import LIBRARY, LISTEN_KINDS, SCREEN_KINDS
 from ..screen import grab_screen
 from ..theme import ACCENT, BG, BODY, LINE, MUTED, ROW, TEXT
@@ -138,7 +138,7 @@ class HandoffScreen:
         self.flush()                                   # (said before it waits for the answer)
         said = handoff_post(url, dict(ident, kind="game", check=True), HANDOFF_ASK)
         if said is None:
-            self.toast(f"{host} isn't answering", 4)
+            self.toast(f"{host} not responding", 4)
             return
         if not said.get("ok"):
             self.toast(f"{host}: {said.get('error') or 'it can’t play it'}", 5)
@@ -153,8 +153,7 @@ class HandoffScreen:
         if said is not None and said.get("ok"):
             self.toast(f"Playing on {host} now. Its menu there sends it back", 5)
         else:
-            why = (said or {}).get("error") or "it isn't answering"
-            self.toast(f"{host} didn't take it ({why}). It picks up here next time", 6)
+            self.toast(f"{not_sent(host, said)}. It picks up here next time", 6)
 
     # -- sending a video, a song or a station --------------------------------------------------------------------
     def media_sendable(self):
@@ -203,11 +202,10 @@ class HandoffScreen:
         said = handoff_post(url, {"kind": "media", "media": kind, "title": it.get("title") or "", "src": src,
                                   "file": key, "pos": round(pos, 1)}, HANDOFF_GO)
         if said is None or not said.get("ok"):
-            why = (said or {}).get("error") or "it isn't answering"
             if kind not in LISTEN_KINDS:
-                self.osd(f"{host} didn't take it ({why})", 3000)
+                self.osd(not_sent(host, said), 3000)
             else:
-                self.toast(f"{host} didn't take it ({why})", 4)
+                self.toast(not_sent(host, said), 4)
             return
         self.stop()
         self.resume_later = None                       # (it plays on there now: it doesn't come back here)
@@ -383,7 +381,7 @@ class HandoffScreen:
         self.flush()                                   # (said before it waits for the answer)
         said = handoff_post(url, dict(body, kind="file", keep=True, check=True), HANDOFF_ASK)
         if said is None:
-            self.toast(f"{host} isn't answering", 4)
+            self.toast(f"{host} not responding", 4)
             return
         if (said.get("status") == 400 or (said.get("ok") and said.get("keep") is not True)
                 or (not said.get("ok") and said.get("error") == "What's that?")):
@@ -395,7 +393,7 @@ class HandoffScreen:
         key = self.handoff_keys().issue(path, secs=OUT_SECS)
         said = handoff_post(url, dict(body, kind="file", keep=True, file=key), HANDOFF_GO)
         if said is None or not said.get("ok"):
-            self.toast(f"{host} didn't take it ({(said or {}).get('error') or 'it isn’t answering'})", 5)
+            self.toast(not_sent(host, said), 5)
             return
         self.toast(f"Sending it to {host}, for its {said.get('folder') or ('Videos' if view == 'video' else 'Music')}",
                    5)
@@ -427,7 +425,7 @@ class HandoffScreen:
         said = handoff_post(url, {"kind": "media", "media": kind, "title": row.get("title") or os.path.basename(path),
                                   "src": "", "file": key, "pos": round(pos, 1)}, HANDOFF_GO)
         if said is None or not said.get("ok"):
-            self.toast(f"{host} didn't take it ({(said or {}).get('error') or 'it isn’t answering'})", 4)
+            self.toast(not_sent(host, said), 4)
             return
         self.toast(f"Playing on {host} now", 4)
 
@@ -623,7 +621,7 @@ class HandoffScreen:
         self.flush()                                   # (said before it waits for the answer)
         said = handoff_post(url, dict(body, kind="file", check=True), HANDOFF_ASK)
         if said is None:
-            self.toast(f"{host} isn't answering", 4)
+            self.toast(f"{host} not responding", 4)
             return
         if said.get("status") == 400:                  # (one from before this: it doesn't know what it's asked)
             self.toast(f"{host} needs updating first (System > Update software there)", 6)
@@ -634,7 +632,7 @@ class HandoffScreen:
         key = self.handoff_keys().issue(path, secs=OUT_SECS)
         said = handoff_post(url, dict(body, kind="file", file=key), HANDOFF_GO)
         if said is None or not said.get("ok"):
-            self.toast(f"{host} didn't take it ({(said or {}).get('error') or 'it isn’t answering'})", 5)
+            self.toast(not_sent(host, said), 5)
             return
         if (self.file_menu or {}).get("row") is not None:
             self.file_menu_close()                     # (a picture picked in your Photos: still picked, here)
@@ -663,7 +661,7 @@ class HandoffScreen:
         self.flush()                                   # (said before it waits for the answer)
         said = handoff_post(url, dict(body, kind="file", keep=True, check=True), HANDOFF_ASK)
         if said is None:
-            self.toast(f"{host} isn't answering", 4)
+            self.toast(f"{host} not responding", 4)
             return
         if said.get("status") == 400 or (said.get("ok") and said.get("keep") is not True):
             self.toast(f"{host} needs updating first (System > Update software there)", 6)
@@ -674,7 +672,7 @@ class HandoffScreen:
         key = self.handoff_keys().issue(path, secs=OUT_SECS)
         said = handoff_post(url, dict(body, kind="file", keep=True, file=key), HANDOFF_GO)
         if said is None or not said.get("ok"):
-            self.toast(f"{host} didn't take it ({(said or {}).get('error') or 'it isn’t answering'})", 5)
+            self.toast(not_sent(host, said), 5)
             return
         self.file_menu_close()
         self.toast(f"Sending it to {host}, for its {said.get('folder') or 'folders'}", 5)

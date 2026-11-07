@@ -16,7 +16,7 @@ import urllib.parse
 from ..config import CACHE_DIR
 from ..games import CORE_DIRS, find_core, find_games, GameRun, games_dir, save_name, SAVES_FOLDER
 from ..handoff import (clean_ident, copy_game, copy_place, GAME_COPY_MOST, game_ident, HANDOFF_ASK, HANDOFF_GO,
-                       local_game, TOKEN)
+                       local_game, not_sent, TOKEN)
 from ..netplay import NET_PORT
 from ..screen import aplay_device, screen_turn, sound_place
 from ..theme import BODY, LINE, MUTED, ROW, TEXT
@@ -156,7 +156,7 @@ class TogetherScreen:
         self.flush()                                   # (said before it waits for the answer)
         said = together_post(url, dict(ident, kind="ask", link=link), HANDOFF_ASK)
         if said is None:
-            self.toast(f"{host} isn't answering", 4)
+            self.toast(f"{host} not responding", 4)
             return
         if not said.get("ok"):
             self.toast(f"{host}: {said.get('error') or 'it can’t play it'}", 5)
@@ -178,7 +178,7 @@ class TogetherScreen:
         said = together_post(url, dict(ident, kind="invite", port=int(words[1]), key=key, file=file), HANDOFF_GO)
         if said is None or not said.get("ok"):
             run.send("netstop")
-            self.toast(f"{host}: {(said or {}).get('error') or 'it isn’t answering'}", 5)
+            self.toast(not_sent(host, said), 5)
             return
         run.together = {"with": host, "url": url, "host": True, "link": False, "state": "asked",
                         "since": time.monotonic()}
@@ -195,8 +195,8 @@ class TogetherScreen:
             return
         said = together_post(url, dict(ident, kind="invite", link=True, port=LINK_PORT), HANDOFF_GO)
         if said is None or not said.get("ok"):
-            run.send(f"notice {host} didn't take it")
-            self.toast(f"{host}: {(said or {}).get('error') or 'it isn’t answering'}", 5)
+            run.send(f"notice {not_sent(host, said)}")
+            self.toast(not_sent(host, said), 5)
             return
         run.send(f"notice Asking {host} to link up")
 

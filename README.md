@@ -1,8 +1,8 @@
 # Pietato
 
-If you have a Raspberry Pi and a game controller, Pietato puts live TV, your videos and music, radio, photos,
-your own games and your smart home in one menu on your TV, all run from the controller. It also works on a PC
-with Ubuntu or Debian, in a GPi Case 2W or GPi Case 2, and on an R36S or a handheld like it with dArkOS.
+Pietato turns a Raspberry Pi and a game controller into a media center for live TV, videos, music, radio,
+photos, smart home controls and the games you own. It also works on a PC with Ubuntu or Debian, in a
+GPi Case 2W or GPi Case 2, and on an R36S or a similar handheld with dArkOS.
 
 <p>
   <img src="docs/tv.gif" height="260">
@@ -18,7 +18,7 @@ The easy way is an SD card image, for any 64-bit Pi (Zero 2 W, 3, 4, 5 or a Comp
 TV or monitor, `gpi-case-2w.img.xz` for a GPi Case 2W, or `gpi-case-2.img.xz` for a GPi Case 2 (a Compute
 Module 4 without eMMC starts from the card). Write it to a microSD
 card (8 GB or more) with [Raspberry Pi Imager](https://www.raspberrypi.com/software/), under Use custom,
-adding your WiFi, time zone, username and password in its settings if you like (the WiFi can be set in
+adding the WiFi, time zone, username and password in its settings if you like (the WiFi can be set in
 Pietato's Settings too). Without them, the user is `pi`, with no password until you set one
 (`sudo passwd pi`).
 
@@ -30,9 +30,9 @@ cd Pietato
 sudo bash setup.sh
 ```
 
-It asks a few questions first: whether the Pi is in a GPi Case, then Default for everything your Pi can run,
-or Custom to pick, and your Home Assistant, Pi-hole, Ollama, Plex, Jellyfin and RetroAchievements if you have
-them. In a GPi Case, turn the SAFE SHUTDOWN switch behind the cartridge to ON, so switching the case off shuts
+It asks a few questions first: whether the Pi is in a GPi Case, then Default for everything the Pi can run,
+or Custom to pick, and the details for Home Assistant, Pi-hole, Ollama, Plex, Jellyfin and RetroAchievements if
+you use them. In a GPi Case, turn the SAFE SHUTDOWN switch behind the cartridge to ON, so switching the case off shuts
 the Pi down safely. The first time takes a while (an hour or more on a Pi 4 with everything in), so leave the
 Pi on until it says All set.
 

@@ -35,6 +35,12 @@ FILE_COPY_RATE = 1 << 20      # ...or as long as it takes at this many bytes a s
 FIRST_MOST = 80               # some text: the start of its line at the top, as much as is said of it
 
 
+def not_sent(host, said):
+    """Why it didn't go to the one picked, in a few words: what that one said, or that it isn't responding."""
+    why = (said or {}).get("error")
+    return f"{host}: {why}" if why else f"{host} not responding"
+
+
 class Tokens:
     """Keys to this Pi's files, for another of your Pietatos: each opens one file, for a while."""
 

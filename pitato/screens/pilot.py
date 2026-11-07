@@ -147,7 +147,7 @@ class PilotScreen:
             if out.why == "password":                  # (its web page has a password: typed here)
                 self.pilot_password(out)
             else:
-                self.toast(out.why or f"{out.name} isn't answering", 4)
+                self.toast(out.why or f"{out.name} not responding", 4)
                 self.pilot_look(now)
             self.dirty = True
             return
@@ -196,7 +196,7 @@ class PilotScreen:
         d.text((W / 2 + (9 if dot else 0), y + 42), name, font=F["big"], fill=TEXT, anchor="mm")
         if dot:
             self.peer_dot(d, W / 2 - tw / 2 - 5, y + 42, out.url, r=6)
-        words, colour = {"on": ("In touch", DONE), "quiet": ("Not answering: is it on, and on your WiFi?", WARN),
+        words, colour = {"on": ("In touch", DONE), "quiet": ("Not responding: is it on, and on your WiFi?", WARN),
                          "asking": ("Getting in touch…" if not out.was_on else "Getting in touch again…", ACCENT)
                          }.get(state, ("", MUTED))
         words = self.fit(d, words, F["small"], W - 100)

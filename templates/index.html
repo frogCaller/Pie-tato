@@ -1617,6 +1617,68 @@ function press(name, repeat) {
     .catch((e) => { if (!repeat) toast(e.message); })
     .finally(() => { inFlight--; kick(150); });
 }
+// A button held down in a game: held down on the Pi too till it's let go here, as a controller's is (the Pi says when
+// it's a game; anywhere else it's pressed once, and again and again while it's held). While it's held, the page says so
+// every so often, so the Pi lets go of it by itself if the page goes (closed, or its WiFi gone).
+const HOLDS = {};                                         // button -> {held: the Pi holds it, up: let go of here}
+const HOLD_BEAT = 300;                                    // ms between "still held"s (the Pi lets go after a second)
+function holdDown(name, notHeld) {
+  if (HOLDS[name] && !HOLDS[name].up) return;
+  const h = HOLDS[name] = { held: false, up: false, beat: 0, asking: false };
+  SCR.touchedAt = Date.now();
+  inFlight++;
+  chain = chain.then(() => pi("press", { button: name, hold: "down", here: HERE.on }))
+    .then((out) => {
+      handedOver(out);
+      if (!(out && out.held)) {                           // (not a game: pressed once there)
+        holdEnd(name, h);
+        if (!h.up && notHeld) notHeld();
+        return;
+      }
+      h.held = true;
+      if (h.up) {                                         // (let go of here before the Pi had it: let go of there now,
+        holdEnd(name, h);                                 //  before anything after it)
+        return pi("press", { button: name, hold: "up" }).catch(() => {});
+      }
+      h.beat = setInterval(() => holdStill(name, h), HOLD_BEAT);
+    })
+    .catch((e) => { holdEnd(name, h); toast(e.message); })
+    .finally(() => { inFlight--; kick(150); });
+}
+function holdStill(name, h) {                             // (straight to the Pi, not behind the presses waiting)
+  if (h.asking || h.up || HOLDS[name] !== h) return;
+  h.asking = true;
+  pi("press", { button: name, hold: "still" })
+    .then((out) => {
+      if ((out && out.held) || h.up || HOLDS[name] !== h) return;
+      return pi("press", { button: name, hold: "down" }).then((again) => {   // (the Pi let go of it, not hearing for
+        if (!(again && again.held)) holdEnd(name, h);                        //  a while: down again, still a game)
+        else if (h.up) pi("press", { button: name, hold: "up" }).catch(() => {});   // (let go of here meanwhile)
+      });
+    })
+    .catch(() => {})
+    .finally(() => { h.asking = false; });
+}
+function holdEnd(name, h) {
+  clearInterval(h.beat);
+  if (HOLDS[name] === h) delete HOLDS[name];
+}
+function holdUp(name) {                                   // let go of here
+  const h = HOLDS[name];
+  if (!h || h.up) return;
+  h.up = true;
+  if (!h.held) return;                                    // (the Pi's answer still to come: let go of then)
+  holdEnd(name, h);
+  inFlight++;
+  chain = chain.then(() => pi("press", { button: name, hold: "up" }))
+    .catch(() => {})
+    .finally(() => { inFlight--; kick(150); });
+}
+function holdsLetGo() {                                   // (the page put away: nothing left held down on the Pi)
+  for (const name of Object.keys(HOLDS)) holdUp(name);
+}
+window.addEventListener("blur", holdsLetGo);
+document.addEventListener("visibilitychange", () => { if (document.hidden) holdsLetGo(); });
 async function homeButton() {
   try {
     if (SCR.state && SCR.state.mode === "terminal") await pi("mode", { to: "media" });
@@ -1634,7 +1696,7 @@ for (const b of $$(".rk[data-b]")) {
   const name = b.dataset.b;
   if (DIRS.has(name)) b.innerHTML = ICONS.chev({ up: 0, right: 90, down: 180, left: 270 }[name]);
   let wait = 0, again = 0;
-  const stop = () => { clearTimeout(wait); clearInterval(again); b.classList.remove("held"); };
+  const stop = () => { clearTimeout(wait); clearInterval(again); b.classList.remove("held"); holdUp(name); };
   b.addEventListener("mousedown", (e) => e.preventDefault());       // the keyboard stays with the page
   b.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
@@ -1642,8 +1704,10 @@ for (const b of $$(".rk[data-b]")) {
     try { b.setPointerCapture(e.pointerId); } catch (err) {}
     b.classList.add("held");
     if (name === "home") { homeButton(); return; }
-    press(name);
-    if (REPEATS.has(name)) wait = setTimeout(() => { again = setInterval(() => press(name, true), 120); }, 420);
+    if (name === "hotkey") { press(name); return; }
+    holdDown(name, () => {                                // (not a game: pressed once, and again and again while held)
+      if (REPEATS.has(name)) wait = setTimeout(() => { again = setInterval(() => press(name, true), 120); }, 420);
+    });
   });
   for (const ev of ["pointerup", "pointercancel", "lostpointercapture"]) b.addEventListener(ev, stop);
   b.addEventListener("click", (e) => {                   // Enter or Space on a focused button
@@ -1663,9 +1727,10 @@ document.addEventListener("keydown", (e) => {
   if (!name || (SCR.state && SCR.state.mode !== "media")) return;
   if (e.key === "Enter" && t.closest && t.closest("button, a, [role=button]")) return;
   e.preventDefault();
-  if (e.repeat) { if (REPEATS.has(name)) press(name, true); return; }
-  press(name); flash(name);
+  if (e.repeat) { if (REPEATS.has(name) && !HOLDS[name]) press(name, true); return; }   // (a game holds it: no more)
+  holdDown(name); flash(name);
 });
+document.addEventListener("keyup", (e) => { const name = KEYS[e.key]; if (name) holdUp(name); });
 
 // ---- the screen itself, touched: as on the Pi, a tap picks what's there and a tap on what's picked opens it;
 // a swipe (or the mouse's wheel) moves along; what's tapped where is the Pi's to say, from where it drew things
