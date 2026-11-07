@@ -1801,7 +1801,7 @@ class Media(DrawScreen, HomeScreen, KeyboardScreen, PlayerScreen, PlexScreen, Je
             if name == "b" and not repeat:
                 self.cancel_learn()
             return None
-        if self.view == "konami":                      # the box for one of your codes (HOME and another button)
+        if self.view == "konami":                      # the box for one of your codes (HOME and ▶)
             return self.press_konami_in(name, repeat)
         if self.view == "invite":                      # another of your Pietatos asks to play together: A or B
             return self.press_invite(name, repeat)

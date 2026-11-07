@@ -32,7 +32,7 @@ Pietato starts on a home screen of apps:
   (or press the d-pad to explore it, A to zoom in and Y to zoom out). Press SELECT to watch one full screen.
   It can also start cmatrix, hollywood, nyancat, cacafire and htop without a keyboard: in cmatrix, ◀▶ change
   its colour and ▲▼ its speed; in htop, ▲▼ move through what's running and X or Y sort it by CPU or memory;
-  and B stops any of them. Konami code saves button codes of your own: hold Home and press any button, then put
+  and B stops any of them. Konami code saves button codes of your own: hold Home and press Right, then put
   in ▲▲▼◀▼▶A, say, to turn the TV on. A code can also turn the lights on or off, open an app, play a random song
   or your last game, or turn the screen off
 - **Games**: Snake (press X and a decision model on your bot's computer plays it for you), and your own

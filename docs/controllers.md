@@ -1,11 +1,12 @@
 # Controllers
 
-The GPi Case's own buttons, or any USB or Bluetooth game controller (Xbox, PlayStation,
-8BitDo, the cheap SNES-style ones). Plug them in any time.
+Any USB or Bluetooth game controller (Xbox, PlayStation, 8BitDo, the cheap SNES-style ones), or a
+GPi Case's own buttons. Plug them in any time.
 
-- Home switches between the apps and the console, where the buttons work as keys (Up for the last
-  command, A for Enter). To start in the console instead, set Settings > At start-up to Terminal
-  (or Game, to start in the game you played last).
+- Hold Home and press Left to go from the apps to the console, where the buttons work as keys (Up for
+  the last command, A for Enter), and press Home to come back. Home on its own never leaves the apps. To
+  start in the console instead, set Settings > At start-up to Terminal (or Game, to start in the game you
+  played last).
 - If your controller is Bluetooth, put it in pairing mode and pick it in Settings > Bluetooth, or
   under Bluetooth on the web page. Keyboards and headphones pair the same way, and while headphones
   are connected, sound plays through them. If they disconnect, what's playing pauses. A USB speaker

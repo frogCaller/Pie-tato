@@ -1,10 +1,8 @@
 # Pietato
 
-Turns your Raspberry Pi GPi Case 2W or GPi Case 2 into a pocket-sized smart media center. Versatile home
-entertainment remote where you can watch live TV, stream videos, listen to music and radio, view photos, play
-your own games, check the weather and system stats, and control your smart home through Home Assistant. It
-works on any Raspberry Pi with a TV or monitor on HDMI too, on a regular PC with Ubuntu or Debian, and on an
-R36S or a handheld like it with dArkOS.
+If you have a Raspberry Pi and a game controller, Pietato puts live TV, your videos and music, radio, photos,
+your own games and your smart home in one menu on your TV, all run from the controller. It also works on a PC
+with Ubuntu or Debian, in a GPi Case 2W or GPi Case 2, and on an R36S or a handheld like it with dArkOS.
 
 <p>
   <img src="docs/tv.gif" height="260">
@@ -16,9 +14,9 @@ R36S or a handheld like it with dArkOS.
 ## Install
 
 The easy way is an SD card image, for any 64-bit Pi (Zero 2 W, 3, 4, 5 or a Compute Module 4): from the
-[latest release](https://github.com/frogCaller/Pietato/releases/latest), the one ending in
-`gpi-case-2w.img.xz` for the GPi Case 2W, `gpi-case-2.img.xz` for the GPi Case 2 (a Compute Module 4 without
-eMMC starts from the card), or `hdmi.img.xz` for a TV or monitor. Write it to a microSD
+[latest release](https://github.com/frogCaller/Pietato/releases/latest), the one ending in `hdmi.img.xz` for a
+TV or monitor, `gpi-case-2w.img.xz` for a GPi Case 2W, or `gpi-case-2.img.xz` for a GPi Case 2 (a Compute
+Module 4 without eMMC starts from the card). Write it to a microSD
 card (8 GB or more) with [Raspberry Pi Imager](https://www.raspberrypi.com/software/), under Use custom,
 adding your WiFi, time zone, username and password in its settings if you like (the WiFi can be set in
 Pietato's Settings too). Without them, the user is `pi`, with no password until you set one
@@ -51,7 +49,6 @@ newest version. [Setting it up](docs/setup.md) has the rest: setup.sh's options,
 - [Cameras](docs/cameras.md)
 - [Other computers](docs/computers.md)
 - [The Bot](docs/bot.md)
-- [Claude Code](docs/bot.md#claude-code)
 - [Settings files](docs/settings.md)
 
 ## License

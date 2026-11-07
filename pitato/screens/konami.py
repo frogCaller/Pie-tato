@@ -1,9 +1,9 @@
-"""Konami code (in Apps): button codes of your own that do things. Hold HOME and press another button, and a
+"""Konami code (in Apps): button codes of your own that do things. Hold HOME and press ▶, and a
 box asks for a code: put one of yours in (▲▲▼◀▼▶A, say) and it turns the TV on, the lights off, opens an app, plays a
 song or your last game, or turns the screen off. The classic one's there to start with (▲▲▼▼◀▶◀▶BA: cmatrix). On its
 page: A tries a code, X changes what it does, Y twice forgets it, and New code takes a new one (press it, then stop a
 moment; HOME stops). (HOME on its own: in the menus it does its thing as you let go of it, to see if a button comes
-with it: app.py.)"""
+with it: ▶ for a code, ◀ for the terminal; app.py.)"""
 import random
 import threading
 import time
@@ -19,12 +19,12 @@ GLYPHS = {"up": "▲", "down": "▼", "left": "◀", "right": "▶", "a": "A", "
           "r": "R", "start": "START", "select": "SELECT"}
 CODE_LEAST = 3           # buttons in a code, at least
 CODE_MOST = 16           # ...and at most
-IN_FIRST = 5.0           # HOME and a button, then this long to start putting a code in
+IN_FIRST = 5.0           # HOME and ▶, then this long to start putting a code in
 IN_GAP = 3.0             # ...and this long at most between its buttons
 REC_DONE = 2.0           # seconds without a button while a new one's put in: that's the code
 REC_GIVE_UP = 12.0       # ...and with nothing pressed at all: not after all
 KONAMI_CLASSIC = ["up", "up", "down", "down", "left", "right", "left", "right", "b", "a"]
-HOTKEY_VIEWS = ("home", "list", "now")   # where HOME and another button are Konami code's (the menus)
+HOTKEY_VIEWS = ("home", "list", "now")   # where HOME and ▶ are Konami code's, HOME and ◀ the terminal's (the menus)
 DOES = [("tv:on", "Turn the TV on"), ("tv:off", "Turn the TV off"), ("lights:on", "Turn the lights on"),
         ("lights:off", "Turn the lights off"), ("open", "Open"), ("song", "Play a random song"),
         ("game", "Play your last game"), ("rest", "Turn the screen off"), ("home", "Go to the home screen")]
@@ -49,7 +49,7 @@ def open_names():
 
 
 class KonamiScreen:
-    """Your button codes: the box they're put in (HOME and another button), and their page in Apps."""
+    """Your button codes: the box they're put in (HOME and ▶), and their page in Apps."""
 
     # -- your codes -----------------------------------------------------------------------------------------------
     def konami_codes(self):
@@ -94,16 +94,17 @@ class KonamiScreen:
                 return f"It starts like your code for {label}: make it different. Again"
         return None
 
-    # -- the box they're put in: HOME and another button ---------------------------------------------------------
+    # -- the box they're put in: HOME and ▶ ----------------------------------------------------------------------
     def konami_hotkey_ok(self):
-        """HOME and another button are Konami code's here (so HOME waits till you let go of it, to see): the menus;
-        not a game, a video, cmatrix and the others or Chromium; not while a code's put in or picked."""
+        """HOME and ▶ are Konami code's here, and HOME and ◀ the terminal's (so HOME waits till you let go of it, to
+        see): the menus; not a game, a video, cmatrix and the others or Chromium; not while a code's put in or
+        picked."""
         return (self.active and not self.resting and not self.attract_on() and self.game is None
                 and self.view in HOTKEY_VIEWS and not self.proc_owns_screen()
                 and self.konami_rec is None and self.konami_pick is None and self.konami_in is None)
 
     def konami_listen(self):
-        """HOME and another button: the box for one of your codes (True; none yet: said). False: not here after all
+        """HOME and ▶: the box for one of your codes (True; none yet: said). False: not here after all
         (that button goes as itself)."""
         if not (self.active and self.view in HOTKEY_VIEWS and self.konami_in is None and not self.proc_owns_screen()):
             return False
@@ -467,7 +468,7 @@ class KonamiScreen:
 
     def konami_note(self):
         """The right of the page's line at the top: how a code's put in (not while picking what one does)."""
-        return "" if self.konami_pick is not None else "HOME and a button, then a code"
+        return "" if self.konami_pick is not None else "HOME and ▶, then a code"
 
     def render_konami_rec(self):
         """A new code, being put in: its buttons so far, big; and what to do (or why it can't be that one)."""

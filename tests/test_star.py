@@ -1,6 +1,6 @@
-"""The GPi Case 2W's star button: with HOME (either one first) it's one switch between the terminal and the
-menus; a quick press on its own is HOME too; held while other buttons go (the case's turbo), or held long,
-it's nothing. Settings > Controller asks for it last on the GPi Case (and only there). When the case keeps
+"""The GPi Case 2W's star button: with HOME (either one first) it's one press of HOME (from the terminal, one switch to
+the menus; in the menus HOME on its own never leaves them: HOME and ◀ does); a quick press on its own is HOME too;
+held while other buttons go (the case's turbo), or held long, it's nothing. Settings > Controller asks for it last on the GPi Case (and only there). When the case keeps
 the star to itself, star + HOME is still one switch. Fake input devices with the real evdev codes."""
 import io, os, sys, time, shutil, json, threading
 from paths import SP, ROOT, TESTS  # noqa: E402  (this test's folder of work; the Pietato folder; tests)
@@ -181,7 +181,10 @@ case.send((e.EV_KEY, e.BTN_MODE, 0), (e.EV_KEY, STAR, 0)); wait(0.3)
 check("star + HOME (the star unseen): one switch, to the menu", switches == ["menu"] and m.active and m.view == "home")
 switches.clear()
 tap(e.BTN_MODE)
-check("HOME alone: back to the terminal, as before", switches == ["terminal"] and not m.active)
+check("HOME alone in the menus: not the terminal", switches == [] and m.active)
+case.send((e.EV_KEY, e.BTN_MODE, 1)); wait(0.05); case.send((e.EV_ABS, e.ABS_HAT0X, -1)); wait()
+case.send((e.EV_ABS, e.ABS_HAT0X, 0)); wait(0.05); case.send((e.EV_KEY, e.BTN_MODE, 0)); wait(0.3)
+check("HOME and ◀: the terminal", switches == ["terminal"] and not m.active)
 switches.clear()
 
 # ---- Settings > Controller on the GPi Case: the star last ----------------------------------------
@@ -221,26 +224,26 @@ tap(STAR)
 check("terminal: a quick star press, the menu", switches == ["menu"] and m.active and keys_typed() == [])
 switches.clear()
 tap(STAR)
-check("menu: a quick star press, back to the terminal", switches == ["terminal"] and not m.active)
-switches.clear()
+check("menu: a quick star press, not the terminal (as HOME on its own)", switches == [] and m.active)
+orig_leave(); wait(); switches.clear()
 # star first, then HOME
 case.send((e.EV_KEY, STAR, 1)); wait(0.05); case.send((e.EV_KEY, e.BTN_MODE, 1)); wait()
 case.send((e.EV_KEY, e.BTN_MODE, 0)); wait(0.05); case.send((e.EV_KEY, STAR, 0)); wait(0.3)
 check("star, then HOME: one switch", switches == ["menu"] and m.active)
-switches.clear()
+orig_leave(); wait(); switches.clear()
 # HOME first, then the star
 case.send((e.EV_KEY, e.BTN_MODE, 1)); wait(0.05); case.send((e.EV_KEY, STAR, 1)); wait()
 case.send((e.EV_KEY, STAR, 0)); wait(0.05); case.send((e.EV_KEY, e.BTN_MODE, 0)); wait(0.3)
-check("HOME, then the star: one switch", switches == ["terminal"] and not m.active)
-switches.clear()
+check("HOME, then the star: one switch", switches == ["menu"] and m.active)
+orig_leave(); wait(); switches.clear()
 # both in one report, let go in one report
 case.send((e.EV_KEY, STAR, 1), (e.EV_KEY, e.BTN_MODE, 1)); wait()
 case.send((e.EV_KEY, STAR, 0), (e.EV_KEY, e.BTN_MODE, 0)); wait(0.3)
 check("both at once: one switch", switches == ["menu"] and m.active)
 case.send((e.EV_KEY, e.BTN_MODE, 1), (e.EV_KEY, STAR, 1)); wait()
 case.send((e.EV_KEY, e.BTN_MODE, 0), (e.EV_KEY, STAR, 0)); wait(0.3)
-check("...and back: one switch", switches == ["menu", "terminal"] and not m.active)
-switches.clear(); keys_typed()
+check("...and in the menus, both at once: one HOME, which doesn't leave them", switches == ["menu"] and m.active)
+orig_leave(); wait(); switches.clear(); keys_typed()
 # the case's turbo: the star held while A goes
 case.send((e.EV_KEY, STAR, 1)); wait(0.05); tap(e.BTN_SOUTH); case.send((e.EV_KEY, STAR, 0)); wait(0.3)
 check("star held with A (the case's turbo): no switch, A types Enter",
@@ -267,9 +270,10 @@ case.send((e.EV_KEY, STAR, 1)); wait()
 case.gone = True; plugged.remove(case); case.send(); wait(0.3)
 check("unplugged with the star down: dropped, no switch", case.path not in m.pads.by_path and m.active and not errors)
 case.gone = False; case.q = []; plugged.append(case); wait(0.3)
+orig_leave(); wait(); switches.clear()
 tap(STAR)
-check("plugged back in: the star works again", case.path in m.pads.by_path and switches == ["terminal"] and not m.active)
-switches.clear()
+check("plugged back in: the star works again", case.path in m.pads.by_path and switches == ["menu"] and m.active)
+orig_leave(); wait(); switches.clear()
 
 # ---- set up again, the star skipped (a case that keeps it): said so --------------------------------
 orig_enter(); m.start_learn(); wait()

@@ -469,15 +469,25 @@ check(f"DOWN held here 0.8s: held there as long ({held_secs:.2f}s, its menus goi
       and sum(1 for x in pr if x.get("repeat")) >= 2)
 check(f"...lit on this one's screen while it's held ({lit_before} then {lit_held} px)", lit_held > lit_before + 50)
 
-# HOME: SELECT and START together, let go of quickly: a press of HOME there (on its home screen: its terminal)
+# HOME: SELECT and START together, let go of quickly: a press of HOME there (on its home screen, it says HOME and ◀
+# is for its terminal); and with ◀, its terminal
 mark = tv_mark()
 down("select")
 down("start")
 time.sleep(0.15)
 up("start")
 up("select")
-check("SELECT and START together, quickly: HOME there (its home screen: off to its terminal)",
-      until(lambda: tv_pilots()["active"] is False, 3) and m.pilot_on())
+check("SELECT and START together, quickly: HOME there (on its home screen: how to get to its terminal)",
+      until(lambda: "For the terminal, hold HOME and press ◀" in [x.get("toast") for x in tv_log(mark)], 3)
+      and tv_pilots()["active"] is True and m.pilot_on())
+mark = tv_mark()
+down("select")
+down("start")
+time.sleep(0.15)
+tap("left")
+up("start")
+up("select")
+check("...and with ◀: off to its terminal", until(lambda: tv_pilots()["active"] is False, 3) and m.pilot_on())
 tap("a")
 tap("up")
 time.sleep(0.3)

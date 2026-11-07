@@ -1,7 +1,7 @@
 """Konami code (screens/konami.py), in Apps: your own button codes that do things. Its page: the classic code
 to start with (▲▲▼▼◀▶◀▶BA: cmatrix), and New code: press it (every button's part of it), stop a moment, then pick what
 it does. A code has 3 buttons at least (any of them), isn't one you have and doesn't start like one (said, and put in
-again); HOME stops. HOME and another button (app.py: test_konami_home) bring up the box for a code, on the home
+again); HOME stops. HOME and ▶ (app.py: test_konami_home) bring up the box for a code, on the home
 screen, in a list or Now playing: one of yours, all in, and it's done, back where you were; the start of none of
 them, said; given up on after a while; HOME: never mind. Not in a game, over a video, or while one's put in or picked.
 None left: said. What a code can do: the TV on or off and the lights on or off (Home Assistant), open an app, a
@@ -119,7 +119,7 @@ def record(*names, done=True):
 
 
 def code(*names):
-    """HOME and another button (the box for a code), then these."""
+    """HOME and ▶ (the box for a code), then these."""
     ok = m.konami_hotkey_ok() and m.konami_listen()
     press(*names)
     return ok
@@ -140,7 +140,7 @@ check(f"A: its page: the classic code to start with, then New code ({rows()})", 
       and rows() == [("▲ ▲ ▼ ▼ ◀ ▶ ◀ ▶ B A", "Open cmatrix"), ("New code", "Press it, then pick what it does")])
 check(f"...its buttons, and how a code's put in ({m.list_hints()}, {m.konami_note()!r})",
       m.list_hints() == [("A", "Try it"), ("X", "Change"), ("Y", "Forget"), ("B", "Back")]
-      and m.konami_note() == "HOME and a button, then a code")
+      and m.konami_note() == "HOME and ▶, then a code")
 m.dirty = True; m.flush()
 FB.last.save(S + "/page.png")
 check("...the bot's \"something cool\" doesn't pick it", "Konami code" not in [t["name"] for t in m.cool_choices()])
@@ -148,7 +148,7 @@ check("...the bot's \"something cool\" doesn't pick it", "Konami code" not in [t
 # ---- the box for a code: the classic one, from the home screen ------------------------------------------------------
 m.go_home()
 m.home_sel = 0
-check("HOME and another button: the box for a code (on the home screen; the web page says so)",
+check("HOME and ▶: the box for a code (on the home screen; the web page says so)",
       m.konami_hotkey_ok() and m.konami_listen() and m.view == "konami" and m.konami_in["from"] == "home"
       and m.where_text() == "Konami code")
 m.dirty = True; m.flush()
@@ -196,7 +196,7 @@ check("...in the state file", len(g.json.load(open(g.STATE_FILE))["settings"]["k
 # ---- put in from a list, and from Now playing --------------------------------------------------------------------
 m.web_tab("Music")
 m.sels[MUSIC] = 0
-check("in a list: HOME and a button, then the code", code("up", "up", "down", "left", "down", "right", "a"))
+check("in a list: HOME and ▶, then the code", code("up", "up", "down", "left", "down", "right", "a"))
 check(f"...the TV on, through Home Assistant; back on the list, and A didn't play a song ({m.hass.sent}, {plays})",
       m.hass.sent == [("power", "on")] and m.hass.started == 1 and m.view == "list" and m.tab == MUSIC
       and m.sels[MUSIC] == 0 and not plays and toasts[-1] == "Konami code: Turn the TV on")

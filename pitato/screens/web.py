@@ -64,7 +64,7 @@ class WebScreen:
         if self.view == "sketch":
             return "Your drawing"
         if self.view == "konami":
-            return "Konami code"                   # (the box for one of your codes: HOME and another button)
+            return "Konami code"                   # (the box for one of your codes: HOME and ▶)
         names = []
         p = self.parent_of(self.tab)
         if p is not None:

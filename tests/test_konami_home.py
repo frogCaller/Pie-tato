@@ -1,9 +1,11 @@
-"""HOME as a hotkey (app.py), for Konami code: in the menus, HOME does its thing as you let go of it, and HOME with
-another button brings up the box for one of your codes (that button isn't part of the code; HOME then does nothing
-else). Put the code in with HOME let go or still held: it's done. HOME while the box is up: never mind, at once.
-Elsewhere HOME is as ever, as it goes down: the terminal's, the Controls page's, while a code's put in on its page.
-A controller without HOME: SELECT and START together, the same. HOME held for ages: the next button is itself. The
-real main loop, with pretend controllers."""
+"""HOME as a hotkey (app.py), for Konami code and the terminal: in the menus, HOME does its thing as you let go of
+it, and on its own it never goes to the terminal (it says how: HOME and ◀). HOME with ◀ goes to the terminal; HOME
+with ▶ brings up the box for one of your codes (▶ isn't part of the code; HOME then does nothing else); HOME with
+another button: that button as itself. Put the code in with HOME let go or still held: it's done. HOME while the box
+is up: never mind, at once. Elsewhere HOME is as ever, as it goes down: the terminal's (the menus back), the Controls
+page's (not the terminal there either), while a code's put in on its page. A controller without HOME: SELECT and
+START together, the same. HOME held for ages: the next button is itself. The real main loop, with pretend
+controllers."""
 import os, sys, time, shutil, threading
 from paths import SP, ROOT, TESTS  # noqa: E402  (this test's folder of work; the Pietato folder; tests)
 sys.path.insert(0, TESTS)
@@ -186,22 +188,30 @@ threading.Thread(target=loop, daemon=True).start()
 wait(0.5)
 check("in the menus, both controllers found", m.active and m.view == "home" and set(m.pads.by_path) == set(devs))
 
-# ---- HOME alone ----------------------------------------------------------------------------------------------------
+# ---- HOME alone, and HOME and ◀ --------------------------------------------------------------------------------------
 key(pad, e.BTN_MODE, True)
 check("in the menus, HOME down: nothing yet (it waits to see if another button comes)", m.active and switches == [])
 key(pad, e.BTN_MODE, False)
-check(f"...let go: the terminal ({switches})", not m.active and switches == ["terminal"])
+check(f"...let go: not the terminal (it says how: HOME and ◀) ({switches}, {toasts[-1:]})", m.active
+      and switches == [] and m.view == "home" and toasts[-1:] == ["For the terminal, hold HOME and press ◀"])
+sel = m.home_sel
+key(pad, e.BTN_MODE, True)
+buttons(pad, "left")
+check(f"HOME held, then ◀: the terminal (◀ not pressed in the menus) ({switches})", not m.active
+      and switches == ["terminal"] and m.home_sel == sel)
+key(pad, e.BTN_MODE, False)
+check("...HOME let go: nothing more", not m.active and switches == ["terminal"])
 key(pad, e.BTN_MODE, True)
 check(f"in the terminal, HOME down: the menus at once, as ever ({switches})", m.active and switches == ["terminal", "menu"])
 key(pad, e.BTN_MODE, False)
 check("...let go: nothing more", m.active and switches == ["terminal", "menu"])
 switches.clear()
 
-# ---- HOME and another button: the box for a code ------------------------------------------------------------------
+# ---- HOME and ▶: the box for a code ---------------------------------------------------------------------------------
 at_home()
 key(pad, e.BTN_MODE, True)
-buttons(pad, "up")
-check(f"HOME held, then ▲: the box for a code, ▲ not part of it ({m.view}, {m.konami_in})", m.view == "konami"
+buttons(pad, "right")
+check(f"HOME held, then ▶: the box for a code, ▶ not part of it ({m.view}, {m.konami_in})", m.view == "konami"
       and m.konami_in is not None and m.konami_in["keys"] == [] and m.home_sel == 0)
 key(pad, e.BTN_MODE, False)
 check("...HOME let go: nothing else (still the menus, the box up)", m.active and m.view == "konami" and switches == [])
@@ -210,14 +220,20 @@ check(f"...the classic code: cmatrix ({progs}, {toasts[-1:]})", progs == ["cmatr
       and g.LIBRARY[m.tab]["name"] == "Apps" and m.view == "list")
 at_home()
 key(pad, e.BTN_MODE, True)
-tap(pad, e.BTN_SOUTH)
+buttons(pad, "right")
 buttons(pad, "up", "up", "down", "down", "left", "right", "left", "right", "b", "a")
 key(pad, e.BTN_MODE, False)
-check(f"HOME held all the while (A, then the code): cmatrix, and nothing else ({progs}, {switches})",
+check(f"HOME held all the while (▶, then the code): cmatrix, and nothing else ({progs}, {switches})",
       progs == ["cmatrix", "cmatrix"] and m.active and switches == [])
 at_home()
 key(pad, e.BTN_MODE, True)
-tap(pad, e.BTN_NORTH)
+tap(pad, e.BTN_SOUTH)
+check(f"HOME held, then A: no box, A as itself (an app opened) ({m.view})", m.view == "list" and m.konami_in is None)
+key(pad, e.BTN_MODE, False)
+check("...HOME let go: nothing more", m.active and m.view == "list" and switches == [])
+at_home()
+key(pad, e.BTN_MODE, True)
+buttons(pad, "right")
 key(pad, e.BTN_MODE, False)
 buttons(pad, "up")
 key(pad, e.BTN_MODE, True)
@@ -229,9 +245,9 @@ check("...let go: nothing more", m.active and m.view == "home" and switches == [
 m.soon_jobs.append(lambda: (setattr(m, "help_from", "list"), setattr(m, "view", "help")))
 m.wake(); wait(0.3)
 key(pad, e.BTN_MODE, True)
-check(f"on the Controls page: HOME at once ({switches})", not m.active and switches == ["terminal"])
+check(f"on the Controls page: HOME at once, and not the terminal there either ({switches}, {toasts[-1:]})",
+      m.active and switches == [] and toasts[-1:] == ["For the terminal, hold HOME and press ◀"])
 key(pad, e.BTN_MODE, False)
-key(pad, e.BTN_MODE, True); key(pad, e.BTN_MODE, False)
 switches.clear()
 m.soon_jobs.append(lambda: (m.web_tab("Konami code"), m.sels.__setitem__(m.tab_index("konami"), 1),
                             m.press("a")))
@@ -246,8 +262,8 @@ check("...let go: nothing more", m.active and switches == [])
 at_home()
 key(nohome, e.BTN_SELECT, True); key(nohome, e.BTN_START, True)
 check("no HOME: SELECT and START down, in the menus: nothing yet", m.active and switches == [] and m.view == "home")
-tap(nohome, e.BTN_SOUTH)
-check(f"...and A: the box for a code ({m.view})", m.view == "konami")
+buttons(nohome, "right")
+check(f"...and ▶: the box for a code ({m.view})", m.view == "konami")
 key(nohome, e.BTN_START, False); key(nohome, e.BTN_SELECT, False)
 check("...let go: nothing else", m.active and m.view == "konami" and switches == [])
 buttons(nohome, "up", "up", "down", "down", "left", "right", "left", "right", "b", "a")
@@ -255,10 +271,13 @@ check(f"...the code: cmatrix ({progs})", progs[-1:] == ["cmatrix"] and len(progs
 at_home()
 key(nohome, e.BTN_SELECT, True); key(nohome, e.BTN_START, True)
 key(nohome, e.BTN_START, False)
-check(f"...SELECT and START on their own: the terminal as you let go ({switches})", not m.active
-      and switches == ["terminal"])
+check(f"...SELECT and START on their own: not the terminal ({switches})", m.active and switches == [])
 key(nohome, e.BTN_SELECT, False)
-check("...the other let go: nothing more", not m.active and switches == ["terminal"])
+key(nohome, e.BTN_SELECT, True); key(nohome, e.BTN_START, True)
+buttons(nohome, "left")
+check(f"...SELECT and START, then ◀: the terminal ({switches})", not m.active and switches == ["terminal"])
+key(nohome, e.BTN_START, False); key(nohome, e.BTN_SELECT, False)
+check("...let go: nothing more", not m.active and switches == ["terminal"])
 key(nohome, e.BTN_SELECT, True); key(nohome, e.BTN_START, True)
 check("...in the terminal: the menus at once", m.active and switches == ["terminal", "menu"])
 key(nohome, e.BTN_START, False); key(nohome, e.BTN_SELECT, False)

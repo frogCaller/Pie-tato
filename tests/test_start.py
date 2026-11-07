@@ -1,5 +1,5 @@
-"""Start-up: a fresh Pi opens on the home screen; Home goes to the console (the buttons are keys
-there) and back; Settings > At start-up = Terminal starts in the console; no screen at all, the
+"""Start-up: a fresh Pi opens on the home screen; Home and Left goes to the console (the buttons are
+keys there), Home on its own stays in the apps, and Home comes back from the console; Settings > At start-up = Terminal starts in the console; no screen at all, the
 console, and nothing goes wrong."""
 import os, sys, time, shutil, threading
 from paths import SP, ROOT, TESTS  # noqa: E402  (this test's folder of work; the Pietato folder; tests)
@@ -64,7 +64,8 @@ class FakeDev:
 
 
 g.input_driver = lambda dev: dev.driver
-pad = FakeDev("GPi Case 2W gamepad", [e.BTN_SOUTH, e.BTN_EAST, e.BTN_START, e.BTN_SELECT, e.BTN_MODE])
+pad = FakeDev("GPi Case 2W gamepad", [e.BTN_SOUTH, e.BTN_EAST, e.BTN_START, e.BTN_SELECT, e.BTN_MODE,
+                                      e.BTN_DPAD_LEFT, e.BTN_DPAD_RIGHT])
 g.list_devices = lambda: [pad.path]
 g.InputDevice = lambda path: pad
 real_stat = os.stat
@@ -128,6 +129,13 @@ def press(code, sec=0.25):
     pad.send((e.EV_KEY, code, 1)); time.sleep(0.12); pad.send((e.EV_KEY, code, 0)); time.sleep(sec)
 
 
+def with_home(code, sec=0.25):
+    """Hold Home, press this, let go of both."""
+    pad.send((e.EV_KEY, e.BTN_MODE, 1)); time.sleep(0.05)
+    press(code, 0.05)
+    pad.send((e.EV_KEY, e.BTN_MODE, 0)); time.sleep(sec)
+
+
 # a fresh Pi: nothing saved yet
 check("nothing saved yet", not os.path.exists(g.STATE_FILE))
 ui, m, done, th, errors = start(FB)
@@ -139,7 +147,9 @@ FB.frames[-1].save(SP + "/startup_home.png")
 press(e.BTN_SOUTH)
 check("its buttons work the apps, nothing typed", m.active and not ui.out)
 press(e.BTN_MODE)
-check(f"Home: the console ({m.active})", not m.active and ["chvt", "1"] in ran)
+check(f"Home on its own: still the apps ({m.active}, {m.view})", m.active and ["chvt", "1"] not in ran and not ui.out)
+with_home(e.BTN_DPAD_LEFT)
+check(f"Home and Left: the console ({m.active})", not m.active and ["chvt", "1"] in ran)
 ui.out.clear()
 press(e.BTN_SOUTH)
 check(f"...where A is Enter ({ui.out})", (e.KEY_ENTER, 1) in ui.out and (e.KEY_ENTER, 0) in ui.out)

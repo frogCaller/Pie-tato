@@ -16,7 +16,7 @@ from .pilot import changes, PILOT_MOST, Pilots
 
 
 NEVER = float("inf")
-HOT_HELD = 10.0  # HOME down in the menus this long without letting go: as if it had (another button goes as itself)
+HOT_HELD = 10.0  # HOME down in the menus this long without letting go: as if it had (◀ or ▶ go as themselves)
 
 
 # ---- the main loop ----------------------------------------------------------------------
@@ -74,10 +74,11 @@ def run(ui, media, control=None, stop=None):
             media.leave()
 
     def home():
-        """HOME: media mode on or off; in a game, the game's menu (or back to the game); cmatrix or hollywood
-        stops; Chromium's menu (or back to Chromium); on a picture, a PDF or some text, or a video or Now playing,
-        its menu while another of your Pietatos is on (or back to it). The screen resting: it wakes, and that's
-        all. Controlling another of yours: a press of HOME there."""
+        """HOME: in a game, the game's menu (or back to the game); cmatrix or hollywood stops; Chromium's menu (or
+        back to Chromium); on a picture, a PDF or some text, a video or Now playing (or a song, a video or a picture
+        picked in a list), its menu while another of your Pietatos is on (or back to it). In the terminal: media
+        mode again. On its own it never goes to the terminal: HOME and ◀ does (button()). The screen resting: it
+        wakes, and that's all. Controlling another of yours: a press of HOME there."""
         if sent_on(MEDIA_TOGGLE, True):               # (the GPi Case's star, tapped: HOME, there)
             sent_on(MEDIA_TOGGLE, False)
             return
@@ -88,12 +89,16 @@ def run(ui, media, control=None, stop=None):
                              or media.file_home() or media.media_home()):
             menu_held.clear()
             return
+        if media.active:                              # (HOME on its own here once went to the terminal: said how now)
+            media.toast("For the terminal, hold HOME and press ◀", 3)
+            return
         toggle()
 
     def hotkey(down):
         """HOME (or SELECT and START together). In the menus it does its thing as you let go of it, unless another
-        button's pressed with it: that's Konami code's (the box for one of your codes), and HOME does nothing else.
-        Anywhere else, as it goes down. Controlling another of yours: its HOME (held long, it lets go of it)."""
+        button's pressed with it: ◀ goes to the terminal, ▶ is Konami code's (the box for one of your codes), and HOME
+        does nothing else. Anywhere else, as it goes down. Controlling another of yours: its HOME (held long, it lets
+        go of it)."""
         if sent_on(MEDIA_TOGGLE, down):
             return
         if down:
@@ -123,7 +128,10 @@ def run(ui, media, control=None, stop=None):
                 hot.clear()                            # (its letting go never came: as if it had)
             elif not hot["used"]:
                 hot["used"] = True
-                if media.konami_listen():
+                if name == "left":                     # (HOME and ◀: the terminal)
+                    toggle("terminal")
+                    return
+                if name == "right" and media.konami_listen():   # (HOME and ▶: the box for one of your codes)
                     return
         if media.active:
             media.input_pad = pad

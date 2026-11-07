@@ -921,7 +921,7 @@ class DrawScreen:
             on = rows[sel]["title"] if rows and 0 <= sel < len(rows) else ""
             cols = [
                 ("In the lists", [("L R", "Switch tab"), ("▲▼", "Move (hold)"), ("A", "Open"),
-                                  ("B", "Back / home"), ("HOME", "Terminal"), ("", ""),
+                                  ("B", "Back / home"), ("HOME", "and ◀: Terminal"), ("", ""),
                                   ("", "The others: B stops"), ("", "cacafire: A pauses")]),
                 ("While htop is on", [("▲▼", "Move (hold)"), ("◀▶", "Scroll"), ("A", "Pause"), ("X", "Sort by CPU"),
                                       ("Y", "Sort by memory"), ("SELECT", "Tree"), ("B", "Stop")]) if on == "htop" else
@@ -934,7 +934,7 @@ class DrawScreen:
                 ("Music & radio", [("A", "Pause / play"), ("◀▶", "Seek / station"),
                                    ("L R", "Prev / next"), ("▲▼", "Volume"), ("Y", "Shuffle")]),
                 ("", ([("X", f"Play it on {target[1]}")] if target else [])
-                 + [("SELECT", "Lofi art"), ("B", "Back to the list"), ("HOME", "Terminal"),
+                 + [("SELECT", "Lofi art"), ("B", "Back to the list"), ("HOME", "and ◀: Terminal"),
                     ("", "Music keeps playing in"), ("", "the terminal")]),
             ]
         else:
@@ -942,7 +942,7 @@ class DrawScreen:
                 ("In the lists", [("L R", "Switch tab"), ("▲▼", "Move (hold)"),
                                   ("◀▶", "Page"), ("A", "Open / play"),
                                   ("START", "Now playing"), ("B", "Back / home"),
-                                  ("HOME", "Terminal")]),
+                                  ("HOME", "and ◀: Terminal")]),
                 ("While a video plays", [("A", "Pause / play"), ("◀▶", "10 seconds"),
                                          ("L R", "1 minute"), ("▲▼", "Volume"),
                                          ("X", "Time left"), ("Y", "Full screen"),
